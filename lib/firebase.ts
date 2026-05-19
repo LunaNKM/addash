@@ -5,7 +5,6 @@ import {
   getRedirectResult,
   GoogleAuthProvider,
   setPersistence,
-  signInWithPopup,
   signInWithRedirect,
   signOut,
   type User
@@ -31,16 +30,7 @@ export async function signInWithGoogleSafe() {
   await setPersistence(auth, browserLocalPersistence);
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
-  try {
-    await signInWithPopup(auth, provider);
-  } catch (err: unknown) {
-    const code = String((err as { code?: string })?.code || '');
-    if (code.includes('popup') || code.includes('cancelled') || code.includes('blocked') || code.includes('closed') || code === 'auth/internal-error') {
-      await signInWithRedirect(auth, provider);
-      return;
-    }
-    throw err;
-  }
+  await signInWithRedirect(auth, provider);
 }
 
 export async function completeRedirectLogin() {
