@@ -210,7 +210,6 @@ th,
 .header-logo span {
   color: var(--c-ink-3);
   font-weight: 500;
-  padding-left: 2px;
 }
 
 .header-select {
