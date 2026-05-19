@@ -190,7 +190,6 @@ th,
 .header-logo {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   font-family: var(--font-display);
   font-size: 15px;
   font-weight: 600;
@@ -206,6 +205,7 @@ th,
   background: linear-gradient(135deg, var(--c-ink) 0%, var(--brand) 100%);
   box-shadow: var(--sh-sm);
   flex: none;
+  margin-right: 10px;
 }
 .header-logo span {
   color: var(--c-ink-3);
