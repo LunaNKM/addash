@@ -1574,6 +1574,81 @@ tbody tr:last-child td { border-bottom: 0; }
   color: var(--c-ink);
 }
 
+/* Meta filter modal */
+.meta-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.meta-campaign-group {
+  margin-bottom: 4px;
+}
+.meta-campaign-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border-radius: var(--r-sm);
+  cursor: default;
+}
+.meta-campaign-row:hover { background: var(--c-bg-muted); }
+.meta-campaign-row input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+.meta-expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--c-ink-3);
+  padding: 0 2px;
+  line-height: 1;
+}
+.meta-campaign-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-ink);
+  letter-spacing: -0.01em;
+}
+.meta-count-badge {
+  font-size: 11px;
+  color: var(--c-ink-3);
+  background: var(--c-bg-sunken);
+  border-radius: var(--r-pill);
+  padding: 1px 7px;
+}
+.meta-adset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 28px;
+  margin-bottom: 4px;
+}
+.meta-adset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--c-ink-2);
+  cursor: pointer;
+}
+.meta-adset-row:hover { background: var(--c-bg-muted); color: var(--c-ink); }
+.meta-adset-row input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
 /* KPI edit form */
 .kpi-edit {
   display: grid;

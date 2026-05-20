@@ -56,7 +56,40 @@ function findAction(list: Array<{ action_type: string; value: string }> | undefi
   return Number(list?.find(a => a.action_type === type)?.value || 0);
 }
 
-async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd: string): Promise<MetaInsightRow[]> {
+type MetaCampaign = { id: string; name: string };
+type MetaAdset = { id: string; name: string; campaignId: string; campaignName: string };
+
+async function fetchCampaignsAndAdsets(adAccountId: string, dateStart: string, dateEnd: string): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[] }> {
+  if (!META_ACCESS_TOKEN) throw new Error('META_ACCESS_TOKEN 환경변수가 설정되지 않았습니다.');
+  const params = new URLSearchParams({
+    access_token: META_ACCESS_TOKEN,
+    level: 'adset',
+    time_range: JSON.stringify({ since: dateStart, until: dateEnd }),
+    fields: 'campaign_id,campaign_name,adset_id,adset_name',
+    limit: '500'
+  });
+  type Row = { campaign_id: string; campaign_name: string; adset_id: string; adset_name: string };
+  const rows: Row[] = [];
+  let url: string | null = `https://graph.facebook.com/${META_API_VERSION}/act_${adAccountId}/insights?${params}`;
+  while (url) {
+    const resp = await fetch(url, { cache: 'no-store' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(`Meta API: ${data?.error?.message || 'Meta API 오류'}`);
+    rows.push(...(data.data as Row[]));
+    url = data.paging?.next || null;
+  }
+  const campaignMap = new Map<string, string>();
+  const adsetMap = new Map<string, Omit<MetaAdset, 'id'>>();
+  for (const row of rows) {
+    campaignMap.set(row.campaign_id, row.campaign_name);
+    adsetMap.set(row.adset_id, { name: row.adset_name, campaignId: row.campaign_id, campaignName: row.campaign_name });
+  }
+  const campaigns = Array.from(campaignMap.entries()).map(([id, name]) => ({ id, name }));
+  const adsets = Array.from(adsetMap.entries()).map(([id, rest]) => ({ id, ...rest }));
+  return { campaigns, adsets };
+}
+
+async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd: string, adsetIds?: string[]): Promise<MetaInsightRow[]> {
   if (!META_ACCESS_TOKEN) throw new Error('META_ACCESS_TOKEN 환경변수가 설정되지 않았습니다.');
 
   const fields = [
@@ -68,13 +101,18 @@ async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd:
     'website_purchase_roas'
   ].join(',');
 
+  const filtering = adsetIds?.length
+    ? [{ field: 'adset.id', operator: 'IN', value: adsetIds }]
+    : [];
+
   const params = new URLSearchParams({
     access_token: META_ACCESS_TOKEN,
     level: 'ad',
     time_increment: '1',
     time_range: JSON.stringify({ since: dateStart, until: dateEnd }),
     fields,
-    limit: '500'
+    limit: '500',
+    ...(filtering.length ? { filtering: JSON.stringify(filtering) } : {})
   });
 
   const rows: MetaInsightRow[] = [];
@@ -188,7 +226,36 @@ async function saveToFirestore(brandId: string, tabId: string, fileDoc: Record<s
   }
 }
 
-// ── Route handler ────────────────────────────────────────────────
+// ── Route handlers ───────────────────────────────────────────────
+
+export async function GET(req: Request) {
+  try {
+    const auth = req.headers.get('authorization') || '';
+    const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (!idToken) return NextResponse.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+
+    const user = await verifyFirebaseToken(idToken);
+    if (!user) return NextResponse.json({ error: '유효하지 않은 토큰입니다.' }, { status: 401 });
+
+    const allowed = await isAdmin(user.email, idToken);
+    if (!allowed) return NextResponse.json({ error: '관리자만 사용할 수 있습니다.' }, { status: 403 });
+
+    const url = new URL(req.url);
+    const adAccountId = url.searchParams.get('adAccountId') || '';
+    const dateStart = url.searchParams.get('dateStart') || '';
+    const dateEnd = url.searchParams.get('dateEnd') || '';
+
+    if (!adAccountId || !dateStart || !dateEnd) {
+      return NextResponse.json({ error: '필수 파라미터가 누락되었습니다.' }, { status: 400 });
+    }
+
+    const result = await fetchCampaignsAndAdsets(adAccountId, dateStart, dateEnd);
+    return NextResponse.json(result);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '알 수 없는 오류';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -202,15 +269,15 @@ export async function POST(req: Request) {
     const allowed = await isAdmin(user.email, idToken);
     if (!allowed) return NextResponse.json({ error: '관리자만 사용할 수 있습니다.' }, { status: 403 });
 
-    const { brandId, tabId, adAccountId, dateStart, dateEnd } = await req.json() as {
-      brandId: string; tabId: string; adAccountId: string; dateStart: string; dateEnd: string;
+    const { brandId, tabId, adAccountId, dateStart, dateEnd, adsetIds } = await req.json() as {
+      brandId: string; tabId: string; adAccountId: string; dateStart: string; dateEnd: string; adsetIds?: string[];
     };
 
     if (!brandId || !tabId || !adAccountId || !dateStart || !dateEnd) {
       return NextResponse.json({ error: '필수 파라미터가 누락되었습니다.' }, { status: 400 });
     }
 
-    const insights = await fetchAllInsights(adAccountId, dateStart, dateEnd);
+    const insights = await fetchAllInsights(adAccountId, dateStart, dateEnd, adsetIds);
     if (!insights.length) {
       return NextResponse.json({ error: '해당 기간에 데이터가 없습니다.' }, { status: 404 });
     }

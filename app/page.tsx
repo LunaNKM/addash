@@ -30,6 +30,7 @@ import { Scatter } from './components/Scatter';
 import { CampaignTable } from './components/CampaignTable';
 import { ParsePreview } from './components/ParsePreview';
 import { SettingsModal, type SettingsMode } from './components/SettingsModal';
+import { MetaFilterModal } from './components/MetaFilterModal';
 
 const defaultVisibleMetrics: MetricKey[] = ['spend', 'impression', 'ctr'];
 
@@ -70,8 +71,6 @@ export default function Page() {
   const pdfRef = useRef<HTMLDivElement | null>(null);
   const tabCacheRef = useRef(new Map<string, { files: FileDoc[]; kpi: Kpi; insights: InsightDoc[] }>());
   const [metaImportOpen, setMetaImportOpen] = useState(false);
-  const [metaDateStart, setMetaDateStart] = useState('');
-  const [metaDateEnd, setMetaDateEnd] = useState('');
 
   useEffect(() => {
     applyBrandColor(brand?.color || null);
@@ -308,18 +307,16 @@ export default function Page() {
     }
   }
 
-  async function fetchFromMeta() {
+  async function fetchFromMeta(adsetIds: string[], dateStart: string, dateEnd: string) {
     if (!brand || !tab || !user) return;
-    if (!brand.metaAdAccountId) { alert('브랜드 설정에서 Meta Ad Account ID를 먼저 입력해주세요.'); return; }
-    if (!metaDateStart || !metaDateEnd) { alert('가져올 기간을 선택해주세요.'); return; }
-    setBusy('Meta API에서 데이터를 가져오는 중...');
     setMetaImportOpen(false);
+    setBusy('Meta API에서 데이터를 가져오는 중...');
     try {
       const token = await user.getIdToken();
       const resp = await fetch('/api/meta', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ brandId: brand.id, tabId: tab.id, adAccountId: brand.metaAdAccountId, dateStart: metaDateStart, dateEnd: metaDateEnd })
+        body: JSON.stringify({ brandId: brand.id, tabId: tab.id, adAccountId: brand.metaAdAccountId, dateStart, dateEnd, adsetIds })
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Meta 가져오기 실패');
@@ -486,29 +483,13 @@ export default function Page() {
       )}
 
       {busy && <div className="busy">{busy}</div>}
-      {metaImportOpen && (
-        <div className="modal">
-          <div className="modal-card">
-            <h3>Meta API로 데이터 가져오기</h3>
-            {brand?.metaAdAccountId
-              ? <p className="muted">Ad Account: act_{brand.metaAdAccountId}</p>
-              : <p style={{ color: 'var(--c-warn)' }}>브랜드 설정 → Ad Account ID를 먼저 입력해주세요.</p>}
-            <div className="kpi-edit" style={{ gap: 12 }}>
-              <label>
-                시작일
-                <input type="date" value={metaDateStart} onChange={e => setMetaDateStart(e.target.value)} />
-              </label>
-              <label>
-                종료일
-                <input type="date" value={metaDateEnd} onChange={e => setMetaDateEnd(e.target.value)} />
-              </label>
-            </div>
-            <div className="modal-actions">
-              <button className="btn outline" onClick={() => setMetaImportOpen(false)}>취소</button>
-              <button className="btn brand" onClick={fetchFromMeta} disabled={!brand?.metaAdAccountId || !metaDateStart || !metaDateEnd}>가져오기</button>
-            </div>
-          </div>
-        </div>
+      {metaImportOpen && brand && user && (
+        <MetaFilterModal
+          brand={brand}
+          user={user}
+          onClose={() => setMetaImportOpen(false)}
+          onImport={fetchFromMeta}
+        />
       )}
       {parseReport && <ParsePreview report={parseReport} file={pendingFile} onCancel={() => { setParseReport(null); setPendingFile(null); }} onConfirm={confirmUpload} />}
       {settings !== 'none' && brand && (
