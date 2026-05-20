@@ -181,7 +181,7 @@ async function saveToFirestore(brandId: string, tabId: string, fileDoc: Record<s
     const existing = (listData.documents || []) as Array<{ name: string; fields: Record<string, unknown> }>;
     for (const doc of existing) {
       const docFilename = (doc.fields?.filename as { stringValue?: string })?.stringValue;
-      if (docFilename === filename) {
+      if (docFilename?.startsWith('Meta API ')) {
         await fetch(`https://firestore.googleapis.com/v1/${doc.name}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${idToken}` }
