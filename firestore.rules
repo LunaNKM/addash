@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function email() { return request.auth.token.email.lower(); }
+    function isPrimaryAdmin() { return signedIn() && email() == 'kangmin.j@gfutures.co'; }
+    function isAdmin() {
+      return isPrimaryAdmin() ||
+        (signedIn() && exists(/databases/$(database)/documents/admins/$(email())));
+    }
+
+    // Service-account-free architecture:
+    // Public read is required for login-free client share links.
+    // All mutations are admin-only.
+    match /{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,285 @@
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch
+} from 'firebase/firestore';
+import { db, primaryAdminEmail } from './firebase';
+import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi } from './types';
+
+export const emptyKpi: Kpi = {
+  spendGoal: 0,
+  impressionGoal: 0,
+  clickGoal: 0,
+  landingPageViewGoal: 0,
+  ctrGoal: 0,
+  cpmGoal: 0,
+  cpcGoal: 0,
+  roasGoal: 0
+};
+
+export async function isAdminEmail(email: string | null): Promise<boolean> {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  if (lower === primaryAdminEmail) return true;
+  const snap = await getDoc(doc(db, 'admins', lower));
+  return snap.exists();
+}
+
+type AdminListItem = { email: string; primary?: boolean } & Record<string, unknown>;
+
+export async function listAdmins(): Promise<AdminListItem[]> {
+  const snap = await getDocs(collection(db, 'admins'));
+  const admins: AdminListItem[] = snap.docs.map(d => ({ email: d.id, ...(d.data() as Record<string, unknown>) }));
+  if (!admins.some(a => a.email === primaryAdminEmail)) admins.unshift({ email: primaryAdminEmail, primary: true });
+  return admins;
+}
+
+export async function addAdmin(email: string) {
+  const normalized = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new Error('올바른 이메일을 입력해주세요.');
+  await setDoc(doc(db, 'admins', normalized), cleanFirestoreData({ email: normalized, createdAt: Date.now() }), { merge: true });
+}
+
+export async function removeAdmin(email: string) {
+  const normalized = email.trim().toLowerCase();
+  if (normalized === primaryAdminEmail) throw new Error('기본 관리자 계정은 삭제할 수 없습니다.');
+  await deleteDoc(doc(db, 'admins', normalized));
+}
+
+export async function listBrandsForAdmin(): Promise<Brand[]> {
+  const snap = await getDocs(query(collection(db, 'brands'), orderBy('createdAt', 'asc')));
+  return snap.docs.map(d => normalizeBrand(d.id, d.data()));
+}
+
+export async function findBrandByShareToken(token: string): Promise<Brand | null> {
+  const snap = await getDocs(query(collection(db, 'brands'), where('shareToken', '==', token), limit(1)));
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return normalizeBrand(d.id, d.data());
+}
+
+export async function createBrand(name: string, color = '#1AB7B0'): Promise<Brand> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('브랜드명을 입력해주세요.');
+  const existing = await getDocs(query(collection(db, 'brands'), where('name', '==', trimmed), limit(1)));
+  if (!existing.empty) throw new Error('이미 존재하는 브랜드명입니다.');
+  const brandRef = doc(collection(db, 'brands'));
+  const brand: Brand = { id: brandRef.id, name: trimmed, color, shareToken: makeShareToken(), createdAt: Date.now() };
+  const tabRef = doc(collection(db, 'brands', brand.id, 'tabs'));
+  const tab: DashboardTab = { id: tabRef.id, brandId: brand.id, name: '기본', sortOrder: 0, createdAt: Date.now() };
+  const batch = writeBatch(db);
+  batch.set(brandRef, cleanFirestoreData(omitId(brand)));
+  batch.set(tabRef, cleanFirestoreData(omitId(tab)));
+  batch.set(doc(db, 'brands', brand.id, 'tabs', tab.id, 'kpi', 'default'), cleanFirestoreData(emptyKpi));
+  await batch.commit();
+  return brand;
+}
+
+export async function deleteBrand(brandId: string) {
+  const tabs = await listTabs(brandId);
+  for (const tab of tabs) await deleteTab(brandId, tab.id, { allowLast: true });
+  await deleteDoc(doc(db, 'brands', brandId));
+}
+
+export async function updateBrand(brandId: string, patch: { name?: string; color?: string; metaAdAccountId?: string }) {
+  const update: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const trimmed = patch.name.trim();
+    if (!trimmed) throw new Error('브랜드명을 입력해주세요.');
+    const existing = await getDocs(query(collection(db, 'brands'), where('name', '==', trimmed), limit(2)));
+    if (existing.docs.some(d => d.id !== brandId)) throw new Error('이미 존재하는 브랜드명입니다.');
+    update.name = trimmed;
+  }
+  if (patch.color !== undefined) {
+    const color = patch.color.trim();
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error('올바른 HEX 색상을 입력해주세요. (#RRGGBB)');
+    update.color = color;
+  }
+  if (patch.metaAdAccountId !== undefined) {
+    const id = patch.metaAdAccountId.trim();
+    if (id && !/^\d+$/.test(id.replace(/^act_/, ''))) throw new Error('Ad Account ID는 숫자 또는 act_숫자 형식이어야 합니다.');
+    update.metaAdAccountId = id.replace(/^act_/, '');
+  }
+  if (Object.keys(update).length === 0) return;
+  await updateDoc(doc(db, 'brands', brandId), update);
+}
+
+export async function listTabs(brandId: string): Promise<DashboardTab[]> {
+  const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs'), orderBy('sortOrder', 'asc')));
+  return snap.docs.map(d => normalizeTab(d.id, brandId, d.data()));
+}
+
+export async function createTab(brandId: string, name: string): Promise<DashboardTab> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('탭 이름을 입력해주세요.');
+  const tabs = await listTabs(brandId);
+  if (tabs.some(t => t.name === trimmed)) throw new Error('이미 존재하는 탭 이름입니다.');
+  const ref = doc(collection(db, 'brands', brandId, 'tabs'));
+  const tab: DashboardTab = { id: ref.id, brandId, name: trimmed, sortOrder: tabs.length, createdAt: Date.now() };
+  const batch = writeBatch(db);
+  batch.set(ref, cleanFirestoreData(omitId(tab)));
+  batch.set(doc(db, 'brands', brandId, 'tabs', tab.id, 'kpi', 'default'), cleanFirestoreData(emptyKpi));
+  await batch.commit();
+  return tab;
+}
+
+export async function renameTab(brandId: string, tabId: string, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('탭 이름을 입력해주세요.');
+  await updateDoc(doc(db, 'brands', brandId, 'tabs', tabId), { name: trimmed });
+}
+
+export async function deleteTab(brandId: string, tabId: string, opts: { allowLast?: boolean } = {}) {
+  const tabs = await listTabs(brandId);
+  if (!opts.allowLast && tabs.length <= 1) throw new Error('마지막 탭은 삭제할 수 없습니다.');
+  const files = await listFiles(brandId, tabId);
+  for (const file of files) await deleteFile(brandId, tabId, file.id);
+  const insights = await listInsights(brandId, tabId);
+  for (const insight of insights) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'insights', insight.id));
+  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'kpi', 'default'));
+  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId));
+}
+
+export async function getKpi(brandId: string, tabId: string): Promise<Kpi> {
+  const snap = await getDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'kpi', 'default'));
+  return snap.exists() ? { ...emptyKpi, ...(snap.data() as Partial<Kpi>) } : emptyKpi;
+}
+
+export async function saveKpi(brandId: string, tabId: string, kpi: Kpi) {
+  await setDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'kpi', 'default'), cleanFirestoreData({ ...emptyKpi, ...kpi, updatedAt: Date.now() }), { merge: true });
+}
+
+export async function listFiles(brandId: string, tabId: string): Promise<FileDoc[]> {
+  const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'files'), orderBy('createdAt', 'desc')));
+  return snap.docs.map(d => normalizeFile(d.id, d.data()));
+}
+
+export async function saveFile(brandId: string, tabId: string, file: Omit<FileDoc, 'id'>) {
+  const sameName = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'files'), where('filename', '==', file.filename), limit(1)));
+  for (const d of sameName.docs) await deleteDoc(d.ref);
+  const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'files'));
+  await setDoc(ref, cleanFirestoreData(file));
+  return ref.id;
+}
+
+export async function deleteFile(brandId: string, tabId: string, fileId: string) {
+  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'files', fileId));
+}
+
+export async function listInsights(brandId: string, tabId: string): Promise<InsightDoc[]> {
+  const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'insights'), orderBy('createdAt', 'desc'), limit(20)));
+  return snap.docs.map(d => normalizeInsight(d.id, d.data()));
+}
+
+export async function saveInsight(brandId: string, tabId: string, insight: Omit<InsightDoc, 'id'>) {
+  const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'insights'));
+  await setDoc(ref, cleanFirestoreData(insight));
+  return ref.id;
+}
+
+function makeShareToken() {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return `brand_${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function omitId<T extends { id: string }>(item: T): Omit<T, 'id'> {
+  const { id, ...rest } = item;
+  return rest;
+}
+
+function cleanFirestoreData<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(v => cleanFirestoreData(v)).filter(v => v !== undefined) as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (val === undefined) continue;
+      out[key] = cleanFirestoreData(val);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
+  return {
+    id,
+    name: String(data.name || ''),
+    color: String(data.color || '#1AB7B0'),
+    shareToken: String(data.shareToken || ''),
+    metaAdAccountId: String(data.metaAdAccountId || ''),
+    createdAt: Number(data.createdAt || 0)
+  };
+}
+
+function normalizeTab(id: string, brandId: string, data: Record<string, unknown>): DashboardTab {
+  return {
+    id,
+    brandId: String(data.brandId || brandId),
+    name: String(data.name || '기본'),
+    sortOrder: Number(data.sortOrder || 0),
+    createdAt: Number(data.createdAt || 0)
+  };
+}
+
+function normalizeFile(id: string, data: Record<string, unknown>): FileDoc {
+  return {
+    id,
+    filename: String(data.filename || ''),
+    fileSize: Number(data.fileSize || 0),
+    dateStart: String(data.dateStart || ''),
+    dateEnd: String(data.dateEnd || ''),
+    rowCount: Number(data.rowCount || 0),
+    total: normalizeStat(data.total as Record<string, unknown> | undefined, 'total'),
+    dailyStats: normalizeStats(data.dailyStats),
+    campaignDailyStats: normalizeStats(data.campaignDailyStats),
+    adsetDailyStats: normalizeStats(data.adsetDailyStats),
+    detailStats: normalizeStats(data.detailStats),
+    creativeStats: normalizeStats(data.creativeStats),
+    createdAt: Number(data.createdAt || 0)
+  };
+}
+
+function normalizeInsight(id: string, data: Record<string, unknown>): InsightDoc {
+  return {
+    id,
+    text: String(data.text || ''),
+    createdAt: Number(data.createdAt || 0),
+    fileIds: Array.isArray(data.fileIds) ? data.fileIds.map(String) : [],
+    periodStart: String(data.periodStart || ''),
+    periodEnd: String(data.periodEnd || '')
+  };
+}
+
+function normalizeStats(value: unknown): import('./types').StatRow[] {
+  return Array.isArray(value) ? value.map((v, index) => normalizeStat(v as Record<string, unknown>, String(index))) : [];
+}
+
+function normalizeStat(data: Record<string, unknown> | undefined, fallbackKey: string): import('./types').StatRow {
+  const d = data || {};
+  const base: import('./types').StatRow = {
+    key: String(d.key || fallbackKey),
+    spend: Number(d.spend || 0),
+    impression: Number(d.impression || 0),
+    click: Number(d.click || 0),
+    landingPageView: Number(d.landingPageView || 0),
+    ctr: Number(d.ctr || 0),
+    cpm: Number(d.cpm || 0),
+    cpc: Number(d.cpc || 0),
+    roas: Number(d.roas || 0)
+  };
+  if (d.date) base.date = String(d.date);
+  if (d.campaignName) base.campaignName = String(d.campaignName);
+  if (d.adsetName) base.adsetName = String(d.adsetName);
+  if (d.adName) base.adName = String(d.adName);
+  return base;
+}
