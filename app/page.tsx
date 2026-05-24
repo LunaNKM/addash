@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { auth, completeRedirectLogin, logout, signInWithGoogleSafe, userEmail } from '@/lib/firebase';
+import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe, userEmail } from '@/lib/firebase';
 import {
   addAdmin, createBrand, createTab, deleteBrand, deleteFile, deleteTab, emptyKpi,
   findBrandByShareToken, getKpi, isAdminEmail, listAdmins, listBrandsForAdmin,
@@ -68,6 +68,7 @@ export default function Page() {
   const [parseReport, setParseReport] = useState<ParseReport | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [busy, setBusy] = useState('');
+  const [authError, setAuthError] = useState('');
   const pdfRef = useRef<HTMLDivElement | null>(null);
   const tabCacheRef = useRef(new Map<string, { files: FileDoc[]; kpi: Kpi; insights: InsightDoc[] }>());
   const [metaImportOpen, setMetaImportOpen] = useState(false);
@@ -145,17 +146,21 @@ export default function Page() {
     let unsub: (() => void) | undefined;
 
     (async () => {
-      // redirect 결과를 먼저 처리한 뒤 onAuthStateChanged를 구독해야
-      // 첫 발동 시 이미 올바른 유저 상태가 반영된다.
-      try { await completeRedirectLogin(); } catch {}
+      // 1) redirect 결과를 먼저 완료 처리.
+      //    에러가 있으면 상태에 저장해 UI에 표시한다.
+      try {
+        await completeRedirectLogin();
+      } catch (err) {
+        setAuthError(firebaseAuthErrorMessage(err));
+      }
 
+      // 2) redirect 처리가 끝난 뒤 구독 → 첫 발동 시 올바른 유저 상태 보장
       unsub = onAuthStateChanged(auth, async current => {
         try {
           setUser(current);
           const admin = current ? await isAdminEmail(current.email) : false;
           setIsAdmin(admin);
-          const url = new URL(window.location.href);
-          const shareToken = url.searchParams.get('share');
+          const shareToken = new URL(window.location.href).searchParams.get('share');
           if (admin) {
             const list = await listBrandsForAdmin();
             setBrands(list);
@@ -176,7 +181,8 @@ export default function Page() {
             }
           }
         } catch (err) {
-          console.error('Auth error:', err);
+          console.error('Auth callback error:', err);
+          setAuthError(firebaseAuthErrorMessage(err));
         } finally {
           setLoading(false);
         }
@@ -401,7 +407,11 @@ export default function Page() {
         </div>
         <div className="header-actions">
           {!user
-            ? <button className="btn outline" onClick={signInWithGoogleSafe}>Google 로그인</button>
+            ? <button className="btn outline" onClick={async () => {
+                setAuthError('');
+                try { await signInWithGoogleSafe(); }
+                catch (err) { setAuthError(firebaseAuthErrorMessage(err)); }
+              }}>Google 로그인</button>
             : <button className="btn ghost" onClick={logout}>로그아웃</button>}
           {isAdmin && <button className="btn ghost" onClick={() => setSettings('brand')}>설정</button>}
           {brand && <button className="btn ghost" onClick={() => navigator.clipboard.writeText(`${location.origin}?share=${brand.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}>공유</button>}
@@ -496,6 +506,17 @@ export default function Page() {
       )}
 
       {busy && <div className="busy">{busy}</div>}
+      {authError && (
+        <div className="modal">
+          <div className="modal-card" style={{ maxWidth: 480 }}>
+            <h3>로그인 오류</h3>
+            <p style={{ whiteSpace: 'pre-wrap', color: 'var(--c-warn)', lineHeight: 1.6 }}>{authError}</p>
+            <div className="modal-actions">
+              <button className="btn brand" onClick={() => setAuthError('')}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
       {metaImportOpen && brand && user && (
         <MetaFilterModal
           brand={brand}
