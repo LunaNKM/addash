@@ -142,35 +142,48 @@ export default function Page() {
   }, [brands, selectTab]);
 
   useEffect(() => {
-    completeRedirectLogin().catch(() => undefined);
-    const unsub = onAuthStateChanged(auth, async current => {
-      setUser(current);
-      const admin = current ? await isAdminEmail(current.email) : false;
-      setIsAdmin(admin);
-      const url = new URL(window.location.href);
-      const shareToken = url.searchParams.get('share');
-      if (admin) {
-        const list = await listBrandsForAdmin();
-        setBrands(list);
-        if (list.length && !brand) {
-          setBrand(list[0]);
-          const t = await listTabs(list[0].id);
-          setTabs(t);
-          await selectTab(list[0], t[0] || null);
+    let unsub: (() => void) | undefined;
+
+    (async () => {
+      // redirect 결과를 먼저 처리한 뒤 onAuthStateChanged를 구독해야
+      // 첫 발동 시 이미 올바른 유저 상태가 반영된다.
+      try { await completeRedirectLogin(); } catch {}
+
+      unsub = onAuthStateChanged(auth, async current => {
+        try {
+          setUser(current);
+          const admin = current ? await isAdminEmail(current.email) : false;
+          setIsAdmin(admin);
+          const url = new URL(window.location.href);
+          const shareToken = url.searchParams.get('share');
+          if (admin) {
+            const list = await listBrandsForAdmin();
+            setBrands(list);
+            if (list.length && !brand) {
+              setBrand(list[0]);
+              const t = await listTabs(list[0].id);
+              setTabs(t);
+              await selectTab(list[0], t[0] || null);
+            }
+          } else if (shareToken) {
+            const found = await findBrandByShareToken(shareToken);
+            if (found) {
+              setBrands([found]);
+              setBrand(found);
+              const t = await listTabs(found.id);
+              setTabs(t);
+              await selectTab(found, t[0] || null);
+            }
+          }
+        } catch (err) {
+          console.error('Auth error:', err);
+        } finally {
+          setLoading(false);
         }
-      } else if (shareToken) {
-        const found = await findBrandByShareToken(shareToken);
-        if (found) {
-          setBrands([found]);
-          setBrand(found);
-          const t = await listTabs(found.id);
-          setTabs(t);
-          await selectTab(found, t[0] || null);
-        }
-      }
-      setLoading(false);
-    });
-    return () => unsub();
+      });
+    })();
+
+    return () => unsub?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
