@@ -182,9 +182,10 @@ function TotalPerformance({ result, view }: { result: ReportParseResult; view: R
         </div>
       </section>
       <SummaryCards total={view.current.total} />
+      <DailyToplineChart rows={view.current.byDaily} />
       <ComparisonTable rows={view.comparison} />
-      <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} />
-      <SummaryTable title="월별 성과" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={24} />
+      <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows />
+      <SummaryTable title="월별 성과" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={24} showComparisonRows />
     </>
   );
 }
@@ -193,6 +194,7 @@ function DailyReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
+      <DailyToplineChart rows={view.current.byDaily} />
       <SummaryTable title="일자별 핵심 성과" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
       <SummaryTable title="일자별 캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={80} />
     </>
@@ -203,8 +205,8 @@ function CampaignReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} />
-      <SummaryTable title="광고그룹 성과" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} />
+      <SummaryTable title="캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} showComparisonRows />
+      <SummaryTable title="광고그룹 성과" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} showComparisonRows />
     </>
   );
 }
@@ -213,7 +215,7 @@ function CreativeReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="소재 성과" rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} />
+      <SummaryTable title="소재 성과" rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} showComparisonRows />
     </>
   );
 }
@@ -222,8 +224,8 @@ function SummaryReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="월별 예산 요약" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={36} />
-      <SummaryTable title="프로모션별 채널 요약" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} />
+      <SummaryTable title="월별 예산 요약" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={36} showComparisonRows />
+      <SummaryTable title="프로모션별 채널 요약" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} showComparisonRows />
     </>
   );
 }
@@ -265,6 +267,92 @@ function SummaryCards({ total }: { total: ReportSummary }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
+  const sorted = [...rows].filter(row => row.key !== '날짜 없음').sort((a, b) => a.label.localeCompare(b.label));
+  if (!sorted.length) {
+    return (
+      <section className="section report-chart-section">
+        <div className="report-band-title">Daily Topline</div>
+        <div className="chart-empty">표시할 일자별 데이터가 없습니다.</div>
+      </section>
+    );
+  }
+
+  const width = 1120;
+  const height = 340;
+  const left = 70;
+  const right = 72;
+  const top = 34;
+  const bottom = 62;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const moneyMax = Math.max(1, ...sorted.flatMap(row => [row.spend, row.sales]));
+  const rateMax = Math.max(0.01, ...sorted.flatMap(row => [row.cvr, row.roas]));
+  const slot = chartWidth / Math.max(sorted.length, 1);
+  const barWidth = Math.min(16, Math.max(5, slot * 0.22));
+  const yMoney = (value: number) => top + chartHeight - (value / moneyMax) * chartHeight;
+  const yRate = (value: number) => top + chartHeight - (value / rateMax) * chartHeight;
+  const xCenter = (index: number) => left + slot * index + slot / 2;
+  const linePath = (key: 'cvr' | 'roas') => sorted
+    .map((row, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yRate(row[key])}`)
+    .join(' ');
+  const dateTickEvery = Math.max(1, Math.ceil(sorted.length / 14));
+
+  return (
+    <section className="section report-chart-section">
+      <div className="report-band-title">Daily Topline</div>
+      <div className="report-chart-wrap">
+        <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="일자별 광고비, 매출, CVR, ROAS 추이">
+          {[0, 0.25, 0.5, 0.75, 1].map(rate => {
+            const y = top + chartHeight - chartHeight * rate;
+            const money = moneyMax * rate;
+            const pct = rateMax * rate;
+            return (
+              <g key={rate}>
+                <line x1={left} x2={width - right} y1={y} y2={y} stroke="var(--chart-grid-strong)" strokeWidth="1" />
+                <text x={left - 8} y={y + 4} textAnchor="end" className="report-chart-axis">{compactCurrency(money)}</text>
+                <text x={width - right + 8} y={y + 4} textAnchor="start" className="report-chart-axis">{formatPercent(pct)}</text>
+              </g>
+            );
+          })}
+
+          {sorted.map((row, index) => {
+            const x = xCenter(index);
+            const spendHeight = top + chartHeight - yMoney(row.spend);
+            const salesHeight = top + chartHeight - yMoney(row.sales);
+            return (
+              <g key={row.key}>
+                <rect x={x - barWidth - 2} y={yMoney(row.spend)} width={barWidth} height={Math.max(0, spendHeight)} rx="2" fill="var(--chart-1)" />
+                <rect x={x + 2} y={yMoney(row.sales)} width={barWidth} height={Math.max(0, salesHeight)} rx="2" fill="var(--chart-3)" />
+                {index % dateTickEvery === 0 && (
+                  <text x={x} y={height - 18} textAnchor="end" className="report-chart-date" transform={`rotate(-45 ${x} ${height - 18})`}>
+                    {row.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+          <path d={linePath('cvr')} fill="none" stroke="var(--c-success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={linePath('roas')} fill="none" stroke="var(--c-danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          {sorted.map((row, index) => (
+            <g key={`${row.key}-points`}>
+              <circle cx={xCenter(index)} cy={yRate(row.cvr)} r="3" fill="var(--c-success)" />
+              <circle cx={xCenter(index)} cy={yRate(row.roas)} r="3" fill="var(--c-danger)" />
+            </g>
+          ))}
+        </svg>
+        <div className="report-chart-legend">
+          <span><i style={{ background: 'var(--chart-1)' }} />광고비</span>
+          <span><i style={{ background: 'var(--chart-3)' }} />매출</span>
+          <span><i className="line" style={{ background: 'var(--c-success)' }} />CVR</span>
+          <span><i className="line" style={{ background: 'var(--c-danger)' }} />ROAS</span>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -422,13 +510,15 @@ function SummaryTable({
   rows,
   previousRows = [],
   limit,
-  sortByLabel = false
+  sortByLabel = false,
+  showComparisonRows = false
 }: {
   title: string;
   rows: ReportSummary[];
   previousRows?: ReportSummary[];
   limit: number;
   sortByLabel?: boolean;
+  showComparisonRows?: boolean;
 }) {
   const previousByKey = new Map(previousRows.map(row => [row.key, row]));
   const displayRows = [...rows].sort((a, b) => sortByLabel ? a.label.localeCompare(b.label) : b.spend - a.spend || a.label.localeCompare(b.label));
@@ -461,22 +551,59 @@ function SummaryTable({
             {displayRows.slice(0, limit).map(row => {
               const previous = previousByKey.get(row.key);
               const spendDiff = previous ? row.spend - previous.spend : row.spend;
+              const showPrevious = showComparisonRows && previous;
               return (
-                <tr key={row.key}>
-                  <td title={row.label}>{trim(row.label, 44)}</td>
-                  <td>{formatCurrency(row.spend)}</td>
-                  <td className={spendDiff >= 0 ? 'diff-up' : 'diff-down'}>{formatCurrency(spendDiff)}</td>
-                  <td>{formatCurrency(row.sales)}</td>
-                  <td>{formatInteger(row.impressions)}</td>
-                  <td>{formatInteger(row.clicks)}</td>
-                  <td>{formatInteger(row.conversions)}</td>
-                  <td>{formatInteger(row.addToCart)}</td>
-                  <td>{formatPercent(row.ctr)}</td>
-                  <td>{formatPercent(row.cvr)}</td>
-                  <td>{formatCurrency(row.cpc)}</td>
-                  <td>{formatCurrency(row.cpa)}</td>
-                  <td>{row.roas.toFixed(2)}</td>
-                </tr>
+                <React.Fragment key={row.key}>
+                  <tr>
+                    <td title={row.label}>{trim(row.label, 44)}</td>
+                    <td>{formatCurrency(row.spend)}</td>
+                    <td className={spendDiff >= 0 ? 'diff-up' : 'diff-down'}>{formatCurrency(spendDiff)}</td>
+                    <td>{formatCurrency(row.sales)}</td>
+                    <td>{formatInteger(row.impressions)}</td>
+                    <td>{formatInteger(row.clicks)}</td>
+                    <td>{formatInteger(row.conversions)}</td>
+                    <td>{formatInteger(row.addToCart)}</td>
+                    <td>{formatPercent(row.ctr)}</td>
+                    <td>{formatPercent(row.cvr)}</td>
+                    <td>{formatCurrency(row.cpc)}</td>
+                    <td>{formatCurrency(row.cpa)}</td>
+                    <td>{row.roas.toFixed(2)}</td>
+                  </tr>
+                  {showPrevious && (
+                    <tr className="report-previous-row">
+                      <td>이전 기간</td>
+                      <td>{formatCurrency(previous.spend)}</td>
+                      <td>-</td>
+                      <td>{formatCurrency(previous.sales)}</td>
+                      <td>{formatInteger(previous.impressions)}</td>
+                      <td>{formatInteger(previous.clicks)}</td>
+                      <td>{formatInteger(previous.conversions)}</td>
+                      <td>{formatInteger(previous.addToCart)}</td>
+                      <td>{formatPercent(previous.ctr)}</td>
+                      <td>{formatPercent(previous.cvr)}</td>
+                      <td>{formatCurrency(previous.cpc)}</td>
+                      <td>{formatCurrency(previous.cpa)}</td>
+                      <td>{previous.roas.toFixed(2)}</td>
+                    </tr>
+                  )}
+                  {showPrevious && (
+                    <tr className="report-diff-row">
+                      <td>증감률</td>
+                      <DiffCell current={row.spend} previous={previous.spend} />
+                      <td>-</td>
+                      <DiffCell current={row.sales} previous={previous.sales} />
+                      <DiffCell current={row.impressions} previous={previous.impressions} />
+                      <DiffCell current={row.clicks} previous={previous.clicks} />
+                      <DiffCell current={row.conversions} previous={previous.conversions} />
+                      <DiffCell current={row.addToCart} previous={previous.addToCart} />
+                      <DiffCell current={row.ctr} previous={previous.ctr} />
+                      <DiffCell current={row.cvr} previous={previous.cvr} />
+                      <DiffCell current={row.cpc} previous={previous.cpc} inverse />
+                      <DiffCell current={row.cpa} previous={previous.cpa} inverse />
+                      <DiffCell current={row.roas} previous={previous.roas} />
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -488,6 +615,13 @@ function SummaryTable({
 
 function formatCurrency(value: number): string {
   return `${Math.round(Number(value) || 0).toLocaleString()}원`;
+}
+
+function compactCurrency(value: number): string {
+  const safe = Math.round(Number(value) || 0);
+  if (Math.abs(safe) >= 100000000) return `${(safe / 100000000).toFixed(1)}억`;
+  if (Math.abs(safe) >= 10000) return `${Math.round(safe / 10000).toLocaleString()}만`;
+  return safe.toLocaleString();
 }
 
 function formatInteger(value: number): string {
@@ -508,6 +642,14 @@ function formatReportValue(key: ReportComparisonMetric['key'], value: number): s
   if (key === 'ctr' || key === 'cvr') return formatPercent(value);
   if (key === 'roas') return value.toFixed(2);
   return formatInteger(value);
+}
+
+function DiffCell({ current, previous, inverse = false }: { current: number; previous: number; inverse?: boolean }) {
+  if (!previous) return <td className="muted">-</td>;
+  const rate = (current - previous) / previous;
+  const good = inverse ? rate <= 0 : rate >= 0;
+  const arrow = rate >= 0 ? '▲' : '▼';
+  return <td className={good ? 'diff-up' : 'diff-down'}>{arrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
 }
 
 function trim(value: string, max = 32): string {
