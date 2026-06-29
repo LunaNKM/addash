@@ -73,7 +73,7 @@ export async function createBrand(name: string, color = '#1AB7B0'): Promise<Bran
   const existing = await getDocs(query(collection(db, 'brands'), where('name', '==', trimmed), limit(1)));
   if (!existing.empty) throw new Error('이미 존재하는 브랜드명입니다.');
   const brandRef = doc(collection(db, 'brands'));
-  const brand: Brand = { id: brandRef.id, name: trimmed, color, shareToken: makeShareToken(), createdAt: Date.now() };
+  const brand: Brand = { id: brandRef.id, name: trimmed, color, shareToken: makeShareToken(), metaAdAccountId: '', createdAt: Date.now() };
   const tabRef = doc(collection(db, 'brands', brand.id, 'tabs'));
   const tab: DashboardTab = { id: tabRef.id, brandId: brand.id, name: '기본', sortOrder: 0, createdAt: Date.now() };
   const batch = writeBatch(db);

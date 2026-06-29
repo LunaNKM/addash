@@ -413,6 +413,7 @@ export default function Page() {
                 catch (err) { setAuthError(firebaseAuthErrorMessage(err)); }
               }}>Google 로그인</button>
             : <button className="btn ghost" onClick={logout}>로그아웃</button>}
+          <a className="btn ghost" href="/report-lab">Report</a>
           {isAdmin && <button className="btn ghost" onClick={() => setSettings('brand')}>설정</button>}
           {brand && <button className="btn ghost" onClick={() => navigator.clipboard.writeText(`${location.origin}?share=${brand.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}>공유</button>}
           <button className="btn ghost" onClick={exportPdf}>PDF</button>

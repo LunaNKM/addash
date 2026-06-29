@@ -2111,6 +2111,181 @@ td[title], .legend-row[title], .donut-legend div[title] {
   font-family: var(--font-body) !important;
 }
 
+/* Report Lab harness */
+.report-lab-controls input[type="number"] {
+  width: 92px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.report-source-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--c-bg-muted);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+
+.report-source-tabs button {
+  height: 26px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--c-ink-3);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 0 10px;
+}
+
+.report-source-tabs button.active {
+  color: var(--c-ink);
+  background: var(--c-bg-elevated);
+  box-shadow: var(--sh-xs);
+}
+
+.report-source-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.report-empty-state {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.report-empty-state > div {
+  max-width: 640px;
+}
+
+.report-empty-state p {
+  color: var(--c-ink-2);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0 0 22px;
+}
+
+.report-contract-grid,
+.report-stat-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.report-contract-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.report-stat-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.report-contract-item,
+.report-stat-card {
+  min-height: 92px;
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: 16px;
+  box-shadow: var(--sh-xs);
+}
+
+.report-contract-item {
+  border-left: 3px solid var(--c-border-vivid);
+}
+
+.report-contract-item.ok {
+  border-left-color: var(--c-success);
+}
+
+.report-contract-item.bad {
+  border-left-color: var(--c-danger);
+}
+
+.report-contract-item small,
+.report-stat-card small {
+  display: block;
+  color: var(--c-ink-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.report-contract-item b,
+.report-stat-card b {
+  display: block;
+  color: var(--c-ink);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.report-stat-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.report-stat-card::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand-400), var(--brand));
+}
+
+.issue-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.issue-pill.error {
+  color: var(--c-danger);
+  background: var(--c-danger-soft);
+}
+
+.issue-pill.warning {
+  color: var(--c-warn);
+  background: var(--c-warn-soft);
+}
+
+.issue-pill.info {
+  color: var(--brand-700);
+  background: var(--brand-50);
+}
+
+@media (max-width: 1100px) {
+  .report-contract-grid,
+  .report-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .report-contract-grid,
+  .report-stat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 /* 날짜 그룹이 바뀔 때 일자별 상세 데이터에 굵은 구분선 표시 */
 .sticky-detail tbody tr.detail-date-separator td {
