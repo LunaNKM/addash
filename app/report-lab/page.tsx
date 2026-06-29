@@ -185,7 +185,7 @@ function TotalPerformance({ result, view }: { result: ReportParseResult; view: R
       <DailyToplineChart rows={view.current.byDaily} />
       <ComparisonTable rows={view.comparison} />
       <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows />
-      <SummaryTable title="월별 성과" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={24} showComparisonRows />
+      <SummaryTable title="주차별 성과" rows={view.current.byWeek} previousRows={view.previous.byWeek} limit={24} showComparisonRows sortByLabel />
     </>
   );
 }
@@ -224,7 +224,7 @@ function SummaryReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="월별 예산 요약" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={36} showComparisonRows />
+      <SummaryTable title="주차별 예산 요약" rows={view.current.byWeek} previousRows={view.previous.byWeek} limit={36} showComparisonRows sortByLabel />
       <SummaryTable title="프로모션별 채널 요약" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} showComparisonRows />
     </>
   );
@@ -271,6 +271,7 @@ function SummaryCards({ total }: { total: ReportSummary }) {
 }
 
 function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; row: ReportSummary } | null>(null);
   const sorted = [...rows].filter(row => row.key !== '날짜 없음').sort((a, b) => a.label.localeCompare(b.label));
   if (!sorted.length) {
     return (
@@ -290,11 +291,19 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
   const chartWidth = width - left - right;
   const chartHeight = height - top - bottom;
   const moneyMax = Math.max(1, ...sorted.flatMap(row => [row.spend, row.sales]));
-  const rateMax = Math.max(0.01, ...sorted.flatMap(row => [row.cvr, row.roas]));
+  const rateValues = sorted
+    .flatMap(row => [row.cvr, row.roas])
+    .filter(value => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+  const rawRateMax = Math.max(0.01, ...rateValues);
+  const p90Rate = percentile(rateValues, 0.9);
+  const p75Rate = percentile(rateValues, 0.75);
+  const robustRateMax = Math.max(0.01, p90Rate * 1.35, p75Rate * 2);
+  const rateMax = rawRateMax > robustRateMax * 1.5 ? robustRateMax : rawRateMax;
   const slot = chartWidth / Math.max(sorted.length, 1);
   const barWidth = Math.min(16, Math.max(5, slot * 0.22));
   const yMoney = (value: number) => top + chartHeight - (value / moneyMax) * chartHeight;
-  const yRate = (value: number) => top + chartHeight - (value / rateMax) * chartHeight;
+  const yRate = (value: number) => top + chartHeight - (Math.min(value, rateMax) / rateMax) * chartHeight;
   const xCenter = (index: number) => left + slot * index + slot / 2;
   const linePath = (key: 'cvr' | 'roas') => sorted
     .map((row, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yRate(row[key])}`)
@@ -304,7 +313,16 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
   return (
     <section className="section report-chart-section">
       <div className="report-band-title">Daily Topline</div>
-      <div className="report-chart-wrap">
+      <div className="report-chart-wrap" onMouseLeave={() => setTooltip(null)}>
+        {tooltip && (
+          <div className="report-chart-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
+            <b>{tooltip.row.label}</b>
+            <span>광고비 {formatCurrency(tooltip.row.spend)}</span>
+            <span>매출 {formatCurrency(tooltip.row.sales)}</span>
+            <span>클릭 {formatInteger(tooltip.row.clicks)} / 전환 {formatInteger(tooltip.row.conversions)}</span>
+            <span>CVR {formatPercent(tooltip.row.cvr)} / ROAS {formatPercent(tooltip.row.roas)}</span>
+          </div>
+        )}
         <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="일자별 광고비, 매출, CVR, ROAS 추이">
           {[0, 0.25, 0.5, 0.75, 1].map(rate => {
             const y = top + chartHeight - chartHeight * rate;
@@ -314,7 +332,7 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
               <g key={rate}>
                 <line x1={left} x2={width - right} y1={y} y2={y} stroke="var(--chart-grid-strong)" strokeWidth="1" />
                 <text x={left - 8} y={y + 4} textAnchor="end" className="report-chart-axis">{compactCurrency(money)}</text>
-                <text x={width - right + 8} y={y + 4} textAnchor="start" className="report-chart-axis">{formatPercent(pct)}</text>
+                <text x={width - right + 8} y={y + 4} textAnchor="start" className="report-chart-axis">{rate === 1 && rawRateMax > rateMax ? `>${formatPercent(pct)}` : formatPercent(pct)}</text>
               </g>
             );
           })}
@@ -342,6 +360,15 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
             <g key={`${row.key}-points`}>
               <circle cx={xCenter(index)} cy={yRate(row.cvr)} r="3" fill="var(--c-success)" />
               <circle cx={xCenter(index)} cy={yRate(row.roas)} r="3" fill="var(--c-danger)" />
+              <rect
+                x={left + slot * index}
+                y={top}
+                width={slot}
+                height={chartHeight}
+                fill="transparent"
+                onMouseEnter={event => setTooltip({ x: event.clientX, y: event.clientY, row })}
+                onMouseMove={event => setTooltip({ x: event.clientX, y: event.clientY, row })}
+              />
             </g>
           ))}
         </svg>
@@ -622,6 +649,12 @@ function compactCurrency(value: number): string {
   if (Math.abs(safe) >= 100000000) return `${(safe / 100000000).toFixed(1)}억`;
   if (Math.abs(safe) >= 10000) return `${Math.round(safe / 10000).toLocaleString()}만`;
   return safe.toLocaleString();
+}
+
+function percentile(values: number[], rate: number): number {
+  if (!values.length) return 0;
+  const index = Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * rate)));
+  return values[index];
 }
 
 function formatInteger(value: number): string {

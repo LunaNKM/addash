@@ -112,6 +112,7 @@ export type ReportSummary = {
 export type ReportAggregation = {
   total: ReportSummary;
   byMonth: ReportSummary[];
+  byWeek: ReportSummary[];
   byPromotion: ReportSummary[];
   byCampaign: ReportSummary[];
   byAdgroup: ReportSummary[];

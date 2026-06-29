@@ -13,6 +13,7 @@ export function buildReportAggregation(rows: NormalizedReportRow[]): ReportAggre
   return {
     total: summarize('total', '전체', rows),
     byMonth: groupRows(rows, row => row.date.slice(0, 7) || '날짜 없음'),
+    byWeek: groupRows(rows, row => weekLabel(row.date)),
     byPromotion: groupRows(rows, row => row.promotion || '미분류'),
     byCampaign: groupRows(rows, row => row.campaignName || '미분류 캠페인'),
     byAdgroup: groupRows(rows, row => row.adgroupName || '미분류 광고그룹'),
@@ -111,6 +112,18 @@ function formatPeriodLabel(start: string, end: string): string {
   if (!start && !end) return '기간 없음';
   if (start === end) return start;
   return `${start} ~ ${end}`;
+}
+
+function weekLabel(value: string): string {
+  if (!value) return '날짜 없음';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '날짜 없음';
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${target.getUTCFullYear()} W${String(week).padStart(2, '0')}`;
 }
 
 function toIsoDate(date: Date): string {
