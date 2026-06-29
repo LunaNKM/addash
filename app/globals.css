@@ -2111,7 +2111,7 @@ td[title], .legend-row[title], .donut-legend div[title] {
   font-family: var(--font-body) !important;
 }
 
-/* Report Lab harness */
+/* Report Lab */
 .report-lab-controls input[type="number"] {
   width: 92px;
   font-family: var(--font-mono);

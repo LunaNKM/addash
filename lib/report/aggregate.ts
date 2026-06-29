@@ -11,13 +11,13 @@ type Bucket = Omit<ReportSummary, 'ctr' | 'cpc' | 'cvr' | 'cpa' | 'cartCpa' | 'r
 
 export function buildReportAggregation(rows: NormalizedReportRow[]): ReportAggregation {
   return {
-    total: summarize('total', 'Total', rows),
-    byMonth: groupRows(rows, row => row.date.slice(0, 7) || 'No date'),
-    byPromotion: groupRows(rows, row => row.promotion || 'Uncategorized'),
-    byCampaign: groupRows(rows, row => row.campaignName || 'Uncategorized Campaign'),
-    byAdgroup: groupRows(rows, row => row.adgroupName || 'Uncategorized Group'),
-    byDaily: groupRows(rows, row => row.date || 'No date'),
-    byCreative: groupRows(rows, row => row.adName || 'Unnamed Creative')
+    total: summarize('total', '전체', rows),
+    byMonth: groupRows(rows, row => row.date.slice(0, 7) || '날짜 없음'),
+    byPromotion: groupRows(rows, row => row.promotion || '미분류'),
+    byCampaign: groupRows(rows, row => row.campaignName || '미분류 캠페인'),
+    byAdgroup: groupRows(rows, row => row.adgroupName || '미분류 광고그룹'),
+    byDaily: groupRows(rows, row => row.date || '날짜 없음'),
+    byCreative: groupRows(rows, row => row.adName || '이름 없는 소재')
   };
 }
 
@@ -66,12 +66,12 @@ function groupRows(rows: NormalizedReportRow[], keyFor: (row: NormalizedReportRo
 
 function buildComparison(current: ReportSummary, previous: ReportSummary): ReportComparisonMetric[] {
   const metrics: { key: ReportComparisonMetric['key']; label: string }[] = [
-    { key: 'spend', label: 'Spend' },
-    { key: 'sales', label: 'Sales' },
-    { key: 'impressions', label: 'Impressions' },
-    { key: 'clicks', label: 'Clicks' },
-    { key: 'conversions', label: 'Conversions' },
-    { key: 'addToCart', label: 'Add Cart' },
+    { key: 'spend', label: '광고비' },
+    { key: 'sales', label: '매출' },
+    { key: 'impressions', label: '노출' },
+    { key: 'clicks', label: '클릭' },
+    { key: 'conversions', label: '전환' },
+    { key: 'addToCart', label: '장바구니' },
     { key: 'ctr', label: 'CTR' },
     { key: 'cvr', label: 'CVR' },
     { key: 'cpa', label: 'CPA' },
@@ -93,11 +93,11 @@ function buildComparison(current: ReportSummary, previous: ReportSummary): Repor
 }
 
 function previousMatchingPeriod(start: string, end: string): ReportPeriod {
-  if (!start || !end) return { start: '', end: '', label: 'Previous period' };
+  if (!start || !end) return { start: '', end: '', label: '이전 기간' };
   const startDate = new Date(`${start}T00:00:00`);
   const endDate = new Date(`${end}T00:00:00`);
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-    return { start: '', end: '', label: 'Previous period' };
+    return { start: '', end: '', label: '이전 기간' };
   }
   const days = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1);
   const prevEnd = new Date(startDate.getTime() - 86400000);
@@ -108,7 +108,7 @@ function previousMatchingPeriod(start: string, end: string): ReportPeriod {
 }
 
 function formatPeriodLabel(start: string, end: string): string {
-  if (!start && !end) return 'No period';
+  if (!start && !end) return '기간 없음';
   if (start === end) return start;
   return `${start} ~ ${end}`;
 }

@@ -10,12 +10,12 @@ import type { DataQualityIssue, ReportComparisonMetric, ReportParseResult, Repor
 type ReportTab = 'total' | 'daily' | 'campaigns' | 'creatives' | 'summary' | 'diagnostics';
 
 const tabs: { id: ReportTab; label: string }[] = [
-  { id: 'total', label: 'Total Performance' },
-  { id: 'daily', label: 'Daily' },
-  { id: 'campaigns', label: 'Campaigns' },
-  { id: 'creatives', label: 'Creatives' },
-  { id: 'summary', label: 'Summary' },
-  { id: 'diagnostics', label: 'Diagnostics' }
+  { id: 'total', label: '전체 성과' },
+  { id: 'daily', label: '일자별' },
+  { id: 'campaigns', label: '캠페인별' },
+  { id: 'creatives', label: '소재별' },
+  { id: 'summary', label: '요약' },
+  { id: 'diagnostics', label: '진단' }
 ];
 
 export default function ReportLabPage() {
@@ -38,7 +38,7 @@ export default function ReportLabPage() {
   }, [dates.max, dates.min, periodEnd, periodStart, result]);
 
   async function handleFile(file: File) {
-    setBusy('Reading raw data...');
+    setBusy('RAW 데이터를 읽는 중입니다...');
     setError('');
     try {
       const parsed = await loadReportFromXlsx(file, exchangeRate);
@@ -59,12 +59,12 @@ export default function ReportLabPage() {
       <header className="header">
         <div className="header-left">
           <Link className="header-logo" href="/">GFU<span>Dash</span></Link>
-          <span className="badge">Report Lab</span>
+          <span className="badge">보고서 생성</span>
         </div>
         <div className="header-actions">
-          <Link className="btn ghost" href="/">Dashboard</Link>
+          <Link className="btn ghost" href="/">대시보드</Link>
           <label className="btn brand">
-            Upload RAW
+            RAW 업로드
             <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
           </label>
         </div>
@@ -73,12 +73,12 @@ export default function ReportLabPage() {
       <main>
         <div className="sub-header">
           <div className="sub-header-title">
-            <div className="sub-header-eyebrow">Campaign Report Builder</div>
-            <b>JP campaign weekly and daily report</b>
-            <small>{result ? `${result.fileName} · ${result.rows.length.toLocaleString()} rows · ${reportView?.currentPeriod.label}` : 'XLSX upload source is active.'}</small>
+            <div className="sub-header-eyebrow">캠페인 보고서 생성</div>
+            <b>JP 캠페인 주간/일간 보고서</b>
+            <small>{result ? `${result.fileName} · ${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : '현재는 XLSX 업로드 방식으로 생성합니다.'}</small>
           </div>
           <div className="period">
-            <span>Period</span>
+            <span>기간</span>
             <input type="date" value={periodStart} min={dates.min} max={dates.max} onChange={event => setPeriodStart(event.target.value)} />
             <span>~</span>
             <input type="date" value={periodEnd} min={dates.min} max={dates.max} onChange={event => setPeriodEnd(event.target.value)} />
@@ -95,7 +95,7 @@ export default function ReportLabPage() {
 
         <div className="content">
           <div className="filter-bar report-lab-controls">
-            <span className="filter-label">Source</span>
+            <span className="filter-label">데이터 소스</span>
             <div className="report-source-tabs">
               {reportSources.map(source => (
                 <button key={source.kind} className={source.status === 'available' ? 'active' : ''} disabled={source.status !== 'available'}>
@@ -103,7 +103,7 @@ export default function ReportLabPage() {
                 </button>
               ))}
             </div>
-            <span className="filter-label">Exchange</span>
+            <span className="filter-label">환율</span>
             <input
               type="number"
               step="0.01"
@@ -111,13 +111,13 @@ export default function ReportLabPage() {
               value={exchangeRate}
               onChange={event => setExchangeRate(Number(event.target.value) || DEFAULT_EXCHANGE_RATE)}
             />
-            <span className="muted">JPY to KRW. Re-upload applies the new rate.</span>
+            <span className="muted">JPY → KRW. 변경한 환율은 다시 업로드하면 적용됩니다.</span>
             {result && (
               <>
-                <span className="filter-label">Sheet</span>
+                <span className="filter-label">시트</span>
                 <span className="badge">{result.sheet.sheetName}</span>
-                <span className="filter-label">Rows</span>
-                <span className="badge">{reportView?.currentRows.length.toLocaleString()} selected</span>
+                <span className="filter-label">행</span>
+                <span className="badge">{reportView?.currentRows.length.toLocaleString()}개 선택</span>
               </>
             )}
           </div>
@@ -149,14 +149,15 @@ function EmptyUpload({ onFile, busy, exchangeRate }: { onFile: (file: File) => v
     <section className="section report-empty-state">
       <div>
         <div className="section-head">
-          <b>RAW input harness</b>
-          <span className="muted">Current exchange rate: {exchangeRate.toFixed(2)}</span>
+          <b>RAW 업로드</b>
+          <span className="muted">현재 환율: {exchangeRate.toFixed(2)}</span>
         </div>
         <p>
-          XLSX raw data source is ready. The Meta API source will feed the same normalized report model later.
+          XLSX RAW 파일을 업로드하면 컬럼을 자동으로 탐지하고 보고서 출력에 필요한 표준 데이터로 변환합니다.
+          추후 Meta API도 같은 보고서 구조에 연결할 예정입니다.
         </p>
         <label className="btn brand">
-          {busy || 'Choose RAW file'}
+          {busy || 'RAW 파일 선택'}
           <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && onFile(event.target.files[0])} />
         </label>
       </div>
@@ -169,21 +170,21 @@ function TotalPerformance({ result, view }: { result: ReportParseResult; view: R
     <>
       <section className="section">
         <div className="section-head">
-          <b>Report Status</b>
-          <span className="muted">{view.currentPeriod.label} vs {view.previousPeriod.label}</span>
+          <b>보고서 상태</b>
+          <span className="muted">{view.currentPeriod.label} 대비 {view.previousPeriod.label}</span>
         </div>
         <div className="report-contract-grid">
-          <ContractItem label="Sheet selected" value={result.sheet.sheetName} ok />
-          <ContractItem label="Required columns" value={result.sheet.missingRequired.length ? `${result.sheet.missingRequired.length} missing` : 'Ready'} ok={!result.sheet.missingRequired.length} />
-          <ContractItem label="Normalized rows" value={result.rows.length.toLocaleString()} ok={result.rows.length > 0} />
-          <ContractItem label="Selected rows" value={view.currentRows.length.toLocaleString()} ok={view.currentRows.length > 0} />
-          <ContractItem label="Warnings" value={String(result.issues.filter(issue => issue.level === 'warning').length)} ok={!result.issues.some(issue => issue.level === 'error')} />
+          <ContractItem label="선택된 시트" value={result.sheet.sheetName} ok />
+          <ContractItem label="필수 컬럼" value={result.sheet.missingRequired.length ? `${result.sheet.missingRequired.length}개 누락` : '준비 완료'} ok={!result.sheet.missingRequired.length} />
+          <ContractItem label="표준화된 행" value={result.rows.length.toLocaleString()} ok={result.rows.length > 0} />
+          <ContractItem label="선택 기간 행" value={view.currentRows.length.toLocaleString()} ok={view.currentRows.length > 0} />
+          <ContractItem label="주의 항목" value={String(result.issues.filter(issue => issue.level === 'warning').length)} ok={!result.issues.some(issue => issue.level === 'error')} />
         </div>
       </section>
       <SummaryCards total={view.current.total} />
       <ComparisonTable rows={view.comparison} />
-      <SummaryTable title="Performance by Promotion" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} />
-      <SummaryTable title="Performance by Month" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={24} />
+      <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} />
+      <SummaryTable title="월별 성과" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={24} />
     </>
   );
 }
@@ -192,8 +193,8 @@ function DailyReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="Daily Topline" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
-      <SummaryTable title="Daily Campaign Performance" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={80} />
+      <SummaryTable title="일자별 핵심 성과" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
+      <SummaryTable title="일자별 캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={80} />
     </>
   );
 }
@@ -202,8 +203,8 @@ function CampaignReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="Campaign Performance" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} />
-      <SummaryTable title="Ad Group Performance" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} />
+      <SummaryTable title="캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} />
+      <SummaryTable title="광고그룹 성과" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} />
     </>
   );
 }
@@ -212,7 +213,7 @@ function CreativeReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="Campaign Image Performance" rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} />
+      <SummaryTable title="소재 성과" rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} />
     </>
   );
 }
@@ -221,8 +222,8 @@ function SummaryReport({ view }: { view: ReportView }) {
   return (
     <>
       <SummaryCards total={view.current.total} />
-      <SummaryTable title="Budget Summary by Month" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={36} />
-      <SummaryTable title="Channel Summary by Promotion" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} />
+      <SummaryTable title="월별 예산 요약" rows={view.current.byMonth} previousRows={view.previous.byMonth} limit={36} />
+      <SummaryTable title="프로모션별 채널 요약" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} />
     </>
   );
 }
@@ -248,8 +249,8 @@ function ContractItem({ label, value, ok }: { label: string; value: string; ok: 
 
 function SummaryCards({ total }: { total: ReportSummary }) {
   const cards = [
-    ['Spend', formatCurrency(total.spend)],
-    ['Sales', formatCurrency(total.sales)],
+    ['광고비', formatCurrency(total.spend)],
+    ['매출', formatCurrency(total.sales)],
     ['ROAS', total.roas.toFixed(2)],
     ['CTR', formatPercent(total.ctr)],
     ['CVR', formatPercent(total.cvr)],
@@ -271,18 +272,18 @@ function ComparisonTable({ rows }: { rows: ReportComparisonMetric[] }) {
   return (
     <section className="section">
       <div className="section-head">
-        <b>Period Comparison</b>
-        <span className="muted">Current period against the immediately previous matching period</span>
+        <b>기간 비교</b>
+        <span className="muted">선택 기간과 직전 동일 길이 기간을 비교합니다.</span>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Metric</th>
-              <th>Current</th>
-              <th>Previous</th>
-              <th>Diff</th>
-              <th>Change</th>
+              <th>지표</th>
+              <th>선택 기간</th>
+              <th>이전 기간</th>
+              <th>차이</th>
+              <th>변화율</th>
             </tr>
           </thead>
           <tbody>
@@ -306,24 +307,24 @@ function ValidationPanel({ issues }: { issues: DataQualityIssue[] }) {
   return (
     <section className="section">
       <div className="section-head">
-        <b>Validation Results</b>
-        <span className="muted">{issues.length.toLocaleString()} checks reported</span>
+        <b>데이터 진단 결과</b>
+        <span className="muted">{issues.length.toLocaleString()}개 항목</span>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Level</th>
-              <th>Code</th>
-              <th>Message</th>
-              <th>Count</th>
-              <th>Examples</th>
+              <th>수준</th>
+              <th>코드</th>
+              <th>내용</th>
+              <th>건수</th>
+              <th>예시 행</th>
             </tr>
           </thead>
           <tbody>
             {issues.map(issue => (
               <tr key={issue.code}>
-                <td><span className={`issue-pill ${issue.level}`}>{issue.level}</span></td>
+                <td><span className={`issue-pill ${issue.level}`}>{formatIssueLevel(issue.level)}</span></td>
                 <td>{issue.code}</td>
                 <td>{issue.message}</td>
                 <td>{issue.count ?? '-'}</td>
@@ -341,26 +342,26 @@ function ColumnPanel({ result }: { result: ReportParseResult }) {
   return (
     <section className="section">
       <div className="section-head">
-        <b>Detected Columns</b>
-        <span className="muted">Header row {result.sheet.headerRowIndex + 1}, score {result.sheet.score.toFixed(1)}</span>
+        <b>탐지된 컬럼</b>
+        <span className="muted">헤더 행 {result.sheet.headerRowIndex + 1}, 점수 {result.sheet.score.toFixed(1)}</span>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Standard Field</th>
-              <th>Detected Header</th>
-              <th>Column</th>
-              <th>Confidence</th>
+              <th>표준 필드</th>
+              <th>탐지된 헤더</th>
+              <th>컬럼</th>
+              <th>신뢰도</th>
             </tr>
           </thead>
           <tbody>
             {result.detections.map(column => (
               <tr key={column.key}>
-                <td>{column.key}</td>
+                <td>{fieldLabel(column.key)}</td>
                 <td>{column.header}</td>
                 <td>{column.index + 1}</td>
-                <td>{column.confidence}</td>
+                <td>{confidenceLabel(column.confidence)}</td>
               </tr>
             ))}
           </tbody>
@@ -375,22 +376,22 @@ function PreviewTable({ result }: { result: ReportParseResult }) {
   return (
     <section className="section">
       <div className="section-head">
-        <b>Normalized RAW Preview</b>
-        <span className="muted">First {rows.length} rows after schema normalization</span>
+        <b>표준화 RAW 미리보기</b>
+        <span className="muted">표준화 후 첫 {rows.length}개 행</span>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Promotion</th>
-              <th>Campaign</th>
-              <th>Creative</th>
-              <th>Spend</th>
-              <th>Sales</th>
-              <th>Imp</th>
-              <th>Clicks</th>
-              <th>Conv</th>
+              <th>날짜</th>
+              <th>프로모션</th>
+              <th>캠페인</th>
+              <th>소재</th>
+              <th>광고비</th>
+              <th>매출</th>
+              <th>노출</th>
+              <th>클릭</th>
+              <th>전환</th>
               <th>ROAS</th>
             </tr>
           </thead>
@@ -435,20 +436,20 @@ function SummaryTable({
     <section className="section">
       <div className="section-head">
         <b>{title}</b>
-        <span className="muted">Showing {Math.min(rows.length, limit).toLocaleString()} of {rows.length.toLocaleString()} groups</span>
+        <span className="muted">총 {rows.length.toLocaleString()}개 그룹 중 {Math.min(rows.length, limit).toLocaleString()}개 표시</span>
       </div>
       <div className="table-wrap sticky-detail">
         <table>
           <thead>
             <tr>
-              <th>Group</th>
-              <th>Spend</th>
-              <th>Spend Diff</th>
-              <th>Sales</th>
-              <th>Imp</th>
-              <th>Clicks</th>
-              <th>Conv</th>
-              <th>Add Cart</th>
+              <th>그룹</th>
+              <th>광고비</th>
+              <th>광고비 차이</th>
+              <th>매출</th>
+              <th>노출</th>
+              <th>클릭</th>
+              <th>전환</th>
+              <th>장바구니</th>
               <th>CTR</th>
               <th>CVR</th>
               <th>CPC</th>
@@ -486,7 +487,7 @@ function SummaryTable({
 }
 
 function formatCurrency(value: number): string {
-  return `KRW ${Math.round(Number(value) || 0).toLocaleString()}`;
+  return `${Math.round(Number(value) || 0).toLocaleString()}원`;
 }
 
 function formatInteger(value: number): string {
@@ -511,4 +512,41 @@ function formatReportValue(key: ReportComparisonMetric['key'], value: number): s
 
 function trim(value: string, max = 32): string {
   return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+}
+
+function formatIssueLevel(level: DataQualityIssue['level']): string {
+  if (level === 'error') return '오류';
+  if (level === 'warning') return '주의';
+  return '정보';
+}
+
+function confidenceLabel(confidence: 'exact' | 'alias' | 'fuzzy'): string {
+  if (confidence === 'exact') return '정확';
+  if (confidence === 'alias') return '별칭';
+  return '유사';
+}
+
+function fieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    date: '날짜',
+    brand: '브랜드',
+    media: '매체',
+    promotion: '프로모션',
+    campaignName: '캠페인',
+    adgroupName: '광고그룹',
+    adName: '소재',
+    impressions: '노출',
+    clicks: '클릭',
+    conversions: '전환',
+    costJpy: '광고비 JPY',
+    costKrw: '광고비 KRW',
+    grossCostKrw: '광고비 Gross',
+    salesJpy: '매출 JPY',
+    salesKrw: '매출 KRW',
+    addToCart: '장바구니',
+    registration: '회원가입',
+    lead: 'Lead',
+    order: '주문'
+  };
+  return labels[key] || key;
 }

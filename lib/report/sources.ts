@@ -2,7 +2,7 @@ import { parseReportFile } from './normalize';
 import type { ReportParseResult, ReportSourceDescriptor } from './reportTypes';
 
 export const reportSources: ReportSourceDescriptor[] = [
-  { kind: 'xlsx-upload', label: 'XLSX Upload', status: 'available' },
+  { kind: 'xlsx-upload', label: 'XLSX 업로드', status: 'available' },
   { kind: 'meta-api', label: 'Meta API', status: 'planned' }
 ];
 
@@ -11,5 +11,5 @@ export async function loadReportFromXlsx(file: File, exchangeRate: number): Prom
 }
 
 export async function loadReportFromMeta(): Promise<ReportParseResult> {
-  throw new Error('Meta API source is planned. Use XLSX upload for now.');
+  throw new Error('Meta API 연결은 예정된 기능입니다. 현재는 XLSX 업로드를 사용해주세요.');
 }

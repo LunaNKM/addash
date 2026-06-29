@@ -19,7 +19,7 @@ export async function parseReportFile(file: File, exchangeRate = DEFAULT_EXCHANG
 
   const best = candidates.sort((a, b) => b.detection.score - a.detection.score)[0];
   if (!best) {
-    throw new Error('No readable table was found. Check that the file has a header row and data rows.');
+    throw new Error('읽을 수 있는 데이터 표를 찾지 못했습니다. 헤더 행과 데이터 행이 있는 파일인지 확인해주세요.');
   }
 
   const rows = normalizeRows(best.rows, best.detection, exchangeRate);
@@ -110,10 +110,10 @@ function normalizeRow(
     date,
     brand: clean(value('brand')),
     media: clean(value('media')),
-    promotion: clean(value('promotion')) || 'Uncategorized',
-    campaignName: clean(value('campaignName')) || 'Uncategorized Campaign',
-    adgroupName: clean(value('adgroupName')) || 'Uncategorized Group',
-    adName: clean(value('adName')) || 'Unnamed Creative',
+    promotion: clean(value('promotion')) || '미분류',
+    campaignName: clean(value('campaignName')) || '미분류 캠페인',
+    adgroupName: clean(value('adgroupName')) || '미분류 광고그룹',
+    adName: clean(value('adName')) || '이름 없는 소재',
     impressions,
     clicks,
     conversions,
