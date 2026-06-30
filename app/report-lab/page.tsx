@@ -313,8 +313,8 @@ function TotalPerformance({ result, view, allRows }: { result: ReportParseResult
       <DailyToplineChart rows={view.current.byDaily} comparisonLabel={comparisonLabel} />
       <ComparisonTable rows={view.comparison} comparisonLabel={comparisonLabel} />
       <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows comparisonLabel={comparisonLabel} />
-      <RecentWeeklyPerformanceTable data={weekly} comparisonLabel={comparisonLabel} />
-      <YearDailyPerformanceTable data={yearlyDaily} comparisonLabel={comparisonLabel} />
+      <RecentWeeklyPerformanceTable data={weekly} />
+      <YearDailyPerformanceTable data={yearlyDaily} />
     </>
   );
 }
