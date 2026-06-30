@@ -23,9 +23,8 @@ import {
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import type { Brand, DashboardTab, Kpi, ReportFileDoc, StatRow } from '@/lib/types';
+import type { Brand, DashboardTab, Kpi, ReportFileDoc } from '@/lib/types';
 import { Empty } from '../components/Empty';
-import { KpiGrid } from '../components/KpiGrid';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
 import type {
   NormalizedReportRow,
@@ -501,7 +500,6 @@ export default function ReportLabPage() {
             <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} canUpload={Boolean(isAdmin && brand && dashboardTab)} />
           ) : (
             <>
-              <KpiGrid total={reportSummaryToStatRow(reportView.current.total)} kpi={kpi} />
               {activeTab === 'total' && <TotalPerformance result={result} view={reportView} allRows={filteredRows} />}
               {activeTab === 'daily' && <DailyReport view={reportView} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} />}
@@ -1246,21 +1244,6 @@ function recentSevenDayRange(rows: NormalizedReportRow[]): { start: string; end:
   if (!end) return { start: '', end: '' };
   const recentStart = toIsoDate(addDays(parseIsoDate(end), -6));
   return { start: min && recentStart < min ? min : recentStart, end };
-}
-
-function reportSummaryToStatRow(total: ReportSummary): StatRow {
-  const cpm = total.impressions ? (total.spend / total.impressions) * 1000 : 0;
-  return {
-    key: total.key || 'report-total',
-    spend: total.spend,
-    impression: total.impressions,
-    click: total.clicks,
-    landingPageView: 0,
-    ctr: total.ctr,
-    cpm,
-    cpc: total.cpc,
-    roas: total.roas
-  };
 }
 
 function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: string): RecentWeeklyData {
