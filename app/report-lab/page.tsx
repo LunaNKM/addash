@@ -1506,7 +1506,7 @@ function buildReportInsightPayload({
     objectives: groupReportRows(rows, row => inferObjectiveLabel(row), 8).map(compactSummary),
     campaigns: view.current.byCampaign.slice(0, 15).map(compactSummary),
     adgroups: view.current.byAdgroup.slice(0, 15).map(compactSummary),
-    creatives: view.current.byCreative.slice(0, 18).map(compactSummary)
+    supportingCreativeSignals: view.current.byCreative.slice(0, 6).map(compactSummary)
   };
 }
 

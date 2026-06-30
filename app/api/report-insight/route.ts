@@ -78,35 +78,45 @@ export async function POST(req: Request) {
       objectives = [],
       campaigns = [],
       adgroups = [],
-      creatives = []
+      supportingCreativeSignals = []
     } = body || {};
 
     const prompt = `당신은 JP Meta 광고 주간/일간 보고서를 작성하는 퍼포먼스 마케터입니다.
 아래 집계 데이터를 근거로 한국어 Comment를 작성하세요.
 
+가장 중요한 방향:
+- Comment는 소재별 리뷰가 아니라 전체 캠페인 운영 인사이트 중심이어야 합니다.
+- 분석 단위 우선순위는 전체 Total → 프로모션 → 목적/매체 → 캠페인 → 광고세트 순서입니다.
+- 소재는 캠페인 성과 변동을 설명하는 보조 근거일 때만 1~2회 짧게 언급하세요.
+- 소재명 나열, 소재별 순위 평가, 개별 소재 리뷰처럼 쓰지 마세요.
+- 사용자가 제공한 예시처럼 "자사몰/싱글원/PA/상시/구매전환/회원가입/트래픽" 등 운영 축을 중심으로 묶어 설명하세요.
+
 출력 형식:
 [Summary]
 - 전체 또는 주요 기간 Total 성과 1줄
 - 최근일 또는 비교 기간 Total 성과 1줄
-ㄴ 운영 캠페인/매체/목적을 한 줄로 요약
+ㄴ 운영 프로모션/목적/매체/캠페인 구성을 한 줄로 요약
 
 [Insight]
-- 2~4개 묶음으로 작성
+- 2~4개 운영 축으로 작성
+ㄴ 각 묶음은 프로모션/목적/매체/캠페인 레벨의 인사이트로 시작
 ㄴ 각 묶음에는 소진액, 전환/가입/구매, CPA/CPC/CVR/ROAS 등 근거 수치를 포함
-ㄴ 소재/캠페인/광고세트명은 데이터에 있는 이름만 사용
-ㄴ 성과 변화가 보이면 원인 후보를 데이터 기반으로 설명
+ㄴ 광고세트나 소재는 해당 운영 축의 원인 후보를 설명할 때만 보조적으로 언급
+ㄴ 성과 변화가 보이면 예산 소진, 목적, 캠페인 구성, 광고세트 흐름을 기준으로 설명
 
 [Action]
 - 1~3개 제안
-ㄴ 예산 이동, OFF/모니터링, 소재/타겟 운영 방향을 구체적으로 작성
+ㄴ 예산 이동, OFF/모니터링, 캠페인/광고세트 운영 방향을 구체적으로 작성
+ㄴ 소재 액션만 단독으로 제안하지 말고 캠페인 운영 판단에 종속해서 작성
 ㄴ 확정적으로 단정하지 말고 "제안드립니다", "모니터링 예정입니다"처럼 보고서 톤을 유지
 
 작성 규칙:
 - 입력에 없는 수치를 만들지 마세요.
 - 모든 금액은 원 단위로 표기하세요.
-- 문장은 예시처럼 실무 보고서 톤으로 작성하세요.
+- 문장은 실무 보고서 톤으로 작성하세요.
 - 섹션명은 반드시 [Summary], [Insight], [Action]만 사용하세요.
 - 불릿은 "-"와 "ㄴ" 형식을 사용하세요.
+- 각 Insight 묶음의 첫 줄은 반드시 캠페인/프로모션/목적/매체 단위로 시작하세요.
 
 브랜드: ${brandName || '-'}
 보고서: ${reportName || '-'}
@@ -115,13 +125,13 @@ export async function POST(req: Request) {
 선택 기간 Total: ${JSON.stringify(current)}
 비교 기간 Total: ${JSON.stringify(previous)}
 최근일 Total: ${JSON.stringify(latestDay)}
-최근 일별: ${JSON.stringify(recentDaily)}
-프로모션별: ${JSON.stringify(promotions)}
-미디어별: ${JSON.stringify(media)}
-목적별: ${JSON.stringify(objectives)}
-캠페인별 상위: ${JSON.stringify(campaigns)}
-광고세트별 상위: ${JSON.stringify(adgroups)}
-소재별 상위: ${JSON.stringify(creatives)}`;
+최근 일별 흐름: ${JSON.stringify(recentDaily)}
+프로모션별 성과: ${JSON.stringify(promotions)}
+미디어별 성과: ${JSON.stringify(media)}
+목적별 성과: ${JSON.stringify(objectives)}
+캠페인별 상위 성과: ${JSON.stringify(campaigns)}
+광고세트별 상위 성과: ${JSON.stringify(adgroups)}
+소재 보조 신호(필요할 때만 짧게 참고): ${JSON.stringify(supportingCreativeSignals)}`;
 
     const resp = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
