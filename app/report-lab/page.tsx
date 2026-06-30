@@ -1076,7 +1076,7 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
                 <rect x={x - barWidth} y={yMoney(row.spend)} width={barWidth} height={Math.max(0, spendHeight)} rx="2" fill="var(--chart-1)" />
                 <rect x={x} y={yMoney(row.sales)} width={barWidth} height={Math.max(0, salesHeight)} rx="2" fill="var(--chart-3)" />
                 {index % dateTickEvery === 0 && (
-                  <text x={x} y={height - 18} textAnchor="end" className="report-chart-date" transform={`rotate(-45 ${x} ${height - 18})`}>
+                  <text x={x} y={height - 18} textAnchor="middle" className="report-chart-date">
                     {row.label}
                   </text>
                 )}
