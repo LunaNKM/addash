@@ -352,42 +352,38 @@ function CreativeReport({ view }: { view: ReportView }) {
 function PromotionDetailReport({ title, view, allRows }: { title: string; view: ReportView; allRows: NormalizedReportRow[] }) {
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const dailyData = buildYearDailyGroups(allRows, latestDate);
-  const overallRows = buildPromotionPerformanceRows(allRows, latestDate, [{ label: '?? ??', test: () => true }]);
+  const overallRows = buildPromotionPerformanceRows(allRows, latestDate, [{ label: '전체 성과', test: () => true }]);
   const mediaRows = buildPromotionPerformanceRows(allRows, latestDate, [
-    { label: '???(S-META)', test: row => isSingleOneMeta(row) },
-    { label: '??', test: row => isMetaMedia(row) && !isSingleOneMeta(row) }
-  ], '??');
+    { label: '싱글원(S-META)', test: row => isSingleOneMeta(row) },
+    { label: '메타', test: row => isMetaMedia(row) && !isSingleOneMeta(row) }
+  ], '기타');
   const objectiveRows = buildPromotionPerformanceRows(allRows, latestDate, [
     { label: 'Purchase', test: row => matchesAnyReportText(row, ['purchase', 'conversion']) },
     { label: 'Click', test: row => matchesAnyReportText(row, ['click']) },
     { label: 'Traffic', test: row => matchesAnyReportText(row, ['traffic']) }
-  ], '??');
-  const campaignRows = buildPromotionPerformanceRows(allRows, latestDate, [
-    { label: 'PDRN??', test: row => matchesAnyReportText(row, ['pdrnserum', 'pdrn serum', 'pdrn']) },
-    { label: '??? ??', test: row => matchesAnyReportText(row, ['barriercream', 'barrier cream', 'barrier', '???']) },
-    { label: '????', test: row => matchesAnyReportText(row, ['bluedrop', 'blue drop', '????']) },
-    { label: '??????', test: row => matchesAnyReportText(row, ['jellypack', 'jelly pack', 'jelly', 'cleanser', '???', '???']) }
-  ], '??');
+  ], '기타');
+  const campaignRows = buildCampaignPerformanceRows(allRows, latestDate);
 
   return (
     <>
       <section className="section">
         <div className="section-head">
-          <b>{title} ??</b>
-          <span className="muted">?? {latestDate || '-'}</span>
+          <b>{title} 성과</b>
+          <span className="muted">최신 {latestDate || '-'}</span>
         </div>
         <div className="report-contract-grid">
-          <ContractItem label="?? ?" value={allRows.length.toLocaleString()} ok={allRows.length > 0} />
-          <ContractItem label="???" value={view.current.byCampaign.length.toLocaleString()} ok={view.current.byCampaign.length > 0} />
-          <ContractItem label="????" value={view.current.byAdgroup.length.toLocaleString()} ok={view.current.byAdgroup.length > 0} />
-          <ContractItem label="??" value={view.current.byCreative.length.toLocaleString()} ok={view.current.byCreative.length > 0} />
-          <ContractItem label="??" value={dailyData.groups.reduce((sum, group) => sum + group.days.length, 0).toLocaleString()} ok={Boolean(latestDate)} />
+          <ContractItem label="전체 행" value={allRows.length.toLocaleString()} ok={allRows.length > 0} />
+          <ContractItem label="캠페인" value={view.current.byCampaign.length.toLocaleString()} ok={view.current.byCampaign.length > 0} />
+          <ContractItem label="광고세트" value={view.current.byAdgroup.length.toLocaleString()} ok={view.current.byAdgroup.length > 0} />
+          <ContractItem label="소재" value={view.current.byCreative.length.toLocaleString()} ok={view.current.byCreative.length > 0} />
+          <ContractItem label="일자" value={dailyData.groups.reduce((sum, group) => sum + group.days.length, 0).toLocaleString()} ok={Boolean(latestDate)} />
         </div>
       </section>
-      <PromotionPerformanceSection title="?? ??" rows={overallRows} />
-      <PromotionPerformanceSection title="???? ??" rows={mediaRows} />
-      <PromotionPerformanceSection title="??? ??" rows={objectiveRows} />
-      <PromotionPerformanceSection title="???? ??" rows={campaignRows} />
+      <DailyToplineChart rows={view.current.byDaily} />
+      <PromotionPerformanceSection title="전체 성과" rows={overallRows} />
+      <PromotionPerformanceSection title="미디어별 성과" rows={mediaRows} />
+      <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} />
+      <PromotionPerformanceSection title="캠페인별 성과" rows={campaignRows} />
       <YearDailyPerformanceTable data={dailyData} />
     </>
   );
@@ -1189,6 +1185,107 @@ function buildPromotionPerformanceRows(
       recentStart,
       recentEnd
     }));
+}
+
+function buildCampaignPerformanceRows(rows: NormalizedReportRow[], latestDate: string): PromotionPerformanceRow[] {
+  const groups = new Map<string, NormalizedReportRow[]>();
+  for (const row of rows) {
+    const label = inferCampaignGroupLabel(row);
+    const list = groups.get(label) || [];
+    list.push(row);
+    groups.set(label, list);
+  }
+
+  const sorted = [...groups.entries()].sort(([, aRows], [, bRows]) => {
+    const a = summarizeReportRows('a', 'a', aRows);
+    const b = summarizeReportRows('b', 'b', bRows);
+    return b.spend - a.spend || b.rows - a.rows;
+  });
+
+  const top = sorted.slice(0, 12);
+  const rest = sorted.slice(12).flatMap(([, list]) => list);
+  if (rest.length) top.push(['기타', rest]);
+
+  return top.map(([label, list]) => buildPromotionPerformanceRow(label, list, latestDate));
+}
+
+function buildPromotionPerformanceRow(label: string, rows: NormalizedReportRow[], latestDate: string): PromotionPerformanceRow {
+  const recentEnd = latestDate || latestReportDate(rows);
+  const recentEndDate = recentEnd ? parseIsoDate(recentEnd) : null;
+  const recentStart = recentEndDate ? toIsoDate(addDays(recentEndDate, -6)) : '';
+  const previousEnd = recentEndDate ? toIsoDate(addDays(parseIsoDate(recentStart), -1)) : '';
+  const previousStart = previousEnd ? toIsoDate(addDays(parseIsoDate(previousEnd), -6)) : '';
+  return {
+    label,
+    total: summarizeReportRows(`${label}-total`, label, rows),
+    recent: summarizeReportRows(`${label}-recent`, label, filterRowsByPeriod(rows, recentStart, recentEnd)),
+    previous: summarizeReportRows(`${label}-previous`, label, filterRowsByPeriod(rows, previousStart, previousEnd)),
+    recentStart,
+    recentEnd
+  };
+}
+
+function inferCampaignGroupLabel(row: NormalizedReportRow): string {
+  const fullText = normalizeSearchText(`${row.campaignName} ${row.adgroupName} ${row.adName}`);
+  const campaignText = normalizeSearchText(row.campaignName);
+  const alias = campaignAliasLabel(fullText);
+  if (alias) return alias;
+
+  const campaignProduct = pickCampaignProductToken(campaignText);
+  if (campaignProduct) return humanizeCampaignToken(campaignProduct);
+
+  const fallbackProduct = pickCampaignProductToken(fullText);
+  return fallbackProduct ? humanizeCampaignToken(fallbackProduct) : '기타';
+}
+
+function pickCampaignProductToken(text: string): string {
+  const tokens = text
+    .split(/[^a-z0-9가-힣]+/)
+    .map(token => token.trim())
+    .filter(Boolean)
+    .filter(token => !isCampaignNoiseToken(token));
+
+  return tokens.find(token => /[a-z가-힣]/.test(token)) || '';
+}
+
+function campaignAliasLabel(text: string): string {
+  const aliases: { label: string; keys: string[] }[] = [
+    { label: 'PDRN세럼', keys: ['pdrnserum', 'pdrn serum', 'pdrn'] },
+    { label: '배리어 크림', keys: ['barriercream', 'barrier cream', 'barrier', '배리어'] },
+    { label: '블루드롭', keys: ['bluedrop', 'blue drop', '블루드롭'] },
+    { label: '젤리팩클렌저', keys: ['jellypack', 'jelly pack', 'cleanser', '젤리팩', '클렌저'] },
+    { label: '비타민', keys: ['vitamin', '비타민'] },
+    { label: 'EGF/PDRN', keys: ['pdrnegf', 'egf'] },
+    { label: '마린', keys: ['마린', 'marine'] },
+    { label: '클리어런스', keys: ['clearance', '클리어런스'] }
+  ];
+  return aliases.find(alias => alias.keys.some(key => text.includes(normalizeSearchText(key))))?.label || '';
+}
+
+function isCampaignNoiseToken(token: string): boolean {
+  if (/^\d+$/.test(token)) return true;
+  if (/^\d{4}$/.test(token)) return true;
+  if (/^\d{2,4}$/.test(token)) return true;
+  if (/^\d{2,4}f(l\d+)?$/.test(token)) return true;
+  return [
+    'dk', 'bw', 'jp', 'jpn', 'qoo10', 'q10', 'meta', 's', 'tiktok', 'spark', 'ads',
+    'purchase', 'traffic', 'conversion', 'catalog', 'lead', 'registration', 'atc',
+    'asc', 'line', 'cg', 'non', 'wish', 'amazon', 'market', 'megawari', 'megawri',
+    'megapo', '4q', 'img', 'video', 'vid', 'category', 'click', 'rt', 'set',
+    'interest', 'ig', 'l1', 'l2', 'l3', '2064f', '2065f', '2065fl6'
+  ].includes(token);
+}
+
+function humanizeCampaignToken(token: string): string {
+  return token
+    .replace(/cream/g, ' cream')
+    .replace(/serum/g, ' serum')
+    .replace(/drop/g, ' drop')
+    .replace(/cleanser/g, ' cleanser')
+    .replace(/pdrn/g, 'PDRN')
+    .replace(/egf/g, 'EGF')
+    .replace(/\b\w/g, char => char.toUpperCase())
+    .trim();
 }
 
 function addDays(date: Date, days: number): Date {
