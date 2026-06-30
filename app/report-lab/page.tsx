@@ -12,6 +12,7 @@ import {
   emptyKpi,
   findBrandByShareToken,
   getKpi,
+  getReportFile,
   isAdminEmail,
   listBrandsForAdmin,
   listReportFiles,
@@ -138,7 +139,12 @@ export default function ReportLabPage() {
     setReportFiles(loadedReportFiles);
     const firstFile = loadedReportFiles[0] || null;
     setSelectedReportFileId(firstFile?.id || '');
-    applyReportResult(firstFile?.result || null);
+    if (firstFile) {
+      const loadedFile = await getReportFile(target.id, nextTab.id, firstFile.id);
+      applyReportResult(loadedFile?.result || null);
+    } else {
+      applyReportResult(null);
+    }
   }, [applyReportResult, resetReportState]);
 
   const selectBrand = useCallback(async (brandId: string) => {
@@ -156,7 +162,12 @@ export default function ReportLabPage() {
     setReportFiles(loadedReportFiles);
     const selected = loadedReportFiles.find(file => file.id === selectedReportFileId) || loadedReportFiles[0] || null;
     setSelectedReportFileId(selected?.id || '');
-    applyReportResult(selected?.result || null);
+    if (selected) {
+      const loadedFile = await getReportFile(brand.id, dashboardTab.id, selected.id);
+      applyReportResult(loadedFile?.result || null);
+    } else {
+      applyReportResult(null);
+    }
   }, [applyReportResult, brand, dashboardTab, selectedReportFileId]);
 
   useEffect(() => {
@@ -282,7 +293,7 @@ export default function ReportLabPage() {
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       setReportFiles(loadedReportFiles);
       setSelectedReportFileId(savedId);
-      applyReportResult(loadedReportFiles.find(item => item.id === savedId)?.result || parsed);
+      applyReportResult(parsed);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -422,8 +433,13 @@ export default function ReportLabPage() {
                   key={file.id}
                   className={`chip ${selectedReportFileId === file.id ? 'active' : ''}`}
                   onClick={() => {
+                    if (!brand || !dashboardTab) return;
                     setSelectedReportFileId(file.id);
-                    applyReportResult(file.result);
+                    setBusy('저장된 RAW 파일을 불러오는 중입니다...');
+                    getReportFile(brand.id, dashboardTab.id, file.id)
+                      .then(loadedFile => applyReportResult(loadedFile?.result || null))
+                      .catch(err => setError(errorMessage(err)))
+                      .finally(() => setBusy(''));
                   }}
                   title={`${file.dateStart || '-'} ~ ${file.dateEnd || '-'} · ${file.rowCount.toLocaleString()}행`}
                 >

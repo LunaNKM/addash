@@ -16,6 +16,9 @@ import { db, primaryAdminEmail } from './firebase';
 import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi, ReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 
+const REPORT_FILE_ROWS_PER_CHUNK = 25;
+const REPORT_FILE_CHUNKS_PER_COMMIT = 8;
+
 export const emptyKpi: Kpi = {
   spendGoal: 0,
   impressionGoal: 0,
@@ -180,7 +183,13 @@ export async function deleteFile(brandId: string, tabId: string, fileId: string)
 
 export async function listReportFiles(brandId: string, tabId: string): Promise<ReportFileDoc[]> {
   const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles'), orderBy('createdAt', 'desc')));
-  return Promise.all(snap.docs.map(d => normalizeReportFile(d.id, brandId, tabId, d.data())));
+  return Promise.all(snap.docs.map(d => normalizeReportFile(d.id, brandId, tabId, d.data(), false)));
+}
+
+export async function getReportFile(brandId: string, tabId: string, fileId: string): Promise<ReportFileDoc | null> {
+  const snap = await getDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId));
+  if (!snap.exists()) return null;
+  return normalizeReportFile(snap.id, brandId, tabId, snap.data(), true);
 }
 
 export async function saveReportFile(brandId: string, tabId: string, file: Omit<ReportFileDoc, 'id'>) {
@@ -189,23 +198,29 @@ export async function saveReportFile(brandId: string, tabId: string, file: Omit<
 
   const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles'));
   const rows = stripReportRows(file.result.rows);
-  const chunks = chunk(rows, 250);
+  const chunks = chunk(rows, REPORT_FILE_ROWS_PER_CHUNK);
   const resultMeta: ReportParseResult = { ...file.result, rows: [], preview: [] };
-  await setDoc(ref, cleanFirestoreData({ ...file, result: resultMeta, chunkCount: chunks.length }));
 
-  for (let index = 0; index < chunks.length; index += 450) {
-    const batch = writeBatch(db);
-    chunks.slice(index, index + 450).forEach((rowsChunk, offset) => {
-      const chunkIndex = index + offset;
-      batch.set(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', ref.id, 'chunks', String(chunkIndex).padStart(4, '0')), {
-        index: chunkIndex,
-        rows: rowsChunk
+  try {
+    for (let index = 0; index < chunks.length; index += REPORT_FILE_CHUNKS_PER_COMMIT) {
+      const batch = writeBatch(db);
+      chunks.slice(index, index + REPORT_FILE_CHUNKS_PER_COMMIT).forEach((rowsChunk, offset) => {
+        const chunkIndex = index + offset;
+        batch.set(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', ref.id, 'chunks', String(chunkIndex).padStart(4, '0')), {
+          index: chunkIndex,
+          rows: rowsChunk
+        });
       });
-    });
-    await batch.commit();
-  }
+      await batch.commit();
+    }
 
-  return ref.id;
+    await setDoc(ref, cleanFirestoreData({ ...file, result: resultMeta, chunkCount: chunks.length }));
+
+    return ref.id;
+  } catch (err) {
+    await deleteReportFile(brandId, tabId, ref.id).catch(() => undefined);
+    throw err;
+  }
 }
 
 export async function deleteReportFile(brandId: string, tabId: string, fileId: string) {
@@ -292,12 +307,8 @@ function normalizeFile(id: string, data: Record<string, unknown>): FileDoc {
   };
 }
 
-async function normalizeReportFile(id: string, brandId: string, tabId: string, data: Record<string, unknown>): Promise<ReportFileDoc> {
-  const chunksSnap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', id, 'chunks'), orderBy('index', 'asc')));
-  const rows = chunksSnap.docs.flatMap(chunkDoc => {
-    const chunkData = chunkDoc.data() as { rows?: NormalizedReportRow[] };
-    return Array.isArray(chunkData.rows) ? chunkData.rows : [];
-  });
+async function normalizeReportFile(id: string, brandId: string, tabId: string, data: Record<string, unknown>, includeRows: boolean): Promise<ReportFileDoc> {
+  const rows = includeRows ? await loadReportFileRows(brandId, tabId, id) : [];
   const result = data.result as ReportParseResult | undefined;
   const safeResult: ReportParseResult = {
     fileName: String(result?.fileName || data.filename || ''),
@@ -329,6 +340,14 @@ async function normalizeReportFile(id: string, brandId: string, tabId: string, d
     result: safeResult,
     createdAt: Number(data.createdAt || 0)
   };
+}
+
+async function loadReportFileRows(brandId: string, tabId: string, fileId: string): Promise<NormalizedReportRow[]> {
+  const chunksSnap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId, 'chunks'), orderBy('index', 'asc')));
+  return chunksSnap.docs.flatMap(chunkDoc => {
+    const chunkData = chunkDoc.data() as { rows?: NormalizedReportRow[] };
+    return Array.isArray(chunkData.rows) ? chunkData.rows : [];
+  });
 }
 
 function normalizeInsight(id: string, data: Record<string, unknown>): InsightDoc {
