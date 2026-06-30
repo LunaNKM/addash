@@ -500,12 +500,12 @@ export default function ReportLabPage() {
             <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} canUpload={Boolean(isAdmin && brand && dashboardTab)} />
           ) : (
             <>
-              {activeTab === 'total' && <TotalPerformance result={result} view={reportView} allRows={filteredRows} />}
-              {activeTab === 'daily' && <DailyReport view={reportView} />}
-              {activeTab === 'campaigns' && <CampaignReport view={reportView} />}
-              {activeTab === 'creatives' && <CreativeReport view={reportView} />}
+              {activeTab === 'total' && <TotalPerformance result={result} view={reportView} allRows={filteredRows} kpi={kpi} />}
+              {activeTab === 'daily' && <DailyReport view={reportView} kpi={kpi} />}
+              {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} />}
+              {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} />}
               {activePromotion && <PromotionDetailReport title={activePromotion.label} view={reportView} allRows={filteredRows} />}
-              {activeTab === 'summary' && <SummaryReport view={reportView} />}
+              {activeTab === 'summary' && <SummaryReport view={reportView} kpi={kpi} />}
             </>
           )}
         </div>
@@ -570,7 +570,7 @@ function EmptyUpload({ onFile, busy, exchangeRate, canUpload }: { onFile: (file:
   );
 }
 
-function TotalPerformance({ result, view, allRows }: { result: ReportParseResult; view: ReportView; allRows: NormalizedReportRow[] }) {
+function TotalPerformance({ result, view, allRows, kpi }: { result: ReportParseResult; view: ReportView; allRows: NormalizedReportRow[]; kpi: Kpi }) {
   const comparisonLabel = formatComparisonLabel(view);
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const weekly = buildRecentWeeklySummaries(allRows, latestDate);
@@ -592,7 +592,7 @@ function TotalPerformance({ result, view, allRows }: { result: ReportParseResult
           <ContractItem label="주의 항목" value={String(result.issues.filter(issue => issue.level === 'warning').length)} ok={!result.issues.some(issue => issue.level === 'error')} />
         </div>
       </section>
-      <SummaryCards total={view.current.total} />
+      <SummaryCards total={view.current.total} kpi={kpi} />
       <DailyToplineChart rows={view.current.byDaily} comparisonLabel={comparisonLabel} />
       <ComparisonTable rows={view.comparison} comparisonLabel={comparisonLabel} />
       <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows comparisonLabel={comparisonLabel} />
@@ -602,10 +602,10 @@ function TotalPerformance({ result, view, allRows }: { result: ReportParseResult
   );
 }
 
-function DailyReport({ view }: { view: ReportView }) {
+function DailyReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
   return (
     <>
-      <SummaryCards total={view.current.total} />
+      <SummaryCards total={view.current.total} kpi={kpi} />
       <DailyToplineChart rows={view.current.byDaily} />
       <SummaryTable title="일자별 핵심 성과" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
       <SummaryTable title="일자별 캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={80} />
@@ -613,20 +613,20 @@ function DailyReport({ view }: { view: ReportView }) {
   );
 }
 
-function CampaignReport({ view }: { view: ReportView }) {
+function CampaignReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
   return (
     <>
-      <SummaryCards total={view.current.total} />
+      <SummaryCards total={view.current.total} kpi={kpi} />
       <SummaryTable title="캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} showComparisonRows />
       <SummaryTable title="광고그룹 성과" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} showComparisonRows />
     </>
   );
 }
 
-function CreativeReport({ view }: { view: ReportView }) {
+function CreativeReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
   return (
     <>
-      <SummaryCards total={view.current.total} />
+      <SummaryCards total={view.current.total} kpi={kpi} />
       <SummaryTable title="소재 성과" rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} showComparisonRows />
     </>
   );
@@ -672,10 +672,10 @@ function PromotionDetailReport({ title, view, allRows }: { title: string; view: 
   );
 }
 
-function SummaryReport({ view }: { view: ReportView }) {
+function SummaryReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
   return (
     <>
-      <SummaryCards total={view.current.total} />
+      <SummaryCards total={view.current.total} kpi={kpi} />
       <SummaryTable title="주차별 예산 요약" rows={view.current.byWeek} previousRows={view.previous.byWeek} limit={36} showComparisonRows sortByLabel />
       <SummaryTable title="프로모션별 채널 요약" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} showComparisonRows />
     </>
@@ -691,23 +691,37 @@ function ContractItem({ label, value, ok }: { label: string; value: string; ok: 
   );
 }
 
-function SummaryCards({ total }: { total: ReportSummary }) {
+function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
   const cards = [
-    ['광고비', formatCurrency(total.spend)],
-    ['매출', formatCurrency(total.sales)],
-    ['ROAS', total.roas.toFixed(2)],
-    ['CTR', formatPercent(total.ctr)],
-    ['CVR', formatPercent(total.cvr)],
-    ['CPA', formatCurrency(total.cpa)]
+    { label: '광고비', value: formatCurrency(total.spend), current: total.spend, goal: kpi.spendGoal, goalValue: formatCurrency(kpi.spendGoal) },
+    { label: '매출', value: formatCurrency(total.sales) },
+    { label: 'ROAS', value: total.roas.toFixed(2), current: total.roas, goal: kpi.roasGoal, goalValue: kpi.roasGoal.toLocaleString() },
+    { label: 'CTR', value: formatPercent(total.ctr), current: total.ctr, goal: kpi.ctrGoal, goalValue: formatPercent(kpi.ctrGoal) },
+    { label: 'CVR', value: formatPercent(total.cvr) },
+    { label: 'CPA', value: formatCurrency(total.cpa) }
   ];
   return (
     <div className="report-stat-grid">
-      {cards.map(([label, value]) => (
-        <div className="report-stat-card" key={label}>
-          <small>{label}</small>
-          <b>{value}</b>
+      {cards.map(card => {
+        const goal = Number(card.goal || 0);
+        const current = Number(card.current || 0);
+        const pct = goal > 0 ? (current / goal) * 100 : 0;
+        const cappedPct = Math.min(Math.max(pct, 0), 100);
+        return (
+        <div className="report-stat-card" key={card.label}>
+          <small>{card.label}</small>
+          <b>{card.value}</b>
+          {goal > 0 && (
+            <div className="report-stat-goal">
+              <div className="goal">
+                <i style={{ width: `${cappedPct}%`, background: pct >= 100 ? 'var(--c-success)' : 'linear-gradient(90deg, var(--brand-400), var(--brand))' }} />
+              </div>
+              <em>{pct.toFixed(0)}% 달성 · 목표 {card.goalValue}</em>
+            </div>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

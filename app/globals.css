@@ -2268,6 +2268,25 @@ td[title], .legend-row[title], .donut-legend div[title] {
   overflow: hidden;
 }
 
+.report-stat-goal {
+  margin-top: 12px;
+}
+
+.report-stat-goal .goal {
+  margin-top: 0;
+}
+
+.report-stat-goal em {
+  display: block;
+  margin-top: 6px;
+  color: var(--c-ink-3);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .report-stat-card::after {
   content: '';
   position: absolute;
