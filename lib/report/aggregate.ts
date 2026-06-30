@@ -22,11 +22,20 @@ export function buildReportAggregation(rows: NormalizedReportRow[]): ReportAggre
   };
 }
 
-export function buildReportView(rows: NormalizedReportRow[], start: string, end: string): ReportView {
+export function buildReportView(
+  rows: NormalizedReportRow[],
+  start: string,
+  end: string,
+  comparisonStart?: string,
+  comparisonEnd?: string
+): ReportView {
   const dates = rows.map(row => row.date).filter(Boolean).sort();
   const currentStart = start || dates[0] || '';
   const currentEnd = end || dates[dates.length - 1] || '';
-  const previousPeriod = previousMatchingPeriod(currentStart, currentEnd);
+  const defaultPrevious = previousMatchingPeriod(currentStart, currentEnd);
+  const previousPeriod = (comparisonStart || comparisonEnd)
+    ? buildPeriod(comparisonStart || defaultPrevious.start, comparisonEnd || defaultPrevious.end)
+    : defaultPrevious;
   const currentRows = filterRowsByPeriod(rows, currentStart, currentEnd);
   const previousRows = filterRowsByPeriod(rows, previousPeriod.start, previousPeriod.end);
   const current = buildReportAggregation(currentRows);
@@ -97,7 +106,11 @@ function buildComparison(current: ReportSummary, previous: ReportSummary): Repor
   });
 }
 
-function previousMatchingPeriod(start: string, end: string): ReportPeriod {
+function buildPeriod(start: string, end: string): ReportPeriod {
+  return { start, end, label: formatPeriodLabel(start, end) };
+}
+
+export function previousMatchingPeriod(start: string, end: string): ReportPeriod {
   if (!start || !end) return { start: '', end: '', label: '이전 기간' };
   const startDate = new Date(`${start}T00:00:00`);
   const endDate = new Date(`${end}T00:00:00`);

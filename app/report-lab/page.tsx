@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
-import { buildReportView, filterRowsByPeriod } from '@/lib/report/aggregate';
+import { buildReportView, filterRowsByPeriod, previousMatchingPeriod } from '@/lib/report/aggregate';
 import { DEFAULT_EXCHANGE_RATE } from '@/lib/report/schema';
 import { loadReportFromXlsx, reportSources } from '@/lib/report/sources';
 import {
@@ -57,6 +57,20 @@ const tabs: { id: ReportTab; label: string }[] = [
   { id: 'summary', label: '요약' }
 ];
 
+const tabAccents: Record<ReportTab, string> = {
+  total: '#E5484D',
+  daily: '#E5484D',
+  campaigns: '#E5484D',
+  creatives: '#E5484D',
+  always: '#2F6FED',
+  megawari: '#2F6FED',
+  megapo: '#2F6FED',
+  market: '#2F6FED',
+  owned: '#8E4EC6',
+  hybrid: '#8E4EC6',
+  summary: '#1A1A1A'
+};
+
 export default function ReportLabPage() {
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -78,6 +92,8 @@ export default function ReportLabPage() {
   const [exchangeRate, setExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
+  const [comparisonStart, setComparisonStart] = useState('');
+  const [comparisonEnd, setComparisonEnd] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [campaignFilter, setCampaignFilter] = useState('');
@@ -98,6 +114,8 @@ export default function ReportLabPage() {
     setCommentEditing(false);
     setPeriodStart('');
     setPeriodEnd('');
+    setComparisonStart('');
+    setComparisonEnd('');
     setCampaignFilter('');
     setAdgroupFilter('');
     setAdFilter('');
@@ -291,10 +309,21 @@ export default function ReportLabPage() {
     });
   }, [activePromotion, adFilter, adgroupFilter, campaignFilter, result]);
 
+  const defaultComparison = useMemo(
+    () => previousMatchingPeriod(periodStart || dates.min, periodEnd || dates.max),
+    [dates.max, dates.min, periodEnd, periodStart]
+  );
+
   const reportView = useMemo(() => {
     if (!result) return null;
-    return buildReportView(filteredRows, periodStart || dates.min, periodEnd || dates.max);
-  }, [dates.max, dates.min, filteredRows, periodEnd, periodStart, result]);
+    return buildReportView(
+      filteredRows,
+      periodStart || dates.min,
+      periodEnd || dates.max,
+      comparisonStart,
+      comparisonEnd
+    );
+  }, [comparisonEnd, comparisonStart, dates.max, dates.min, filteredRows, periodEnd, periodStart, result]);
 
   async function handleFile(file: File) {
     if (!brand || !dashboardTab || !isAdmin) {
@@ -463,17 +492,53 @@ export default function ReportLabPage() {
             <b>{brand.name}</b>
             <small>{result ? `${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : '현재는 XLSX 업로드 방식으로 생성합니다.'}</small>
           </div>
-          <div className="period">
-            <span>기간</span>
-            <input type="date" value={periodStart} min={dates.min} max={dates.max} onChange={event => setPeriodStart(event.target.value)} />
-            <span>~</span>
-            <input type="date" value={periodEnd} min={dates.min} max={dates.max} onChange={event => setPeriodEnd(event.target.value)} />
+          <div className="period-group">
+            <div className="period">
+              <span>대상 기간</span>
+              <input type="date" value={periodStart} min={dates.min} max={dates.max} onChange={event => setPeriodStart(event.target.value)} />
+              <span>~</span>
+              <input type="date" value={periodEnd} min={dates.min} max={dates.max} onChange={event => setPeriodEnd(event.target.value)} />
+            </div>
+            <div className="period">
+              <span>비교 기간</span>
+              <input
+                type="date"
+                value={comparisonStart || defaultComparison.start}
+                max={dates.max}
+                onChange={event => setComparisonStart(event.target.value)}
+              />
+              <span>~</span>
+              <input
+                type="date"
+                value={comparisonEnd || defaultComparison.end}
+                max={dates.max}
+                onChange={event => setComparisonEnd(event.target.value)}
+              />
+              {(comparisonStart || comparisonEnd) && (
+                <button
+                  type="button"
+                  className="period-reset"
+                  title="비교 기간을 기본값으로 되돌립니다"
+                  onClick={() => {
+                    setComparisonStart('');
+                    setComparisonEnd('');
+                  }}
+                >
+                  ↺
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="tabbar">
           {tabs.map(tab => (
-            <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} onClick={() => setActiveTab(tab.id)}>
+            <button
+              key={tab.id}
+              className={activeTab === tab.id ? 'active' : ''}
+              style={{ '--tab-accent': tabAccents[tab.id] } as React.CSSProperties}
+              onClick={() => setActiveTab(tab.id)}
+            >
               {tab.label}
             </button>
           ))}
@@ -916,11 +981,28 @@ function ReportCommentSection({
       ) : (
         <div className="report-comment-box">
           {comment?.text
-            ? <div className="report-comment-content">{comment.text}</div>
+            ? <ReportCommentContent text={comment.text} />
             : <span className="muted">AI 인사이트를 생성하면 공유 링크에서도 이 영역에 표시됩니다.</span>}
         </div>
       )}
     </section>
+  );
+}
+
+function ReportCommentContent({ text }: { text: string }) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  return (
+    <div className="report-comment-content">
+      {lines.map((line, index) => {
+        const trimmed = line.trimStart();
+        const isTopBullet = trimmed.startsWith('- ') || trimmed === '-';
+        return (
+          <div key={index} className={isTopBullet ? 'report-comment-line is-bullet' : 'report-comment-line'}>
+            {line || ' '}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
