@@ -21,6 +21,7 @@ export type DashboardTab = {
 
 export type Kpi = {
   spendGoal: number;
+  salesGoal: number;
   impressionGoal: number;
   clickGoal: number;
   landingPageViewGoal: number;

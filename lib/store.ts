@@ -21,6 +21,7 @@ const REPORT_FILE_CHUNKS_PER_COMMIT = 8;
 
 export const emptyKpi: Kpi = {
   spendGoal: 0,
+  salesGoal: 0,
   impressionGoal: 0,
   clickGoal: 0,
   landingPageViewGoal: 0,

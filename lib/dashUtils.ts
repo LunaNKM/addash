@@ -113,6 +113,7 @@ export function cell(row: TableRow, column: string): string {
 export function kpiLabel(key: keyof Kpi): string {
   const map: Record<keyof Kpi, string> = {
     spendGoal: '광고비 목표',
+    salesGoal: '매출 목표',
     impressionGoal: '노출 목표',
     clickGoal: '클릭 목표',
     landingPageViewGoal: 'LP 조회 목표',

@@ -2485,6 +2485,23 @@ td[title], .legend-row[title], .donut-legend div[title] {
   white-space: nowrap;
 }
 
+.promotion-performance-table .report-total-row td {
+  background: var(--c-bg-elevated);
+  color: var(--c-ink);
+}
+
+.promotion-performance-table tbody td:nth-child(6),
+.promotion-performance-table tbody td:nth-child(10),
+.promotion-performance-table thead tr:nth-child(2) th:nth-child(5),
+.promotion-performance-table thead tr:nth-child(2) th:nth-child(9) {
+  border-left: 2px solid var(--c-border-vivid);
+}
+
+.promotion-performance-table thead tr:first-child th:nth-child(3),
+.promotion-performance-table thead tr:first-child th:nth-child(4) {
+  border-left: 2px solid var(--c-border-vivid);
+}
+
 .issue-pill {
   display: inline-flex;
   align-items: center;

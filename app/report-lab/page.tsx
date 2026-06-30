@@ -500,7 +500,7 @@ export default function ReportLabPage() {
             <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} canUpload={Boolean(isAdmin && brand && dashboardTab)} />
           ) : (
             <>
-              {activeTab === 'total' && <TotalPerformance result={result} view={reportView} allRows={filteredRows} kpi={kpi} />}
+              {activeTab === 'total' && <TotalPerformance view={reportView} allRows={filteredRows} kpi={kpi} />}
               {activeTab === 'daily' && <DailyReport view={reportView} kpi={kpi} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} />}
@@ -570,7 +570,7 @@ function EmptyUpload({ onFile, busy, exchangeRate, canUpload }: { onFile: (file:
   );
 }
 
-function TotalPerformance({ result, view, allRows, kpi }: { result: ReportParseResult; view: ReportView; allRows: NormalizedReportRow[]; kpi: Kpi }) {
+function TotalPerformance({ view, allRows, kpi }: { view: ReportView; allRows: NormalizedReportRow[]; kpi: Kpi }) {
   const comparisonLabel = formatComparisonLabel(view);
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const weekly = buildRecentWeeklySummaries(allRows, latestDate);
@@ -578,20 +578,6 @@ function TotalPerformance({ result, view, allRows, kpi }: { result: ReportParseR
 
   return (
     <>
-      <section className="section">
-        <div className="section-head">
-          <PeriodBadge label={comparisonLabel} />
-          <b>보고서 상태</b>
-          <span className="muted">{view.currentPeriod.label} 대비 {view.previousPeriod.label}</span>
-        </div>
-        <div className="report-contract-grid">
-          <ContractItem label="선택된 시트" value={result.sheet.sheetName} ok />
-          <ContractItem label="필수 컬럼" value={result.sheet.missingRequired.length ? `${result.sheet.missingRequired.length}개 누락` : '준비 완료'} ok={!result.sheet.missingRequired.length} />
-          <ContractItem label="표준화된 행" value={result.rows.length.toLocaleString()} ok={result.rows.length > 0} />
-          <ContractItem label="선택 기간 행" value={view.currentRows.length.toLocaleString()} ok={view.currentRows.length > 0} />
-          <ContractItem label="주의 항목" value={String(result.issues.filter(issue => issue.level === 'warning').length)} ok={!result.issues.some(issue => issue.level === 'error')} />
-        </div>
-      </section>
       <SummaryCards total={view.current.total} kpi={kpi} />
       <DailyToplineChart rows={view.current.byDaily} comparisonLabel={comparisonLabel} />
       <ComparisonTable rows={view.comparison} comparisonLabel={comparisonLabel} />
@@ -694,7 +680,7 @@ function ContractItem({ label, value, ok }: { label: string; value: string; ok: 
 function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
   const cards = [
     { label: '광고비', value: formatCurrency(total.spend), current: total.spend, goal: kpi.spendGoal, goalValue: formatCurrency(kpi.spendGoal) },
-    { label: '매출', value: formatCurrency(total.sales) },
+    { label: '매출', value: formatCurrency(total.sales), current: total.sales, goal: kpi.salesGoal, goalValue: formatCurrency(kpi.salesGoal) },
     { label: 'ROAS', value: total.roas.toFixed(2), current: total.roas, goal: kpi.roasGoal, goalValue: kpi.roasGoal.toLocaleString() },
     { label: 'CTR', value: formatPercent(total.ctr), current: total.ctr, goal: kpi.ctrGoal, goalValue: formatPercent(kpi.ctrGoal) },
     { label: 'CVR', value: formatPercent(total.cvr) },
