@@ -1,12 +1,32 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
 import { buildReportView, filterRowsByPeriod } from '@/lib/report/aggregate';
 import { DEFAULT_EXCHANGE_RATE } from '@/lib/report/schema';
 import { loadReportFromXlsx, reportSources } from '@/lib/report/sources';
+import {
+  createBrand,
+  emptyKpi,
+  findBrandByShareToken,
+  getKpi,
+  isAdminEmail,
+  listBrandsForAdmin,
+  listReportFiles,
+  listTabs,
+  saveKpi,
+  saveReportFile,
+  updateBrand
+} from '@/lib/store';
+import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
+import { errorMessage } from '@/lib/dashUtils';
+import type { Brand, DashboardTab, Kpi, ReportFileDoc, StatRow } from '@/lib/types';
+import { Empty } from '../components/Empty';
+import { KpiGrid } from '../components/KpiGrid';
+import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
 import type {
-  DataQualityIssue,
   NormalizedReportRow,
   ReportComparisonMetric,
   ReportParseResult,
@@ -15,7 +35,7 @@ import type {
 } from '@/lib/report/reportTypes';
 
 type PromotionTab = 'always' | 'owned' | 'megawari' | 'megapo' | 'market' | 'hybrid';
-type ReportTab = 'total' | 'daily' | 'campaigns' | 'creatives' | 'summary' | 'diagnostics' | PromotionTab;
+type ReportTab = 'total' | 'daily' | 'campaigns' | 'creatives' | 'summary' | PromotionTab;
 
 const promotionTabs: { id: PromotionTab; label: string }[] = [
   { id: 'always', label: '상시' },
@@ -32,11 +52,21 @@ const tabs: { id: ReportTab; label: string }[] = [
   { id: 'campaigns', label: '캠페인별' },
   { id: 'creatives', label: '소재별' },
   ...promotionTabs,
-  { id: 'summary', label: '요약' },
-  { id: 'diagnostics', label: '진단' }
+  { id: 'summary', label: '요약' }
 ];
 
 export default function ReportLabPage() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [brand, setBrand] = useState<Brand | null>(null);
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab | null>(null);
+  const [dashboardTabs, setDashboardTabs] = useState<DashboardTab[]>([]);
+  const [kpi, setKpi] = useState<Kpi>(emptyKpi);
+  const [reportFiles, setReportFiles] = useState<ReportFileDoc[]>([]);
+  const [selectedReportFileId, setSelectedReportFileId] = useState('');
+  const [settings, setSettings] = useState<SettingsMode>('none');
   const [result, setResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
   const [exchangeRate, setExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
@@ -47,6 +77,126 @@ export default function ReportLabPage() {
   const [campaignFilter, setCampaignFilter] = useState('');
   const [adgroupFilter, setAdgroupFilter] = useState('');
   const [adFilter, setAdFilter] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    applyBrandColor(brand?.color || null);
+  }, [brand?.color]);
+
+  const resetReportState = useCallback(() => {
+    setResult(null);
+    setReportFiles([]);
+    setSelectedReportFileId('');
+    setPeriodStart('');
+    setPeriodEnd('');
+    setCampaignFilter('');
+    setAdgroupFilter('');
+    setAdFilter('');
+  }, []);
+
+  const applyReportResult = useCallback((nextResult: ReportParseResult | null) => {
+    setResult(nextResult);
+    setActiveTab('total');
+    setCampaignFilter('');
+    setAdgroupFilter('');
+    setAdFilter('');
+    if (!nextResult) {
+      setPeriodStart('');
+      setPeriodEnd('');
+      return;
+    }
+    const range = recentSevenDayRange(nextResult.rows);
+    setPeriodStart(range.start);
+    setPeriodEnd(range.end);
+  }, []);
+
+  const loadBrandContext = useCallback(async (target: Brand | null) => {
+    setBrand(target);
+    if (!target) {
+      setDashboardTabs([]);
+      setDashboardTab(null);
+      setKpi(emptyKpi);
+      resetReportState();
+      return;
+    }
+
+    const loadedTabs = await listTabs(target.id);
+    const nextTab = loadedTabs[0] || null;
+    setDashboardTabs(loadedTabs);
+    setDashboardTab(nextTab);
+    if (!nextTab) {
+      setKpi(emptyKpi);
+      resetReportState();
+      return;
+    }
+
+    const [loadedKpi, loadedReportFiles] = await Promise.all([
+      getKpi(target.id, nextTab.id),
+      listReportFiles(target.id, nextTab.id)
+    ]);
+    setKpi(loadedKpi);
+    setReportFiles(loadedReportFiles);
+    const firstFile = loadedReportFiles[0] || null;
+    setSelectedReportFileId(firstFile?.id || '');
+    applyReportResult(firstFile?.result || null);
+  }, [applyReportResult, resetReportState]);
+
+  const selectBrand = useCallback(async (brandId: string) => {
+    const target = brands.find(item => item.id === brandId) || null;
+    try {
+      await loadBrandContext(target);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }, [brands, loadBrandContext]);
+
+  const reloadReportFiles = useCallback(async () => {
+    if (!brand || !dashboardTab) return;
+    const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
+    setReportFiles(loadedReportFiles);
+    const selected = loadedReportFiles.find(file => file.id === selectedReportFileId) || loadedReportFiles[0] || null;
+    setSelectedReportFileId(selected?.id || '');
+    applyReportResult(selected?.result || null);
+  }, [applyReportResult, brand, dashboardTab, selectedReportFileId]);
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+
+    (async () => {
+      try {
+        await completeRedirectLogin();
+      } catch (err) {
+        setAuthError(firebaseAuthErrorMessage(err));
+      }
+
+      unsub = onAuthStateChanged(auth, async current => {
+        try {
+          setUser(current);
+          const admin = current ? await isAdminEmail(current.email) : false;
+          setIsAdmin(admin);
+          const shareToken = new URL(window.location.href).searchParams.get('share');
+
+          if (admin) {
+            const list = await listBrandsForAdmin();
+            setBrands(list);
+            await loadBrandContext(list[0] || null);
+          } else if (shareToken) {
+            const found = await findBrandByShareToken(shareToken);
+            setBrands(found ? [found] : []);
+            await loadBrandContext(found);
+          } else {
+            await loadBrandContext(null);
+          }
+        } catch (err) {
+          setAuthError(firebaseAuthErrorMessage(err));
+        } finally {
+          setLoading(false);
+        }
+      });
+    })();
+
+    return () => unsub?.();
+  }, [loadBrandContext]);
 
   const dates = useMemo(() => {
     const list = result?.rows.map(row => row.date).filter(Boolean).sort() || [];
@@ -110,18 +260,29 @@ export default function ReportLabPage() {
   }, [dates.max, dates.min, filteredRows, periodEnd, periodStart, result]);
 
   async function handleFile(file: File) {
+    if (!brand || !dashboardTab || !isAdmin) {
+      setError('파일 저장을 위해서는 관리자 로그인과 브랜드 선택이 필요합니다.');
+      return;
+    }
     setBusy('RAW 데이터를 읽는 중입니다...');
     setError('');
     try {
       const parsed = await loadReportFromXlsx(file, exchangeRate);
-      setResult(parsed);
       const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
-      setPeriodStart(detectedDates[0] || '');
-      setPeriodEnd(detectedDates[detectedDates.length - 1] || '');
-      setActiveTab('total');
-      setCampaignFilter('');
-      setAdgroupFilter('');
-      setAdFilter('');
+      const savedId = await saveReportFile(brand.id, dashboardTab.id, {
+        filename: file.name,
+        fileSize: file.size,
+        dateStart: detectedDates[0] || '',
+        dateEnd: detectedDates[detectedDates.length - 1] || '',
+        rowCount: parsed.rows.length,
+        exchangeRate,
+        result: parsed,
+        createdAt: Date.now()
+      });
+      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
+      setReportFiles(loadedReportFiles);
+      setSelectedReportFileId(savedId);
+      applyReportResult(loadedReportFiles.find(item => item.id === savedId)?.result || parsed);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -129,28 +290,85 @@ export default function ReportLabPage() {
     }
   }
 
+  async function saveKpiFlow(next: Kpi) {
+    if (!brand || !dashboardTab) return;
+    await saveKpi(brand.id, dashboardTab.id, next);
+    setKpi(next);
+    setSettings('none');
+  }
+
+  async function addBrandFlow() {
+    const name = prompt('새 브랜드 이름을 입력하세요.');
+    if (!name) return;
+    try {
+      const created = await createBrand(name, randomBrandColor());
+      const list = await listBrandsForAdmin();
+      setBrands(list);
+      await loadBrandContext(created);
+    } catch (err) {
+      alert(errorMessage(err));
+    }
+  }
+
+  async function updateBrandFlow(brandId: string, patch: { name?: string; color?: string; metaAdAccountId?: string }) {
+    try {
+      await updateBrand(brandId, patch);
+      const list = await listBrandsForAdmin();
+      setBrands(list);
+      const updated = list.find(item => item.id === brandId);
+      if (updated && brand?.id === brandId) setBrand(updated);
+    } catch (err) {
+      alert(errorMessage(err));
+    }
+  }
+
+  if (loading) return <Empty message="보고서 데이터를 불러오는 중입니다." />;
+
   return (
     <div>
       <header className="header">
         <div className="header-left">
           <Link className="header-logo" href="/">GFU<span>Dash</span></Link>
-          <span className="badge">보고서 생성</span>
+          {isAdmin && (
+            <select className="header-select" value={brand?.id || ''} onChange={event => selectBrand(event.target.value)}>
+              <option value="">브랜드 선택</option>
+              {brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          )}
+          {!isAdmin && brand && <span className="badge">{brand.name}</span>}
         </div>
         <div className="header-actions">
+          {!user
+            ? <button className="btn outline" onClick={async () => {
+                setAuthError('');
+                try { await signInWithGoogleSafe(); }
+                catch (err) { setAuthError(firebaseAuthErrorMessage(err)); }
+              }}>Google 로그인</button>
+            : <button className="btn ghost" onClick={logout}>로그아웃</button>}
           <Link className="btn ghost" href="/">대시보드</Link>
-          <label className="btn brand">
-            RAW 업로드
-            <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
-          </label>
+          {isAdmin && brand && <button className="btn ghost" onClick={() => setSettings('brand')}>설정</button>}
+          {brand && <button className="btn ghost" onClick={() => navigator.clipboard.writeText(`${location.origin}/report-lab?share=${brand.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}>공유</button>}
+          {isAdmin && brand && dashboardTab && (
+            <label className="btn brand">
+              RAW 업로드
+              <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
+            </label>
+          )}
         </div>
       </header>
 
+      {!brand ? (
+        <Empty
+          message={isAdmin ? '브랜드를 선택하거나 새 브랜드를 추가해주세요.' : '공유 링크로 접속하거나 관리자 로그인을 해주세요.'}
+          action={isAdmin ? <button className="btn brand" onClick={addBrandFlow}>브랜드 추가</button> : null}
+        />
+      ) : (
       <main>
         <div className="sub-header">
           <div className="sub-header-title">
             <div className="sub-header-eyebrow">캠페인 보고서 생성</div>
-            <b>JP 캠페인 주간/일간 보고서</b>
-            <small>{result ? `${result.fileName} · ${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : '현재는 XLSX 업로드 방식으로 생성합니다.'}</small>
+            <b>{brand.name}</b>
+            <small>{result ? `${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : '현재는 XLSX 업로드 방식으로 생성합니다.'}</small>
           </div>
           <div className="period">
             <span>기간</span>
@@ -196,6 +414,24 @@ export default function ReportLabPage() {
               </>
             )}
           </div>
+
+          {reportFiles.length > 0 && (
+            <div className="file-chips report-file-chips">
+              {reportFiles.map(file => (
+                <button
+                  key={file.id}
+                  className={`chip ${selectedReportFileId === file.id ? 'active' : ''}`}
+                  onClick={() => {
+                    setSelectedReportFileId(file.id);
+                    applyReportResult(file.result);
+                  }}
+                  title={`${file.dateStart || '-'} ~ ${file.dateEnd || '-'} · ${file.rowCount.toLocaleString()}행`}
+                >
+                  {file.filename}
+                </button>
+              ))}
+            </div>
+          )}
 
           {result && (
             <div className="filter-bar report-dimension-controls">
@@ -246,27 +482,56 @@ export default function ReportLabPage() {
           {error && <div className="warn">{error}</div>}
 
           {!result || !reportView ? (
-            <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} />
+            <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} canUpload={Boolean(isAdmin && brand && dashboardTab)} />
           ) : (
             <>
+              <KpiGrid total={reportSummaryToStatRow(reportView.current.total)} kpi={kpi} />
               {activeTab === 'total' && <TotalPerformance result={result} view={reportView} allRows={filteredRows} />}
               {activeTab === 'daily' && <DailyReport view={reportView} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} />}
               {activePromotion && <PromotionDetailReport title={activePromotion.label} view={reportView} allRows={filteredRows} />}
               {activeTab === 'summary' && <SummaryReport view={reportView} />}
-              {activeTab === 'diagnostics' && <Diagnostics result={result} />}
             </>
           )}
         </div>
       </main>
+      )}
 
       {busy && <div className="busy">{busy}</div>}
+      {authError && (
+        <div className="modal">
+          <div className="modal-card" style={{ maxWidth: 480 }}>
+            <h3>로그인 오류</h3>
+            <p style={{ whiteSpace: 'pre-wrap', color: 'var(--c-warn)', lineHeight: 1.6 }}>{authError}</p>
+            <div className="modal-actions">
+              <button className="btn brand" onClick={() => setAuthError('')}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {settings !== 'none' && brand && (
+        <SettingsModal
+          mode={settings}
+          setMode={setSettings}
+          brand={brand}
+          tab={dashboardTab}
+          brands={brands}
+          tabs={dashboardTabs}
+          kpi={kpi}
+          saveKpi={saveKpiFlow}
+          reload={reloadReportFiles}
+          addBrand={addBrandFlow}
+          refreshBrands={async () => setBrands(await listBrandsForAdmin())}
+          onUpdateBrand={updateBrandFlow}
+          sharePath="/report-lab"
+        />
+      )}
     </div>
   );
 }
 
-function EmptyUpload({ onFile, busy, exchangeRate }: { onFile: (file: File) => void; busy: string; exchangeRate: number }) {
+function EmptyUpload({ onFile, busy, exchangeRate, canUpload }: { onFile: (file: File) => void; busy: string; exchangeRate: number; canUpload: boolean }) {
   return (
     <section className="section report-empty-state">
       <div>
@@ -278,10 +543,14 @@ function EmptyUpload({ onFile, busy, exchangeRate }: { onFile: (file: File) => v
           XLSX RAW 파일을 업로드하면 컬럼을 자동으로 탐지하고 보고서 출력에 필요한 표준 데이터로 변환합니다.
           추후 Meta API도 같은 보고서 구조에 연결할 예정입니다.
         </p>
-        <label className="btn brand">
-          {busy || 'RAW 파일 선택'}
-          <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && onFile(event.target.files[0])} />
-        </label>
+        {canUpload ? (
+          <label className="btn brand">
+            {busy || 'RAW 파일 선택'}
+            <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && onFile(event.target.files[0])} />
+          </label>
+        ) : (
+          <span className="muted">관리자 로그인 후 브랜드를 선택하면 RAW 파일을 저장할 수 있습니다.</span>
+        )}
       </div>
     </section>
   );
@@ -395,16 +664,6 @@ function SummaryReport({ view }: { view: ReportView }) {
       <SummaryCards total={view.current.total} />
       <SummaryTable title="주차별 예산 요약" rows={view.current.byWeek} previousRows={view.previous.byWeek} limit={36} showComparisonRows sortByLabel />
       <SummaryTable title="프로모션별 채널 요약" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} showComparisonRows />
-    </>
-  );
-}
-
-function Diagnostics({ result }: { result: ReportParseResult }) {
-  return (
-    <>
-      <ValidationPanel issues={result.issues} />
-      <ColumnPanel result={result} />
-      <PreviewTable result={result} />
     </>
   );
 }
@@ -579,120 +838,6 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
                 <td>{formatReportValue(row.key, row.previous)}</td>
                 <td className={trendClass(row.delta)}>{formatReportValue(row.key, row.delta)}</td>
                 <td className={trendClass(row.deltaRate)}>{formatSignedPercent(row.deltaRate)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function ValidationPanel({ issues }: { issues: DataQualityIssue[] }) {
-  return (
-    <section className="section">
-      <div className="section-head">
-        <b>데이터 진단 결과</b>
-        <span className="muted">{issues.length.toLocaleString()}개 항목</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>수준</th>
-              <th>코드</th>
-              <th>내용</th>
-              <th>건수</th>
-              <th>예시 행</th>
-            </tr>
-          </thead>
-          <tbody>
-            {issues.map(issue => (
-              <tr key={issue.code}>
-                <td><span className={`issue-pill ${issue.level}`}>{formatIssueLevel(issue.level)}</span></td>
-                <td>{issue.code}</td>
-                <td>{issue.message}</td>
-                <td>{issue.count ?? '-'}</td>
-                <td>{issue.examples?.join(', ') || '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function ColumnPanel({ result }: { result: ReportParseResult }) {
-  return (
-    <section className="section">
-      <div className="section-head">
-        <b>탐지된 컬럼</b>
-        <span className="muted">헤더 행 {result.sheet.headerRowIndex + 1}, 점수 {result.sheet.score.toFixed(1)}</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>표준 필드</th>
-              <th>탐지된 헤더</th>
-              <th>컬럼</th>
-              <th>신뢰도</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.detections.map(column => (
-              <tr key={column.key}>
-                <td>{fieldLabel(column.key)}</td>
-                <td>{column.header}</td>
-                <td>{column.index + 1}</td>
-                <td>{confidenceLabel(column.confidence)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function PreviewTable({ result }: { result: ReportParseResult }) {
-  const rows = result.preview;
-  return (
-    <section className="section">
-      <div className="section-head">
-        <b>표준화 RAW 미리보기</b>
-        <span className="muted">표준화 후 첫 {rows.length}개 행</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>날짜</th>
-              <th>프로모션</th>
-              <th>캠페인</th>
-              <th>소재</th>
-              <th>광고비</th>
-              <th>매출</th>
-              <th>노출</th>
-              <th>클릭</th>
-              <th>전환</th>
-              <th>ROAS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(row => (
-              <tr key={`${row.sourceRowNumber}-${row.adName}`}>
-                <td>{row.date || '-'}</td>
-                <td>{row.promotion}</td>
-                <td title={row.campaignName}>{trim(row.campaignName)}</td>
-                <td title={row.adName}>{trim(row.adName)}</td>
-                <td>{formatCurrency(row.costKrw)}</td>
-                <td>{formatCurrency(row.salesKrw)}</td>
-                <td>{formatInteger(row.impressions)}</td>
-                <td>{formatInteger(row.clicks)}</td>
-                <td>{formatInteger(row.conversions)}</td>
-                <td>{row.roas.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>
@@ -1076,6 +1221,30 @@ function formatComparisonLabel(view: ReportView): string {
 function latestReportDate(rows: NormalizedReportRow[]): string {
   const dates = rows.map(row => row.date).filter(Boolean).sort();
   return dates[dates.length - 1] || '';
+}
+
+function recentSevenDayRange(rows: NormalizedReportRow[]): { start: string; end: string } {
+  const dates = rows.map(row => row.date).filter(Boolean).sort();
+  const min = dates[0] || '';
+  const end = dates[dates.length - 1] || '';
+  if (!end) return { start: '', end: '' };
+  const recentStart = toIsoDate(addDays(parseIsoDate(end), -6));
+  return { start: min && recentStart < min ? min : recentStart, end };
+}
+
+function reportSummaryToStatRow(total: ReportSummary): StatRow {
+  const cpm = total.impressions ? (total.spend / total.impressions) * 1000 : 0;
+  return {
+    key: total.key || 'report-total',
+    spend: total.spend,
+    impression: total.impressions,
+    click: total.clicks,
+    landingPageView: 0,
+    ctr: total.ctr,
+    cpm,
+    cpc: total.cpc,
+    roas: total.roas
+  };
 }
 
 function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: string): RecentWeeklyData {
@@ -1486,41 +1655,4 @@ function DiffCell({ current, previous, inverse = false }: { current: number; pre
 
 function trim(value: string, max = 32): string {
   return value.length > max ? `${value.slice(0, max - 1)}...` : value;
-}
-
-function formatIssueLevel(level: DataQualityIssue['level']): string {
-  if (level === 'error') return '오류';
-  if (level === 'warning') return '주의';
-  return '정보';
-}
-
-function confidenceLabel(confidence: 'exact' | 'alias' | 'fuzzy'): string {
-  if (confidence === 'exact') return '정확';
-  if (confidence === 'alias') return '별칭';
-  return '유사';
-}
-
-function fieldLabel(key: string): string {
-  const labels: Record<string, string> = {
-    date: '날짜',
-    brand: '브랜드',
-    media: '매체',
-    promotion: '프로모션',
-    campaignName: '캠페인',
-    adgroupName: '광고그룹',
-    adName: '소재',
-    impressions: '노출',
-    clicks: '클릭',
-    conversions: '전환',
-    costJpy: '광고비 JPY',
-    costKrw: '광고비 KRW',
-    grossCostKrw: '광고비 Gross',
-    salesJpy: '매출 JPY',
-    salesKrw: '매출 KRW',
-    addToCart: '장바구니',
-    registration: '회원가입',
-    lead: 'Lead',
-    order: '주문'
-  };
-  return labels[key] || key;
 }

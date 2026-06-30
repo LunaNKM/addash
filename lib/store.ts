@@ -13,7 +13,8 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi } from './types';
+import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi, ReportFileDoc } from './types';
+import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 
 export const emptyKpi: Kpi = {
   spendGoal: 0,
@@ -143,6 +144,8 @@ export async function deleteTab(brandId: string, tabId: string, opts: { allowLas
   if (!opts.allowLast && tabs.length <= 1) throw new Error('마지막 탭은 삭제할 수 없습니다.');
   const files = await listFiles(brandId, tabId);
   for (const file of files) await deleteFile(brandId, tabId, file.id);
+  const reportFiles = await listReportFiles(brandId, tabId);
+  for (const file of reportFiles) await deleteReportFile(brandId, tabId, file.id);
   const insights = await listInsights(brandId, tabId);
   for (const insight of insights) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'insights', insight.id));
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'kpi', 'default'));
@@ -173,6 +176,46 @@ export async function saveFile(brandId: string, tabId: string, file: Omit<FileDo
 
 export async function deleteFile(brandId: string, tabId: string, fileId: string) {
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'files', fileId));
+}
+
+export async function listReportFiles(brandId: string, tabId: string): Promise<ReportFileDoc[]> {
+  const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles'), orderBy('createdAt', 'desc')));
+  return Promise.all(snap.docs.map(d => normalizeReportFile(d.id, brandId, tabId, d.data())));
+}
+
+export async function saveReportFile(brandId: string, tabId: string, file: Omit<ReportFileDoc, 'id'>) {
+  const sameName = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles'), where('filename', '==', file.filename), limit(1)));
+  for (const d of sameName.docs) await deleteReportFile(brandId, tabId, d.id);
+
+  const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles'));
+  const rows = stripReportRows(file.result.rows);
+  const chunks = chunk(rows, 250);
+  const resultMeta: ReportParseResult = { ...file.result, rows: [], preview: [] };
+  await setDoc(ref, cleanFirestoreData({ ...file, result: resultMeta, chunkCount: chunks.length }));
+
+  for (let index = 0; index < chunks.length; index += 450) {
+    const batch = writeBatch(db);
+    chunks.slice(index, index + 450).forEach((rowsChunk, offset) => {
+      const chunkIndex = index + offset;
+      batch.set(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', ref.id, 'chunks', String(chunkIndex).padStart(4, '0')), {
+        index: chunkIndex,
+        rows: rowsChunk
+      });
+    });
+    await batch.commit();
+  }
+
+  return ref.id;
+}
+
+export async function deleteReportFile(brandId: string, tabId: string, fileId: string) {
+  const chunks = await getDocs(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId, 'chunks'));
+  for (let index = 0; index < chunks.docs.length; index += 450) {
+    const batch = writeBatch(db);
+    chunks.docs.slice(index, index + 450).forEach(chunkDoc => batch.delete(chunkDoc.ref));
+    await batch.commit();
+  }
+  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId));
 }
 
 export async function listInsights(brandId: string, tabId: string): Promise<InsightDoc[]> {
@@ -249,6 +292,45 @@ function normalizeFile(id: string, data: Record<string, unknown>): FileDoc {
   };
 }
 
+async function normalizeReportFile(id: string, brandId: string, tabId: string, data: Record<string, unknown>): Promise<ReportFileDoc> {
+  const chunksSnap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', id, 'chunks'), orderBy('index', 'asc')));
+  const rows = chunksSnap.docs.flatMap(chunkDoc => {
+    const chunkData = chunkDoc.data() as { rows?: NormalizedReportRow[] };
+    return Array.isArray(chunkData.rows) ? chunkData.rows : [];
+  });
+  const result = data.result as ReportParseResult | undefined;
+  const safeResult: ReportParseResult = {
+    fileName: String(result?.fileName || data.filename || ''),
+    sheet: result?.sheet || {
+      sheetName: '',
+      headerRowIndex: 0,
+      rowCount: rows.length,
+      score: 0,
+      columns: {},
+      missingRequired: [],
+      missingRecommended: []
+    },
+    detections: Array.isArray(result?.detections) ? result.detections : [],
+    rows,
+    preview: rows.slice(0, 12),
+    issues: Array.isArray(result?.issues) ? result.issues : [],
+    exchangeRate: Number(result?.exchangeRate || data.exchangeRate || 0),
+    generatedAt: Number(result?.generatedAt || data.createdAt || 0)
+  };
+
+  return {
+    id,
+    filename: String(data.filename || safeResult.fileName || ''),
+    fileSize: Number(data.fileSize || 0),
+    dateStart: String(data.dateStart || ''),
+    dateEnd: String(data.dateEnd || ''),
+    rowCount: Number(data.rowCount || rows.length || 0),
+    exchangeRate: Number(data.exchangeRate || safeResult.exchangeRate || 0),
+    result: safeResult,
+    createdAt: Number(data.createdAt || 0)
+  };
+}
+
 function normalizeInsight(id: string, data: Record<string, unknown>): InsightDoc {
   return {
     id,
@@ -262,6 +344,18 @@ function normalizeInsight(id: string, data: Record<string, unknown>): InsightDoc
 
 function normalizeStats(value: unknown): import('./types').StatRow[] {
   return Array.isArray(value) ? value.map((v, index) => normalizeStat(v as Record<string, unknown>, String(index))) : [];
+}
+
+function stripReportRows(rows: NormalizedReportRow[]): NormalizedReportRow[] {
+  return rows.map(row => ({ ...row, raw: {} }));
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function normalizeStat(data: Record<string, unknown> | undefined, fallbackKey: string): import('./types').StatRow {

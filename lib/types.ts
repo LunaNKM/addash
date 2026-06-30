@@ -1,3 +1,5 @@
+import type { ReportParseResult } from './report/reportTypes';
+
 export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'cpm' | 'cpc' | 'roas';
 
 export type Brand = {
@@ -77,6 +79,18 @@ export type FileDoc = {
   adsetDailyStats: StatRow[];
   detailStats: StatRow[];
   creativeStats: StatRow[];
+  createdAt: number;
+};
+
+export type ReportFileDoc = {
+  id: string;
+  filename: string;
+  fileSize: number;
+  dateStart: string;
+  dateEnd: string;
+  rowCount: number;
+  exchangeRate: number;
+  result: ReportParseResult;
   createdAt: number;
 };
 

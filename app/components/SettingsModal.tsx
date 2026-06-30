@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { addAdmin, deleteBrand, deleteFile, listAdmins, listFiles, removeAdmin } from '@/lib/store';
+import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
-import type { Brand, DashboardTab, FileDoc, Kpi } from '@/lib/types';
+import type { Brand, DashboardTab, FileDoc, Kpi, ReportFileDoc } from '@/lib/types';
 import { darken, kpiLabel } from '@/lib/dashUtils';
 
 export type SettingsMode = 'none' | 'brand' | 'tab' | 'kpi' | 'admin' | 'file';
@@ -108,9 +108,24 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
 
 function FileSettings({ brand, tab, reload }: { brand: Brand; tab: DashboardTab; reload: () => Promise<void> }) {
   const [tabFiles, setTabFiles] = useState<FileDoc[]>([]);
-  useEffect(() => { listFiles(brand.id, tab.id).then(setTabFiles); }, [brand.id, tab.id]);
+  const [reportFiles, setReportFiles] = useState<ReportFileDoc[]>([]);
+
+  async function refreshFiles() {
+    const [dashboard, reports] = await Promise.all([
+      listFiles(brand.id, tab.id),
+      listReportFiles(brand.id, tab.id)
+    ]);
+    setTabFiles(dashboard);
+    setReportFiles(reports);
+  }
+
+  useEffect(() => { refreshFiles(); }, [brand.id, tab.id]);
+
   return (
     <div>
+      <div className="section-head" style={{ marginBottom: 8 }}>
+        <b>대시보드 파일</b>
+      </div>
       {tabFiles.map(file => (
         <div className="item" key={file.id}>
           <b style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{file.filename}</b>
@@ -118,16 +133,35 @@ function FileSettings({ brand, tab, reload }: { brand: Brand; tab: DashboardTab;
             if (confirm('삭제할까요?')) {
               await deleteFile(brand.id, tab.id, file.id);
               await reload();
-              setTabFiles(await listFiles(brand.id, tab.id));
+              await refreshFiles();
             }
           }}>삭제</button>
         </div>
       ))}
+      {!tabFiles.length && <p className="muted">저장된 대시보드 파일이 없습니다.</p>}
+
+      <div className="section-head" style={{ margin: '18px 0 8px' }}>
+        <b>보고서 RAW 파일</b>
+      </div>
+      {reportFiles.map(file => (
+        <div className="item" key={file.id}>
+          <b style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{file.filename}</b>
+          <span className="muted">{file.dateStart || '-'} ~ {file.dateEnd || '-'} · {file.rowCount.toLocaleString()}행</span>
+          <button onClick={async () => {
+            if (confirm('삭제할까요?')) {
+              await deleteReportFile(brand.id, tab.id, file.id);
+              await reload();
+              await refreshFiles();
+            }
+          }}>삭제</button>
+        </div>
+      ))}
+      {!reportFiles.length && <p className="muted">저장된 보고서 RAW 파일이 없습니다.</p>}
     </div>
   );
 }
 
-export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, saveKpi: onSaveKpi, reload, addBrand, refreshBrands, onUpdateBrand }: {
+export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, saveKpi: onSaveKpi, reload, addBrand, refreshBrands, onUpdateBrand, sharePath = '' }: {
   mode: SettingsMode;
   setMode: (v: SettingsMode) => void;
   brand: Brand;
@@ -140,6 +174,7 @@ export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, sa
   addBrand: () => Promise<void>;
   refreshBrands: () => Promise<void>;
   onUpdateBrand: (brandId: string, patch: { name?: string; color?: string; metaAdAccountId?: string }) => Promise<void>;
+  sharePath?: string;
 }) {
   const [draft, setDraft] = useState<Kpi>(kpi);
   const [admins, setAdmins] = useState<Array<{ email: string; primary?: boolean }>>([]);
@@ -166,7 +201,7 @@ export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, sa
               <BrandEditorRow
                 key={item.id}
                 brand={item}
-                onCopyShare={() => navigator.clipboard.writeText(`${location.origin}?share=${item.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}
+                onCopyShare={() => navigator.clipboard.writeText(`${location.origin}${sharePath}?share=${item.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}
                 onDelete={async () => {
                   if (prompt(`삭제하려면 ${item.name} 입력`) === item.name) {
                     await deleteBrand(item.id);
