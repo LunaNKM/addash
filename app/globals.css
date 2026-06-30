@@ -161,6 +161,9 @@ th,
   font-variant-numeric: tabular-nums;
 }
 
+.diff-up { color: var(--c-danger) !important; font-weight: 800; }
+.diff-down { color: #2563EB !important; font-weight: 800; }
+
 /* ─────────────────────────────────────────────────────────────
    HEADER
    ───────────────────────────────────────────────────────────── */
@@ -2133,6 +2136,23 @@ td[title], .legend-row[title], .donut-legend div[title] {
   padding: 0 10px;
 }
 
+.report-period-badge {
+  order: 2;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--c-ink);
+  color: var(--c-ink-inv);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
 .report-source-tabs {
   display: inline-flex;
   gap: 2px;
@@ -2271,6 +2291,15 @@ td[title], .legend-row[title], .donut-legend div[title] {
   font-size: 13px;
   font-weight: 750;
   letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.report-band-title .report-period-badge {
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .report-chart-wrap {
@@ -2378,6 +2407,53 @@ td[title], .legend-row[title], .donut-legend div[title] {
 
 .report-diff-row td:first-child {
   font-style: italic;
+  font-size: 0 !important;
+}
+
+.report-diff-row td:first-child::after {
+  content: 'PoP Diff';
+  font-size: 12px;
+}
+
+.report-total-row td {
+  background: var(--c-ink);
+  color: var(--c-ink-inv);
+  font-weight: 850;
+}
+
+.report-total-row td:first-child {
+  letter-spacing: 0.02em;
+}
+
+.report-month-row td {
+  background: var(--c-bg-muted);
+  font-weight: 800;
+}
+
+.report-month-toggle {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.report-month-toggle span {
+  min-width: 42px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border);
+  color: var(--c-ink-2);
+  font-size: 10.5px;
+  font-weight: 750;
 }
 
 .issue-pill {

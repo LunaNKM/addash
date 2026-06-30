@@ -249,7 +249,7 @@ export default function ReportLabPage() {
             <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} />
           ) : (
             <>
-              {activeTab === 'total' && <TotalPerformance result={result} view={reportView} />}
+              {activeTab === 'total' && <TotalPerformance result={result} view={reportView} allRows={filteredRows} />}
               {activeTab === 'daily' && <DailyReport view={reportView} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} />}
@@ -287,11 +287,17 @@ function EmptyUpload({ onFile, busy, exchangeRate }: { onFile: (file: File) => v
   );
 }
 
-function TotalPerformance({ result, view }: { result: ReportParseResult; view: ReportView }) {
+function TotalPerformance({ result, view, allRows }: { result: ReportParseResult; view: ReportView; allRows: NormalizedReportRow[] }) {
+  const comparisonLabel = formatComparisonLabel(view);
+  const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
+  const weekly = buildRecentWeeklySummaries(allRows, latestDate);
+  const yearlyDaily = buildYearDailyGroups(allRows, latestDate);
+
   return (
     <>
       <section className="section">
         <div className="section-head">
+          <PeriodBadge label={comparisonLabel} />
           <b>보고서 상태</b>
           <span className="muted">{view.currentPeriod.label} 대비 {view.previousPeriod.label}</span>
         </div>
@@ -304,11 +310,11 @@ function TotalPerformance({ result, view }: { result: ReportParseResult; view: R
         </div>
       </section>
       <SummaryCards total={view.current.total} />
-      <DailyToplineChart rows={view.current.byDaily} />
-      <SummaryTable title="일별 성과" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
-      <ComparisonTable rows={view.comparison} />
-      <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows />
-      <SummaryTable title="주차별 성과" rows={view.current.byWeek} previousRows={view.previous.byWeek} limit={24} showComparisonRows sortByLabel />
+      <DailyToplineChart rows={view.current.byDaily} comparisonLabel={comparisonLabel} />
+      <ComparisonTable rows={view.comparison} comparisonLabel={comparisonLabel} />
+      <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows comparisonLabel={comparisonLabel} />
+      <RecentWeeklyPerformanceTable data={weekly} comparisonLabel={comparisonLabel} />
+      <YearDailyPerformanceTable data={yearlyDaily} comparisonLabel={comparisonLabel} />
     </>
   );
 }
@@ -419,13 +425,13 @@ function SummaryCards({ total }: { total: ReportSummary }) {
   );
 }
 
-function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
+function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; comparisonLabel?: string }) {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; row: ReportSummary } | null>(null);
   const sorted = [...rows].filter(row => row.key !== '날짜 없음').sort((a, b) => a.label.localeCompare(b.label));
   if (!sorted.length) {
     return (
       <section className="section report-chart-section">
-        <div className="report-band-title">Daily Topline</div>
+        <div className="report-band-title"><span>Daily Topline</span><PeriodBadge label={comparisonLabel || ''} /></div>
         <div className="chart-empty">표시할 일자별 데이터가 없습니다.</div>
       </section>
     );
@@ -450,7 +456,7 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
   const robustRateMax = Math.max(0.01, p90Rate * 1.35, p75Rate * 2);
   const rateMax = rawRateMax > robustRateMax * 1.5 ? robustRateMax : rawRateMax;
   const slot = chartWidth / Math.max(sorted.length, 1);
-  const barWidth = Math.min(16, Math.max(5, slot * 0.22));
+  const barWidth = Math.min(22, Math.max(7, slot * 0.36));
   const yMoney = (value: number) => top + chartHeight - (value / moneyMax) * chartHeight;
   const yRate = (value: number) => top + chartHeight - (Math.min(value, rateMax) / rateMax) * chartHeight;
   const xCenter = (index: number) => left + slot * index + slot / 2;
@@ -461,7 +467,7 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
 
   return (
     <section className="section report-chart-section">
-      <div className="report-band-title">Daily Topline</div>
+      <div className="report-band-title"><span>Daily Topline</span><PeriodBadge label={comparisonLabel || ''} /></div>
       <div className="report-chart-wrap" onMouseLeave={() => setTooltip(null)}>
         {tooltip && (
           <div className="report-chart-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
@@ -492,8 +498,8 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
             const salesHeight = top + chartHeight - yMoney(row.sales);
             return (
               <g key={row.key}>
-                <rect x={x - barWidth - 2} y={yMoney(row.spend)} width={barWidth} height={Math.max(0, spendHeight)} rx="2" fill="var(--chart-1)" />
-                <rect x={x + 2} y={yMoney(row.sales)} width={barWidth} height={Math.max(0, salesHeight)} rx="2" fill="var(--chart-3)" />
+                <rect x={x - barWidth} y={yMoney(row.spend)} width={barWidth} height={Math.max(0, spendHeight)} rx="2" fill="var(--chart-1)" />
+                <rect x={x} y={yMoney(row.sales)} width={barWidth} height={Math.max(0, salesHeight)} rx="2" fill="var(--chart-3)" />
                 {index % dateTickEvery === 0 && (
                   <text x={x} y={height - 18} textAnchor="end" className="report-chart-date" transform={`rotate(-45 ${x} ${height - 18})`}>
                     {row.label}
@@ -532,10 +538,11 @@ function DailyToplineChart({ rows }: { rows: ReportSummary[] }) {
   );
 }
 
-function ComparisonTable({ rows }: { rows: ReportComparisonMetric[] }) {
+function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetric[]; comparisonLabel?: string }) {
   return (
     <section className="section">
       <div className="section-head">
+        <PeriodBadge label={comparisonLabel || ''} />
         <b>기간 비교</b>
         <span className="muted">선택 기간과 직전 동일 길이 기간을 비교합니다.</span>
       </div>
@@ -556,8 +563,8 @@ function ComparisonTable({ rows }: { rows: ReportComparisonMetric[] }) {
                 <td>{row.label}</td>
                 <td>{formatReportValue(row.key, row.current)}</td>
                 <td>{formatReportValue(row.key, row.previous)}</td>
-                <td className={row.delta >= 0 ? 'diff-up' : 'diff-down'}>{formatReportValue(row.key, row.delta)}</td>
-                <td className={row.delta >= 0 ? 'diff-up' : 'diff-down'}>{formatSignedPercent(row.deltaRate)}</td>
+                <td className={trendClass(row.delta)}>{formatReportValue(row.key, row.delta)}</td>
+                <td className={trendClass(row.deltaRate)}>{formatSignedPercent(row.deltaRate)}</td>
               </tr>
             ))}
           </tbody>
@@ -681,13 +688,172 @@ function PreviewTable({ result }: { result: ReportParseResult }) {
   );
 }
 
+type RecentWeeklyData = {
+  rows: ReportSummary[];
+  total: ReportSummary;
+  start: string;
+  end: string;
+};
+
+type YearDailyGroup = {
+  key: string;
+  label: string;
+  isCurrentMonth: boolean;
+  total: ReportSummary;
+  days: ReportSummary[];
+};
+
+type YearDailyData = {
+  year: number;
+  latestDate: string;
+  total: ReportSummary;
+  groups: YearDailyGroup[];
+};
+
+function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentWeeklyData; comparisonLabel?: string }) {
+  return (
+    <section className="section">
+      <div className="section-head">
+        <b>주차별 성과</b>
+        <PeriodBadge label={comparisonLabel || ''} />
+        <span className="muted">최근 3개월 · {data.start || '-'} ~ {data.end || '-'}</span>
+      </div>
+      <div className="table-wrap sticky-detail">
+        <table>
+          <thead>
+            <tr>
+              <th>주차</th>
+              <MetricHeaders />
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="report-total-row">
+              <td>TOTAL</td>
+              <MetricCells row={data.total} />
+            </tr>
+            {data.rows.map(row => (
+              <tr key={row.key}>
+                <td>{row.label}</td>
+                <MetricCells row={row} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function YearDailyPerformanceTable({ data, comparisonLabel }: { data: YearDailyData; comparisonLabel?: string }) {
+  const defaultOpen = useMemo(() => new Set(data.groups.filter(group => group.isCurrentMonth).map(group => group.key)), [data.groups]);
+  const [openMonths, setOpenMonths] = useState(defaultOpen);
+
+  useEffect(() => {
+    setOpenMonths(defaultOpen);
+  }, [defaultOpen]);
+
+  function toggleMonth(key: string) {
+    setOpenMonths(current => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <section className="section">
+      <div className="section-head">
+        <b>일별 성과</b>
+        <PeriodBadge label={comparisonLabel || ''} />
+        <span className="muted">{data.year || '-'}년 전체 · 최신 {data.latestDate || '-'}</span>
+      </div>
+      <div className="table-wrap sticky-detail">
+        <table>
+          <thead>
+            <tr>
+              <th>일자</th>
+              <MetricHeaders />
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="report-total-row">
+              <td>{data.year || '-'} TOTAL</td>
+              <MetricCells row={data.total} />
+            </tr>
+            {data.groups.map(group => {
+              const isOpen = openMonths.has(group.key);
+              return (
+                <React.Fragment key={group.key}>
+                  <tr className="report-month-row">
+                    <td>
+                      <button type="button" className="report-month-toggle" onClick={() => toggleMonth(group.key)}>
+                        <span>{isOpen ? '접기' : '펼치기'}</span>
+                        <b>{group.label} TOTAL</b>
+                      </button>
+                    </td>
+                    <MetricCells row={group.total} />
+                  </tr>
+                  {isOpen && group.days.map(day => (
+                    <tr key={day.key}>
+                      <td>{day.label}</td>
+                      <MetricCells row={day} />
+                    </tr>
+                  ))}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function MetricHeaders() {
+  return (
+    <>
+      <th>광고비</th>
+      <th>매출</th>
+      <th>노출</th>
+      <th>클릭</th>
+      <th>전환</th>
+      <th>장바구니</th>
+      <th>CTR</th>
+      <th>CVR</th>
+      <th>CPC</th>
+      <th>CPA</th>
+      <th>ROAS</th>
+    </>
+  );
+}
+
+function MetricCells({ row }: { row: ReportSummary }) {
+  return (
+    <>
+      <td>{formatCurrency(row.spend)}</td>
+      <td>{formatCurrency(row.sales)}</td>
+      <td>{formatInteger(row.impressions)}</td>
+      <td>{formatInteger(row.clicks)}</td>
+      <td>{formatInteger(row.conversions)}</td>
+      <td>{formatInteger(row.addToCart)}</td>
+      <td>{formatPercent(row.ctr)}</td>
+      <td>{formatPercent(row.cvr)}</td>
+      <td>{formatCurrency(row.cpc)}</td>
+      <td>{formatCurrency(row.cpa)}</td>
+      <td>{row.roas.toFixed(2)}</td>
+    </>
+  );
+}
+
 function SummaryTable({
   title,
   rows,
   previousRows = [],
   limit,
   sortByLabel = false,
-  showComparisonRows = false
+  showComparisonRows = false,
+  comparisonLabel
 }: {
   title: string;
   rows: ReportSummary[];
@@ -695,12 +861,14 @@ function SummaryTable({
   limit: number;
   sortByLabel?: boolean;
   showComparisonRows?: boolean;
+  comparisonLabel?: string;
 }) {
   const previousByKey = new Map(previousRows.map(row => [row.key, row]));
   const displayRows = [...rows].sort((a, b) => sortByLabel ? a.label.localeCompare(b.label) : b.spend - a.spend || a.label.localeCompare(b.label));
   return (
     <section className="section">
       <div className="section-head">
+        <PeriodBadge label={comparisonLabel || ''} />
         <b>{title}</b>
         <span className="muted">총 {rows.length.toLocaleString()}개 그룹 중 {Math.min(rows.length, limit).toLocaleString()}개 표시</span>
       </div>
@@ -789,6 +957,165 @@ function SummaryTable({
   );
 }
 
+function PeriodBadge({ label }: { label: string }) {
+  if (!label) return null;
+  return <span className="report-period-badge">{label}</span>;
+}
+
+function formatComparisonLabel(view: ReportView): string {
+  return `${view.currentPeriod.label} 대비 ${view.previousPeriod.label}`;
+}
+
+function latestReportDate(rows: NormalizedReportRow[]): string {
+  const dates = rows.map(row => row.date).filter(Boolean).sort();
+  return dates[dates.length - 1] || '';
+}
+
+function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: string): RecentWeeklyData {
+  if (!latestDate) {
+    return { rows: [], total: summarizeReportRows('TOTAL', 'TOTAL', []), start: '', end: '' };
+  }
+  const latest = parseIsoDate(latestDate);
+  const start = new Date(latest.getFullYear(), latest.getMonth() - 2, 1);
+  const startIso = toIsoDate(start);
+  const scopedRows = rows.filter(row => row.date >= startIso && row.date <= latestDate);
+  const grouped = new Map<string, NormalizedReportRow[]>();
+
+  for (const row of scopedRows) {
+    const week = monthWeekLabel(row.date);
+    const list = grouped.get(week.key) || [];
+    list.push(row);
+    grouped.set(week.key, list);
+  }
+
+  return {
+    rows: [...grouped.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, list]) => summarizeReportRows(key, monthWeekLabel(list[0]?.date || '').label || key, list)),
+    total: summarizeReportRows('TOTAL', 'TOTAL', scopedRows),
+    start: startIso,
+    end: latestDate
+  };
+}
+
+function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): YearDailyData {
+  if (!latestDate) {
+    return { year: 0, latestDate: '', total: summarizeReportRows('TOTAL', 'TOTAL', []), groups: [] };
+  }
+  const latest = parseIsoDate(latestDate);
+  const year = latest.getFullYear();
+  const yearStart = `${year}-01-01`;
+  const rowsInYear = rows.filter(row => row.date >= yearStart && row.date <= latestDate);
+  const rowsByDate = new Map<string, NormalizedReportRow[]>();
+
+  for (const row of rowsInYear) {
+    const list = rowsByDate.get(row.date) || [];
+    list.push(row);
+    rowsByDate.set(row.date, list);
+  }
+
+  const groups: YearDailyGroup[] = [];
+  for (let month = 0; month <= latest.getMonth(); month += 1) {
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = month === latest.getMonth() ? latest : new Date(year, month + 1, 0);
+    const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const days: ReportSummary[] = [];
+
+    for (const date = new Date(monthStart); date <= monthEnd; date.setDate(date.getDate() + 1)) {
+      const iso = toIsoDate(date);
+      days.push(summarizeReportRows(iso, iso, rowsByDate.get(iso) || []));
+    }
+
+    groups.push({
+      key,
+      label: `${month + 1}월`,
+      isCurrentMonth: month === latest.getMonth(),
+      total: summarizeReportRows(`${key}-TOTAL`, `${month + 1}월 TOTAL`, rowsInYear.filter(row => row.date.startsWith(key))),
+      days
+    });
+  }
+
+  return {
+    year,
+    latestDate,
+    total: summarizeReportRows('YEAR-TOTAL', `${year} TOTAL`, rowsInYear),
+    groups
+  };
+}
+
+function monthWeekLabel(value: string): { key: string; label: string } {
+  if (!value) return { key: 'date-missing', label: '일자 없음' };
+  const date = parseIsoDate(value);
+  const month = date.getMonth() + 1;
+  const week = Math.ceil(date.getDate() / 7);
+  return {
+    key: `${date.getFullYear()}-${String(month).padStart(2, '0')}-W${String(week).padStart(2, '0')}`,
+    label: `${month}월 ${week}주차`
+  };
+}
+
+function summarizeReportRows(key: string, label: string, rows: NormalizedReportRow[]): ReportSummary {
+  const summary = rows.reduce(
+    (acc, row) => {
+      acc.spend += row.costKrw;
+      acc.grossSpend += row.grossCostKrw;
+      acc.impressions += row.impressions;
+      acc.clicks += row.clicks;
+      acc.conversions += row.conversions;
+      acc.sales += row.salesKrw;
+      acc.addToCart += row.addToCart;
+      acc.registration += row.registration;
+      acc.lead += row.lead;
+      acc.order += row.order;
+      return acc;
+    },
+    {
+      key,
+      label,
+      rows: rows.length,
+      spend: 0,
+      grossSpend: 0,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      sales: 0,
+      addToCart: 0,
+      registration: 0,
+      lead: 0,
+      order: 0
+    }
+  );
+
+  return {
+    ...summary,
+    spend: roundNumber(summary.spend),
+    grossSpend: roundNumber(summary.grossSpend),
+    sales: roundNumber(summary.sales),
+    ctr: safeRatio(summary.clicks, summary.impressions),
+    cpc: safeRatio(summary.spend, summary.clicks),
+    cvr: safeRatio(summary.conversions, summary.clicks),
+    cpa: safeRatio(summary.spend, summary.conversions),
+    cartCpa: safeRatio(summary.spend, summary.addToCart),
+    roas: safeRatio(summary.sales, summary.spend)
+  };
+}
+
+function parseIsoDate(value: string): Date {
+  return new Date(`${value}T00:00:00`);
+}
+
+function toIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function safeRatio(numerator: number, denominator: number): number {
+  return denominator ? numerator / denominator : 0;
+}
+
+function roundNumber(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
 function matchesValue(value: string, selected: string): boolean {
   return !selected || value === selected;
 }
@@ -867,6 +1194,10 @@ function formatSignedPercent(value: number): string {
   return `${safe >= 0 ? '+' : ''}${(safe * 100).toFixed(1)}%`;
 }
 
+function trendClass(value: number): string {
+  return Number(value) >= 0 ? 'diff-up' : 'diff-down';
+}
+
 function formatReportValue(key: ReportComparisonMetric['key'], value: number): string {
   if (key === 'spend' || key === 'sales' || key === 'cpa') return formatCurrency(value);
   if (key === 'ctr' || key === 'cvr') return formatPercent(value);
@@ -877,6 +1208,8 @@ function formatReportValue(key: ReportComparisonMetric['key'], value: number): s
 function DiffCell({ current, previous, inverse = false }: { current: number; previous: number; inverse?: boolean }) {
   if (!previous) return <td className="muted">-</td>;
   const rate = (current - previous) / previous;
+  const trendArrow = rate >= 0 ? '▲' : '▼';
+  return <td className={trendClass(rate)}>{trendArrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
   const good = inverse ? rate <= 0 : rate >= 0;
   const arrow = rate >= 0 ? '▲' : '▼';
   return <td className={good ? 'diff-up' : 'diff-down'}>{arrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
