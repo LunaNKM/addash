@@ -2118,6 +2118,21 @@ td[title], .legend-row[title], .donut-legend div[title] {
   font-variant-numeric: tabular-nums;
 }
 
+.report-dimension-controls {
+  margin-top: 10px;
+}
+
+.report-dimension-controls select {
+  min-width: 180px;
+  max-width: min(360px, 100%);
+}
+
+.report-dimension-controls .btn.compact {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
 .report-source-tabs {
   display: inline-flex;
   gap: 2px;

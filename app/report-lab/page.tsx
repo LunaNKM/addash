@@ -1,19 +1,37 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { buildReportView } from '@/lib/report/aggregate';
+import { buildReportView, filterRowsByPeriod } from '@/lib/report/aggregate';
 import { DEFAULT_EXCHANGE_RATE } from '@/lib/report/schema';
 import { loadReportFromXlsx, reportSources } from '@/lib/report/sources';
-import type { DataQualityIssue, ReportComparisonMetric, ReportParseResult, ReportSummary, ReportView } from '@/lib/report/reportTypes';
+import type {
+  DataQualityIssue,
+  NormalizedReportRow,
+  ReportComparisonMetric,
+  ReportParseResult,
+  ReportSummary,
+  ReportView
+} from '@/lib/report/reportTypes';
 
-type ReportTab = 'total' | 'daily' | 'campaigns' | 'creatives' | 'summary' | 'diagnostics';
+type PromotionTab = 'always' | 'owned' | 'megawari' | 'megapo' | 'market' | 'hybrid';
+type ReportTab = 'total' | 'daily' | 'campaigns' | 'creatives' | 'summary' | 'diagnostics' | PromotionTab;
+
+const promotionTabs: { id: PromotionTab; label: string }[] = [
+  { id: 'always', label: '상시' },
+  { id: 'owned', label: '자사몰' },
+  { id: 'megawari', label: '메가와리' },
+  { id: 'megapo', label: '메가포' },
+  { id: 'market', label: '마켓' },
+  { id: 'hybrid', label: '자사몰(하이브리드)' }
+];
 
 const tabs: { id: ReportTab; label: string }[] = [
   { id: 'total', label: '전체 성과' },
   { id: 'daily', label: '일자별' },
   { id: 'campaigns', label: '캠페인별' },
   { id: 'creatives', label: '소재별' },
+  ...promotionTabs,
   { id: 'summary', label: '요약' },
   { id: 'diagnostics', label: '진단' }
 ];
@@ -26,16 +44,70 @@ export default function ReportLabPage() {
   const [periodEnd, setPeriodEnd] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [campaignFilter, setCampaignFilter] = useState('');
+  const [adgroupFilter, setAdgroupFilter] = useState('');
+  const [adFilter, setAdFilter] = useState('');
 
   const dates = useMemo(() => {
     const list = result?.rows.map(row => row.date).filter(Boolean).sort() || [];
     return { min: list[0] || '', max: list[list.length - 1] || '' };
   }, [result]);
 
+  const activePromotion = useMemo(() => promotionTabs.find(tab => tab.id === activeTab), [activeTab]);
+
+  const periodRows = useMemo(() => {
+    if (!result) return [];
+    return filterRowsByPeriod(result.rows, periodStart || dates.min, periodEnd || dates.max);
+  }, [dates.max, dates.min, periodEnd, periodStart, result]);
+
+  const optionRows = useMemo(() => {
+    if (!activePromotion) return periodRows;
+    return periodRows.filter(row => matchesPromotionTab(row, activePromotion.id));
+  }, [activePromotion, periodRows]);
+
+  const campaignOptions = useMemo(() => uniqueLabels(optionRows, row => row.campaignName), [optionRows]);
+  const adgroupOptions = useMemo(() => {
+    return uniqueLabels(optionRows.filter(row => matchesValue(row.campaignName, campaignFilter)), row => row.adgroupName);
+  }, [campaignFilter, optionRows]);
+  const adOptions = useMemo(() => {
+    return uniqueLabels(
+      optionRows.filter(row => matchesValue(row.campaignName, campaignFilter) && matchesValue(row.adgroupName, adgroupFilter)),
+      row => row.adName
+    );
+  }, [adgroupFilter, campaignFilter, optionRows]);
+
+  useEffect(() => {
+    if (campaignFilter && !campaignOptions.includes(campaignFilter)) {
+      setCampaignFilter('');
+      setAdgroupFilter('');
+      setAdFilter('');
+      return;
+    }
+    if (adgroupFilter && !adgroupOptions.includes(adgroupFilter)) {
+      setAdgroupFilter('');
+      setAdFilter('');
+      return;
+    }
+    if (adFilter && !adOptions.includes(adFilter)) {
+      setAdFilter('');
+    }
+  }, [adFilter, adOptions, adgroupFilter, adgroupOptions, campaignFilter, campaignOptions]);
+
+  const filteredRows = useMemo(() => {
+    if (!result) return [];
+    return result.rows.filter(row => {
+      if (activePromotion && !matchesPromotionTab(row, activePromotion.id)) return false;
+      if (!matchesValue(row.campaignName, campaignFilter)) return false;
+      if (!matchesValue(row.adgroupName, adgroupFilter)) return false;
+      if (!matchesValue(row.adName, adFilter)) return false;
+      return true;
+    });
+  }, [activePromotion, adFilter, adgroupFilter, campaignFilter, result]);
+
   const reportView = useMemo(() => {
     if (!result) return null;
-    return buildReportView(result.rows, periodStart || dates.min, periodEnd || dates.max);
-  }, [dates.max, dates.min, periodEnd, periodStart, result]);
+    return buildReportView(filteredRows, periodStart || dates.min, periodEnd || dates.max);
+  }, [dates.max, dates.min, filteredRows, periodEnd, periodStart, result]);
 
   async function handleFile(file: File) {
     setBusy('RAW 데이터를 읽는 중입니다...');
@@ -47,6 +119,9 @@ export default function ReportLabPage() {
       setPeriodStart(detectedDates[0] || '');
       setPeriodEnd(detectedDates[detectedDates.length - 1] || '');
       setActiveTab('total');
+      setCampaignFilter('');
+      setAdgroupFilter('');
+      setAdFilter('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -122,6 +197,52 @@ export default function ReportLabPage() {
             )}
           </div>
 
+          {result && (
+            <div className="filter-bar report-dimension-controls">
+              <span className="filter-label">캠페인</span>
+              <select
+                value={campaignFilter}
+                onChange={event => {
+                  setCampaignFilter(event.target.value);
+                  setAdgroupFilter('');
+                  setAdFilter('');
+                }}
+              >
+                <option value="">전체</option>
+                {campaignOptions.map(option => <option key={option} value={option}>{option}</option>)}
+              </select>
+              <span className="filter-label">광고세트</span>
+              <select
+                value={adgroupFilter}
+                onChange={event => {
+                  setAdgroupFilter(event.target.value);
+                  setAdFilter('');
+                }}
+              >
+                <option value="">전체</option>
+                {adgroupOptions.map(option => <option key={option} value={option}>{option}</option>)}
+              </select>
+              <span className="filter-label">소재</span>
+              <select value={adFilter} onChange={event => setAdFilter(event.target.value)}>
+                <option value="">전체</option>
+                {adOptions.map(option => <option key={option} value={option}>{option}</option>)}
+              </select>
+              {(campaignFilter || adgroupFilter || adFilter) && (
+                <button
+                  className="btn ghost compact"
+                  onClick={() => {
+                    setCampaignFilter('');
+                    setAdgroupFilter('');
+                    setAdFilter('');
+                  }}
+                >
+                  초기화
+                </button>
+              )}
+              <span className="muted">{reportView?.currentRows.length.toLocaleString()}개 행 반영</span>
+            </div>
+          )}
+
           {error && <div className="warn">{error}</div>}
 
           {!result || !reportView ? (
@@ -132,6 +253,7 @@ export default function ReportLabPage() {
               {activeTab === 'daily' && <DailyReport view={reportView} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} />}
+              {activePromotion && <PromotionDetailReport title={activePromotion.label} view={reportView} />}
               {activeTab === 'summary' && <SummaryReport view={reportView} />}
               {activeTab === 'diagnostics' && <Diagnostics result={result} />}
             </>
@@ -183,6 +305,7 @@ function TotalPerformance({ result, view }: { result: ReportParseResult; view: R
       </section>
       <SummaryCards total={view.current.total} />
       <DailyToplineChart rows={view.current.byDaily} />
+      <SummaryTable title="일별 성과" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
       <ComparisonTable rows={view.comparison} />
       <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows />
       <SummaryTable title="주차별 성과" rows={view.current.byWeek} previousRows={view.previous.byWeek} limit={24} showComparisonRows sortByLabel />
@@ -216,6 +339,32 @@ function CreativeReport({ view }: { view: ReportView }) {
     <>
       <SummaryCards total={view.current.total} />
       <SummaryTable title="소재 성과" rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} showComparisonRows />
+    </>
+  );
+}
+
+function PromotionDetailReport({ title, view }: { title: string; view: ReportView }) {
+  return (
+    <>
+      <section className="section">
+        <div className="section-head">
+          <b>{title} 성과</b>
+          <span className="muted">{view.currentPeriod.label}</span>
+        </div>
+        <div className="report-contract-grid">
+          <ContractItem label="선택 기간 행" value={view.currentRows.length.toLocaleString()} ok={view.currentRows.length > 0} />
+          <ContractItem label="캠페인" value={view.current.byCampaign.length.toLocaleString()} ok={view.current.byCampaign.length > 0} />
+          <ContractItem label="광고세트" value={view.current.byAdgroup.length.toLocaleString()} ok={view.current.byAdgroup.length > 0} />
+          <ContractItem label="소재" value={view.current.byCreative.length.toLocaleString()} ok={view.current.byCreative.length > 0} />
+          <ContractItem label="일자" value={view.current.byDaily.length.toLocaleString()} ok={view.current.byDaily.length > 0} />
+        </div>
+      </section>
+      <SummaryCards total={view.current.total} />
+      <DailyToplineChart rows={view.current.byDaily} />
+      <SummaryTable title={`${title} 일별 성과`} rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
+      <SummaryTable title={`${title} 캠페인 성과`} rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} showComparisonRows />
+      <SummaryTable title={`${title} 광고세트 성과`} rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} showComparisonRows />
+      <SummaryTable title={`${title} 소재 성과`} rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} showComparisonRows />
     </>
   );
 }
@@ -638,6 +787,54 @@ function SummaryTable({
       </div>
     </section>
   );
+}
+
+function matchesValue(value: string, selected: string): boolean {
+  return !selected || value === selected;
+}
+
+function uniqueLabels(rows: NormalizedReportRow[], pick: (row: NormalizedReportRow) => string): string[] {
+  return [...new Set(rows.map(row => pick(row)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+}
+
+function matchesPromotionTab(row: NormalizedReportRow, tab: PromotionTab): boolean {
+  const promotionText = normalizeSearchText(row.promotion);
+  const fullText = normalizeSearchText(`${row.promotion} ${row.campaignName} ${row.adgroupName} ${row.adName}`);
+  const text = hasConcretePromotionText(promotionText) ? promotionText : fullText;
+  const isHybrid = fullText.includes('하이브리드') || fullText.includes('hybrid');
+  if (tab === 'hybrid') return isHybrid;
+  if (isHybrid) return false;
+  if (tab === 'owned') return text.includes('자사몰');
+  if (tab === 'megawari') return text.includes('메가와리') || text.includes('megawari') || text.includes('mega wari');
+  if (tab === 'megapo') return text.includes('메가포') || text.includes('megapo') || text.includes('mega po');
+  if (tab === 'market') return isMarketText(text);
+  return text.includes('상시') || text.includes('always') || text.includes('evergreen') || !hasEventPromotionText(text);
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[_-]+/g, ' ').trim();
+}
+
+function hasConcretePromotionText(text: string): boolean {
+  return Boolean(text) && !text.includes('미분류') && !text.includes('unclassified');
+}
+
+function isMarketText(text: string): boolean {
+  return ['마켓', 'market', '큐텐', 'qoo10', 'q10', '라쿠텐', 'rakuten', '아마존', 'amazon'].some(keyword => text.includes(keyword));
+}
+
+function hasEventPromotionText(text: string): boolean {
+  return [
+    '자사몰',
+    '하이브리드',
+    'hybrid',
+    '메가와리',
+    'megawari',
+    'mega wari',
+    '메가포',
+    'megapo',
+    'mega po'
+  ].some(keyword => text.includes(keyword)) || isMarketText(text);
 }
 
 function formatCurrency(value: number): string {
