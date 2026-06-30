@@ -95,6 +95,16 @@ export type ReportFileDoc = {
   createdAt: number;
 };
 
+export type ReportCommentDoc = {
+  id: string;
+  fileId: string;
+  text: string;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type InsightDoc = {
   id: string;
   text: string;

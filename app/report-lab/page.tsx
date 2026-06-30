@@ -12,18 +12,20 @@ import {
   emptyKpi,
   findBrandByShareToken,
   getKpi,
+  getReportComment,
   getReportFile,
   isAdminEmail,
   listBrandsForAdmin,
   listReportFiles,
   listTabs,
   saveKpi,
+  saveReportComment,
   saveReportFile,
   updateBrand
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import type { Brand, DashboardTab, Kpi, ReportFileDoc } from '@/lib/types';
+import type { Brand, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
 import type {
@@ -66,6 +68,10 @@ export default function ReportLabPage() {
   const [kpi, setKpi] = useState<Kpi>(emptyKpi);
   const [reportFiles, setReportFiles] = useState<ReportFileDoc[]>([]);
   const [selectedReportFileId, setSelectedReportFileId] = useState('');
+  const [reportComment, setReportComment] = useState<ReportCommentDoc | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentEditing, setCommentEditing] = useState(false);
+  const [commentBusy, setCommentBusy] = useState('');
   const [settings, setSettings] = useState<SettingsMode>('none');
   const [result, setResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
@@ -87,6 +93,9 @@ export default function ReportLabPage() {
     setResult(null);
     setReportFiles([]);
     setSelectedReportFileId('');
+    setReportComment(null);
+    setCommentDraft('');
+    setCommentEditing(false);
     setPeriodStart('');
     setPeriodEnd('');
     setCampaignFilter('');
@@ -139,10 +148,19 @@ export default function ReportLabPage() {
     const firstFile = loadedReportFiles[0] || null;
     setSelectedReportFileId(firstFile?.id || '');
     if (firstFile) {
-      const loadedFile = await getReportFile(target.id, nextTab.id, firstFile.id);
+      const [loadedFile, loadedComment] = await Promise.all([
+        getReportFile(target.id, nextTab.id, firstFile.id),
+        getReportComment(target.id, nextTab.id, firstFile.id)
+      ]);
       applyReportResult(loadedFile?.result || null);
+      setReportComment(loadedComment);
+      setCommentDraft(loadedComment?.text || '');
+      setCommentEditing(false);
     } else {
       applyReportResult(null);
+      setReportComment(null);
+      setCommentDraft('');
+      setCommentEditing(false);
     }
   }, [applyReportResult, resetReportState]);
 
@@ -162,10 +180,19 @@ export default function ReportLabPage() {
     const selected = loadedReportFiles.find(file => file.id === selectedReportFileId) || loadedReportFiles[0] || null;
     setSelectedReportFileId(selected?.id || '');
     if (selected) {
-      const loadedFile = await getReportFile(brand.id, dashboardTab.id, selected.id);
+      const [loadedFile, loadedComment] = await Promise.all([
+        getReportFile(brand.id, dashboardTab.id, selected.id),
+        getReportComment(brand.id, dashboardTab.id, selected.id)
+      ]);
       applyReportResult(loadedFile?.result || null);
+      setReportComment(loadedComment);
+      setCommentDraft(loadedComment?.text || '');
+      setCommentEditing(false);
     } else {
       applyReportResult(null);
+      setReportComment(null);
+      setCommentDraft('');
+      setCommentEditing(false);
     }
   }, [applyReportResult, brand, dashboardTab, selectedReportFileId]);
 
@@ -292,6 +319,9 @@ export default function ReportLabPage() {
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       setReportFiles(loadedReportFiles);
       setSelectedReportFileId(savedId);
+      setReportComment(null);
+      setCommentDraft('');
+      setCommentEditing(false);
       applyReportResult(parsed);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -329,6 +359,59 @@ export default function ReportLabPage() {
       if (updated && brand?.id === brandId) setBrand(updated);
     } catch (err) {
       alert(errorMessage(err));
+    }
+  }
+
+  async function saveReportCommentFlow(text: string) {
+    if (!brand || !dashboardTab || !selectedReportFileId) return;
+    const nextText = text.trim();
+    if (!nextText) {
+      alert('Comment 내용을 입력해주세요.');
+      return;
+    }
+    setCommentBusy('Comment 저장 중입니다...');
+    try {
+      await saveReportComment(brand.id, dashboardTab.id, selectedReportFileId, {
+        text: nextText,
+        periodStart,
+        periodEnd
+      });
+      const saved = await getReportComment(brand.id, dashboardTab.id, selectedReportFileId);
+      setReportComment(saved);
+      setCommentDraft(saved?.text || nextText);
+      setCommentEditing(false);
+    } catch (err) {
+      alert(errorMessage(err));
+    } finally {
+      setCommentBusy('');
+    }
+  }
+
+  async function generateReportComment() {
+    if (!brand || !dashboardTab || !selectedReportFileId || !user || !reportView || !result) return;
+    setCommentBusy('Comment 생성 중입니다...');
+    setError('');
+    try {
+      const token = await user.getIdToken();
+      const resp = await fetch('/api/report-insight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(buildReportInsightPayload({
+          brandName: brand.name,
+          reportName: result.fileName,
+          view: reportView,
+          rows: filteredRows,
+          periodStart,
+          periodEnd
+        }))
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Comment 생성에 실패했습니다.');
+      await saveReportCommentFlow(String(data.text || ''));
+    } catch (err) {
+      alert(errorMessage(err));
+    } finally {
+      setCommentBusy('');
     }
   }
 
@@ -435,8 +518,16 @@ export default function ReportLabPage() {
                     if (!brand || !dashboardTab) return;
                     setSelectedReportFileId(file.id);
                     setBusy('저장된 RAW 파일을 불러오는 중입니다...');
-                    getReportFile(brand.id, dashboardTab.id, file.id)
-                      .then(loadedFile => applyReportResult(loadedFile?.result || null))
+                    Promise.all([
+                      getReportFile(brand.id, dashboardTab.id, file.id),
+                      getReportComment(brand.id, dashboardTab.id, file.id)
+                    ])
+                      .then(([loadedFile, loadedComment]) => {
+                        applyReportResult(loadedFile?.result || null);
+                        setReportComment(loadedComment);
+                        setCommentDraft(loadedComment?.text || '');
+                        setCommentEditing(false);
+                      })
                       .catch(err => setError(errorMessage(err)))
                       .finally(() => setBusy(''));
                   }}
@@ -500,7 +591,22 @@ export default function ReportLabPage() {
             <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} canUpload={Boolean(isAdmin && brand && dashboardTab)} />
           ) : (
             <>
-              {activeTab === 'total' && <TotalPerformance view={reportView} allRows={filteredRows} kpi={kpi} />}
+              {activeTab === 'total' && (
+                <TotalPerformance
+                  view={reportView}
+                  allRows={filteredRows}
+                  kpi={kpi}
+                  comment={reportComment}
+                  commentDraft={commentDraft}
+                  setCommentDraft={setCommentDraft}
+                  editing={commentEditing}
+                  setEditing={setCommentEditing}
+                  isAdmin={isAdmin}
+                  busy={commentBusy}
+                  onGenerate={generateReportComment}
+                  onSave={saveReportCommentFlow}
+                />
+              )}
               {activeTab === 'daily' && <DailyReport view={reportView} kpi={kpi} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} />}
@@ -570,7 +676,33 @@ function EmptyUpload({ onFile, busy, exchangeRate, canUpload }: { onFile: (file:
   );
 }
 
-function TotalPerformance({ view, allRows, kpi }: { view: ReportView; allRows: NormalizedReportRow[]; kpi: Kpi }) {
+function TotalPerformance({
+  view,
+  allRows,
+  kpi,
+  comment,
+  commentDraft,
+  setCommentDraft,
+  editing,
+  setEditing,
+  isAdmin,
+  busy,
+  onGenerate,
+  onSave
+}: {
+  view: ReportView;
+  allRows: NormalizedReportRow[];
+  kpi: Kpi;
+  comment: ReportCommentDoc | null;
+  commentDraft: string;
+  setCommentDraft: (value: string) => void;
+  editing: boolean;
+  setEditing: (value: boolean) => void;
+  isAdmin: boolean;
+  busy: string;
+  onGenerate: () => void;
+  onSave: (text: string) => void;
+}) {
   const comparisonLabel = formatComparisonLabel(view);
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const weekly = buildRecentWeeklySummaries(allRows, latestDate);
@@ -579,6 +711,17 @@ function TotalPerformance({ view, allRows, kpi }: { view: ReportView; allRows: N
   return (
     <>
       <SummaryCards total={view.current.total} kpi={kpi} />
+      <ReportCommentSection
+        comment={comment}
+        draft={commentDraft}
+        setDraft={setCommentDraft}
+        editing={editing}
+        setEditing={setEditing}
+        isAdmin={isAdmin}
+        busy={busy}
+        onGenerate={onGenerate}
+        onSave={onSave}
+      />
       <DailyToplineChart rows={view.current.byDaily} comparisonLabel={comparisonLabel} />
       <ComparisonTable rows={view.comparison} comparisonLabel={comparisonLabel} />
       <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows comparisonLabel={comparisonLabel} />
@@ -709,6 +852,75 @@ function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
         );
       })}
     </div>
+  );
+}
+
+function ReportCommentSection({
+  comment,
+  draft,
+  setDraft,
+  editing,
+  setEditing,
+  isAdmin,
+  busy,
+  onGenerate,
+  onSave
+}: {
+  comment: ReportCommentDoc | null;
+  draft: string;
+  setDraft: (value: string) => void;
+  editing: boolean;
+  setEditing: (value: boolean) => void;
+  isAdmin: boolean;
+  busy: string;
+  onGenerate: () => void;
+  onSave: (text: string) => void;
+}) {
+  if (!isAdmin && !comment?.text) return null;
+
+  return (
+    <section className="section report-comment-section">
+      <div className="section-head">
+        <b>Comment</b>
+        {isAdmin && (
+          <div className="report-comment-actions">
+            <button className="btn outline" disabled={Boolean(busy)} onClick={onGenerate}>
+              {busy || 'AI 인사이트 생성'}
+            </button>
+            {comment?.text && !editing && (
+              <button className="btn ghost" disabled={Boolean(busy)} onClick={() => {
+                setDraft(comment.text);
+                setEditing(true);
+              }}>
+                수정
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {editing ? (
+        <div className="report-comment-editor">
+          <textarea value={draft} onChange={event => setDraft(event.target.value)} />
+          <div className="modal-actions">
+            <button className="btn outline" disabled={Boolean(busy)} onClick={() => {
+              setDraft(comment?.text || '');
+              setEditing(false);
+            }}>
+              취소
+            </button>
+            <button className="btn brand" disabled={Boolean(busy)} onClick={() => onSave(draft)}>
+              저장
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="report-comment-box">
+          {comment?.text
+            ? <div className="report-comment-content">{comment.text}</div>
+            : <span className="muted">AI 인사이트를 생성하면 공유 링크에서도 이 영역에 표시됩니다.</span>}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1244,6 +1456,106 @@ function recentSevenDayRange(rows: NormalizedReportRow[]): { start: string; end:
   if (!end) return { start: '', end: '' };
   const recentStart = toIsoDate(addDays(parseIsoDate(end), -6));
   return { start: min && recentStart < min ? min : recentStart, end };
+}
+
+function buildReportInsightPayload({
+  brandName,
+  reportName,
+  view,
+  rows,
+  periodStart,
+  periodEnd
+}: {
+  brandName: string;
+  reportName: string;
+  view: ReportView;
+  rows: NormalizedReportRow[];
+  periodStart: string;
+  periodEnd: string;
+}) {
+  const dates = rows.map(row => row.date).filter(Boolean).sort();
+  const latestDate = dates[dates.length - 1] || '';
+  const latestRows = latestDate ? rows.filter(row => row.date === latestDate) : [];
+  const recentDaily = view.current.byDaily
+    .slice()
+    .sort((a, b) => b.label.localeCompare(a.label))
+    .slice(0, 10)
+    .reverse()
+    .map(compactSummary);
+
+  return {
+    brandName,
+    reportName,
+    period: {
+      start: periodStart || view.currentPeriod.start,
+      end: periodEnd || view.currentPeriod.end,
+      label: view.currentPeriod.label,
+      previousLabel: view.previousPeriod.label
+    },
+    totalRange: {
+      start: dates[0] || '',
+      end: latestDate,
+      total: compactSummary(summarizeReportRows('all-total', '전체 Total', rows))
+    },
+    current: compactSummary(view.current.total),
+    previous: compactSummary(view.previous.total),
+    latestDay: latestDate ? compactSummary(summarizeReportRows(latestDate, latestDate, latestRows)) : null,
+    recentDaily,
+    promotions: view.current.byPromotion.slice(0, 12).map(compactSummary),
+    media: groupReportRows(rows, row => inferMediaLabel(row), 8).map(compactSummary),
+    objectives: groupReportRows(rows, row => inferObjectiveLabel(row), 8).map(compactSummary),
+    campaigns: view.current.byCampaign.slice(0, 15).map(compactSummary),
+    adgroups: view.current.byAdgroup.slice(0, 15).map(compactSummary),
+    creatives: view.current.byCreative.slice(0, 18).map(compactSummary)
+  };
+}
+
+function compactSummary(row: ReportSummary) {
+  return {
+    label: row.label,
+    rows: row.rows,
+    spend: Math.round(row.spend),
+    sales: Math.round(row.sales),
+    impressions: Math.round(row.impressions),
+    clicks: Math.round(row.clicks),
+    conversions: Math.round(row.conversions),
+    addToCart: Math.round(row.addToCart),
+    registration: Math.round(row.registration),
+    lead: Math.round(row.lead),
+    order: Math.round(row.order),
+    ctr: roundNumber(row.ctr),
+    cvr: roundNumber(row.cvr),
+    cpc: Math.round(row.cpc),
+    cpa: Math.round(row.cpa),
+    cartCpa: Math.round(row.cartCpa),
+    roas: roundNumber(row.roas)
+  };
+}
+
+function groupReportRows(rows: NormalizedReportRow[], labelFor: (row: NormalizedReportRow) => string, limit: number): ReportSummary[] {
+  const groups = new Map<string, NormalizedReportRow[]>();
+  for (const row of rows) {
+    const label = labelFor(row);
+    const list = groups.get(label) || [];
+    list.push(row);
+    groups.set(label, list);
+  }
+  return [...groups.entries()]
+    .map(([label, list]) => summarizeReportRows(label, label, list))
+    .sort((a, b) => b.spend - a.spend || a.label.localeCompare(b.label, 'ko'))
+    .slice(0, limit);
+}
+
+function inferMediaLabel(row: NormalizedReportRow): string {
+  if (isSingleOneMeta(row)) return '싱글원(S-META)';
+  return row.media || (isMetaMedia(row) ? '메타' : '미분류');
+}
+
+function inferObjectiveLabel(row: NormalizedReportRow): string {
+  if (matchesAnyReportText(row, ['purchase', 'conversion'])) return 'Purchase';
+  if (matchesAnyReportText(row, ['traffic'])) return 'Traffic';
+  if (matchesAnyReportText(row, ['click'])) return 'Click';
+  return '기타';
 }
 
 function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: string): RecentWeeklyData {

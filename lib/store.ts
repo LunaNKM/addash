@@ -13,7 +13,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi, ReportFileDoc } from './types';
+import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi, ReportCommentDoc, ReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
@@ -150,6 +150,8 @@ export async function deleteTab(brandId: string, tabId: string, opts: { allowLas
   for (const file of files) await deleteFile(brandId, tabId, file.id);
   const reportFiles = await listReportFiles(brandId, tabId);
   for (const file of reportFiles) await deleteReportFile(brandId, tabId, file.id);
+  const reportComments = await listReportComments(brandId, tabId);
+  for (const comment of reportComments) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', comment.id));
   const insights = await listInsights(brandId, tabId);
   for (const insight of insights) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'insights', insight.id));
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'kpi', 'default'));
@@ -232,6 +234,34 @@ export async function deleteReportFile(brandId: string, tabId: string, fileId: s
     await batch.commit();
   }
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId));
+  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', fileId)).catch(() => undefined);
+}
+
+export async function listReportComments(brandId: string, tabId: string): Promise<ReportCommentDoc[]> {
+  const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportComments'), orderBy('updatedAt', 'desc')));
+  return snap.docs.map(d => normalizeReportComment(d.id, d.data()));
+}
+
+export async function getReportComment(brandId: string, tabId: string, fileId: string): Promise<ReportCommentDoc | null> {
+  const snap = await getDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', fileId));
+  return snap.exists() ? normalizeReportComment(snap.id, snap.data()) : null;
+}
+
+export async function saveReportComment(
+  brandId: string,
+  tabId: string,
+  fileId: string,
+  comment: Omit<ReportCommentDoc, 'id' | 'fileId' | 'createdAt' | 'updatedAt'>
+) {
+  const ref = doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', fileId);
+  const existing = await getDoc(ref);
+  const now = Date.now();
+  await setDoc(ref, cleanFirestoreData({
+    ...comment,
+    fileId,
+    createdAt: existing.exists() ? Number(existing.data().createdAt || now) : now,
+    updatedAt: now
+  }), { merge: true });
 }
 
 export async function listInsights(brandId: string, tabId: string): Promise<InsightDoc[]> {
@@ -364,6 +394,18 @@ function normalizeInsight(id: string, data: Record<string, unknown>): InsightDoc
 
 function normalizeStats(value: unknown): import('./types').StatRow[] {
   return Array.isArray(value) ? value.map((v, index) => normalizeStat(v as Record<string, unknown>, String(index))) : [];
+}
+
+function normalizeReportComment(id: string, data: Record<string, unknown>): ReportCommentDoc {
+  return {
+    id,
+    fileId: String(data.fileId || id),
+    text: String(data.text || ''),
+    periodStart: String(data.periodStart || ''),
+    periodEnd: String(data.periodEnd || ''),
+    createdAt: Number(data.createdAt || 0),
+    updatedAt: Number(data.updatedAt || 0)
+  };
 }
 
 function stripReportRows(rows: NormalizedReportRow[]): NormalizedReportRow[] {
