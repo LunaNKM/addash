@@ -253,7 +253,7 @@ export default function ReportLabPage() {
               {activeTab === 'daily' && <DailyReport view={reportView} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} />}
-              {activePromotion && <PromotionDetailReport title={activePromotion.label} view={reportView} />}
+              {activePromotion && <PromotionDetailReport title={activePromotion.label} view={reportView} allRows={filteredRows} />}
               {activeTab === 'summary' && <SummaryReport view={reportView} />}
               {activeTab === 'diagnostics' && <Diagnostics result={result} />}
             </>
@@ -349,28 +349,46 @@ function CreativeReport({ view }: { view: ReportView }) {
   );
 }
 
-function PromotionDetailReport({ title, view }: { title: string; view: ReportView }) {
+function PromotionDetailReport({ title, view, allRows }: { title: string; view: ReportView; allRows: NormalizedReportRow[] }) {
+  const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
+  const dailyData = buildYearDailyGroups(allRows, latestDate);
+  const overallRows = buildPromotionPerformanceRows(allRows, latestDate, [{ label: '?? ??', test: () => true }]);
+  const mediaRows = buildPromotionPerformanceRows(allRows, latestDate, [
+    { label: '???(S-META)', test: row => isSingleOneMeta(row) },
+    { label: '??', test: row => isMetaMedia(row) && !isSingleOneMeta(row) }
+  ], '??');
+  const objectiveRows = buildPromotionPerformanceRows(allRows, latestDate, [
+    { label: 'Purchase', test: row => matchesAnyReportText(row, ['purchase', 'conversion']) },
+    { label: 'Click', test: row => matchesAnyReportText(row, ['click']) },
+    { label: 'Traffic', test: row => matchesAnyReportText(row, ['traffic']) }
+  ], '??');
+  const campaignRows = buildPromotionPerformanceRows(allRows, latestDate, [
+    { label: 'PDRN??', test: row => matchesAnyReportText(row, ['pdrnserum', 'pdrn serum', 'pdrn']) },
+    { label: '??? ??', test: row => matchesAnyReportText(row, ['barriercream', 'barrier cream', 'barrier', '???']) },
+    { label: '????', test: row => matchesAnyReportText(row, ['bluedrop', 'blue drop', '????']) },
+    { label: '??????', test: row => matchesAnyReportText(row, ['jellypack', 'jelly pack', 'jelly', 'cleanser', '???', '???']) }
+  ], '??');
+
   return (
     <>
       <section className="section">
         <div className="section-head">
-          <b>{title} 성과</b>
-          <span className="muted">{view.currentPeriod.label}</span>
+          <b>{title} ??</b>
+          <span className="muted">?? {latestDate || '-'}</span>
         </div>
         <div className="report-contract-grid">
-          <ContractItem label="선택 기간 행" value={view.currentRows.length.toLocaleString()} ok={view.currentRows.length > 0} />
-          <ContractItem label="캠페인" value={view.current.byCampaign.length.toLocaleString()} ok={view.current.byCampaign.length > 0} />
-          <ContractItem label="광고세트" value={view.current.byAdgroup.length.toLocaleString()} ok={view.current.byAdgroup.length > 0} />
-          <ContractItem label="소재" value={view.current.byCreative.length.toLocaleString()} ok={view.current.byCreative.length > 0} />
-          <ContractItem label="일자" value={view.current.byDaily.length.toLocaleString()} ok={view.current.byDaily.length > 0} />
+          <ContractItem label="?? ?" value={allRows.length.toLocaleString()} ok={allRows.length > 0} />
+          <ContractItem label="???" value={view.current.byCampaign.length.toLocaleString()} ok={view.current.byCampaign.length > 0} />
+          <ContractItem label="????" value={view.current.byAdgroup.length.toLocaleString()} ok={view.current.byAdgroup.length > 0} />
+          <ContractItem label="??" value={view.current.byCreative.length.toLocaleString()} ok={view.current.byCreative.length > 0} />
+          <ContractItem label="??" value={dailyData.groups.reduce((sum, group) => sum + group.days.length, 0).toLocaleString()} ok={Boolean(latestDate)} />
         </div>
       </section>
-      <SummaryCards total={view.current.total} />
-      <DailyToplineChart rows={view.current.byDaily} />
-      <SummaryTable title={`${title} 일별 성과`} rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
-      <SummaryTable title={`${title} 캠페인 성과`} rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} showComparisonRows />
-      <SummaryTable title={`${title} 광고세트 성과`} rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} showComparisonRows />
-      <SummaryTable title={`${title} 소재 성과`} rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} showComparisonRows />
+      <PromotionPerformanceSection title="?? ??" rows={overallRows} />
+      <PromotionPerformanceSection title="???? ??" rows={mediaRows} />
+      <PromotionPerformanceSection title="??? ??" rows={objectiveRows} />
+      <PromotionPerformanceSection title="???? ??" rows={campaignRows} />
+      <YearDailyPerformanceTable data={dailyData} />
     </>
   );
 }
@@ -710,6 +728,99 @@ type YearDailyData = {
   groups: YearDailyGroup[];
 };
 
+type PromotionPerformanceCategory = {
+  label: string;
+  test: (row: NormalizedReportRow) => boolean;
+};
+
+type PromotionPerformanceRow = {
+  label: string;
+  total: ReportSummary;
+  recent: ReportSummary;
+  previous: ReportSummary;
+  recentStart: string;
+  recentEnd: string;
+};
+
+function PromotionPerformanceSection({ title, rows }: { title: string; rows: PromotionPerformanceRow[] }) {
+  const first = rows[0];
+  return (
+    <section className="section">
+      <div className="section-head">
+        <b>{title}</b>
+        <span className="muted">최근 1주일 {first ? `${first.recentStart} ~ ${first.recentEnd}` : '-'}</span>
+      </div>
+      <div className="table-wrap sticky-detail">
+        <table className="promotion-performance-table">
+          <thead>
+            <tr>
+              <th rowSpan={2}>구분</th>
+              <th colSpan={4}>전체 기간 총합</th>
+              <th colSpan={4}>최근 1주일 총합</th>
+              <th colSpan={4}>PoP Diff</th>
+            </tr>
+            <tr>
+              <PromotionCompactHeaders />
+              <PromotionCompactHeaders />
+              <PromotionCompactHeaders />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.label} className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
+                <td>{row.label}</td>
+                <PromotionCompactCells row={row.total} />
+                <PromotionCompactCells row={row.recent} />
+                <PromotionDiffCells current={row.recent} previous={row.previous} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function PromotionCompactHeaders() {
+  return (
+    <>
+      <th>광고비</th>
+      <th>매출</th>
+      <th>전환</th>
+      <th>ROAS</th>
+    </>
+  );
+}
+
+function PromotionCompactCells({ row }: { row: ReportSummary }) {
+  return (
+    <>
+      <td>{formatCurrency(row.spend)}</td>
+      <td>{formatCurrency(row.sales)}</td>
+      <td>{formatInteger(row.conversions)}</td>
+      <td>{row.roas.toFixed(2)}</td>
+    </>
+  );
+}
+
+function PromotionDiffCells({ current, previous }: { current: ReportSummary; previous: ReportSummary }) {
+  return (
+    <>
+      <PromotionDiffCell current={current.spend} previous={previous.spend} />
+      <PromotionDiffCell current={current.sales} previous={previous.sales} />
+      <PromotionDiffCell current={current.conversions} previous={previous.conversions} />
+      <PromotionDiffCell current={current.roas} previous={previous.roas} />
+    </>
+  );
+}
+
+function PromotionDiffCell({ current, previous }: { current: number; previous: number }) {
+  if (!previous) return <td className="muted">-</td>;
+  const rate = (current - previous) / previous;
+  const arrow = rate >= 0 ? '▲' : '▼';
+  return <td className={trendClass(rate)}>{arrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
+}
+
 function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentWeeklyData; comparisonLabel?: string }) {
   return (
     <section className="section">
@@ -1041,6 +1152,67 @@ function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): 
     total: summarizeReportRows('YEAR-TOTAL', `${year} TOTAL`, rowsInYear),
     groups
   };
+}
+
+function buildPromotionPerformanceRows(
+  rows: NormalizedReportRow[],
+  latestDate: string,
+  categories: PromotionPerformanceCategory[],
+  fallbackLabel?: string
+): PromotionPerformanceRow[] {
+  const recentEnd = latestDate || latestReportDate(rows);
+  const recentEndDate = recentEnd ? parseIsoDate(recentEnd) : null;
+  const recentStart = recentEndDate ? toIsoDate(addDays(recentEndDate, -6)) : '';
+  const previousEnd = recentEndDate ? toIsoDate(addDays(parseIsoDate(recentStart), -1)) : '';
+  const previousStart = previousEnd ? toIsoDate(addDays(parseIsoDate(previousEnd), -6)) : '';
+  const buckets = new Map<string, NormalizedReportRow[]>();
+
+  for (const category of categories) buckets.set(category.label, []);
+  if (fallbackLabel) buckets.set(fallbackLabel, []);
+
+  for (const row of rows) {
+    const category = categories.find(item => item.test(row));
+    const label = category?.label || fallbackLabel;
+    if (!label) continue;
+    const list = buckets.get(label) || [];
+    list.push(row);
+    buckets.set(label, list);
+  }
+
+  return [...buckets.entries()]
+    .filter(([label, list]) => label !== fallbackLabel || list.length > 0)
+    .map(([label, list]) => ({
+      label,
+      total: summarizeReportRows(`${label}-total`, label, list),
+      recent: summarizeReportRows(`${label}-recent`, label, filterRowsByPeriod(list, recentStart, recentEnd)),
+      previous: summarizeReportRows(`${label}-previous`, label, filterRowsByPeriod(list, previousStart, previousEnd)),
+      recentStart,
+      recentEnd
+    }));
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function reportSearchText(row: NormalizedReportRow): string {
+  return normalizeSearchText(`${row.media} ${row.promotion} ${row.campaignName} ${row.adgroupName} ${row.adName}`);
+}
+
+function matchesAnyReportText(row: NormalizedReportRow, keywords: string[]): boolean {
+  const text = reportSearchText(row);
+  return keywords.some(keyword => text.includes(normalizeSearchText(keyword)));
+}
+
+function isSingleOneMeta(row: NormalizedReportRow): boolean {
+  const text = reportSearchText(row);
+  return text.includes('s meta') || text.includes('singleone') || text.includes('single one') || text.includes('싱글원');
+}
+
+function isMetaMedia(row: NormalizedReportRow): boolean {
+  return reportSearchText(row).includes('meta');
 }
 
 function monthWeekLabel(value: string): { key: string; label: string } {
