@@ -1342,7 +1342,7 @@ function SummaryTable({
   comparisonLabel?: string;
 }) {
   const previousByKey = new Map(previousRows.map(row => [row.key, row]));
-  const displayRows = [...rows].sort((a, b) => sortByLabel ? a.label.localeCompare(b.label) : b.spend - a.spend || a.label.localeCompare(b.label));
+  const displayRows = [...rows].sort((a, b) => sortByLabel ? a.key.localeCompare(b.key) : b.spend - a.spend || a.label.localeCompare(b.label));
   return (
     <section className="section">
       <div className="section-head">

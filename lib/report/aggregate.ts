@@ -13,7 +13,7 @@ export function buildReportAggregation(rows: NormalizedReportRow[]): ReportAggre
   return {
     total: summarize('total', '전체', rows),
     byMonth: groupRows(rows, row => row.date.slice(0, 7) || '날짜 없음'),
-    byWeek: groupRows(rows, row => weekLabel(row.date)),
+    byWeek: groupRows(rows, row => weekLabel(row.date), weekDisplayLabel),
     byPromotion: groupRows(rows, row => row.promotion || '미분류'),
     byCampaign: groupRows(rows, row => row.campaignName || '미분류 캠페인'),
     byAdgroup: groupRows(rows, row => row.adgroupName || '미분류 광고그룹'),
@@ -52,7 +52,11 @@ export function filterRowsByPeriod(rows: NormalizedReportRow[], start: string, e
   });
 }
 
-function groupRows(rows: NormalizedReportRow[], keyFor: (row: NormalizedReportRow) => string): ReportSummary[] {
+function groupRows(
+  rows: NormalizedReportRow[],
+  keyFor: (row: NormalizedReportRow) => string,
+  labelFor?: (key: string) => string
+): ReportSummary[] {
   const grouped = new Map<string, NormalizedReportRow[]>();
   for (const row of rows) {
     const key = keyFor(row);
@@ -61,8 +65,8 @@ function groupRows(rows: NormalizedReportRow[], keyFor: (row: NormalizedReportRo
     grouped.set(key, list);
   }
   return [...grouped.entries()]
-    .map(([key, list]) => summarize(key, key, list))
-    .sort((a, b) => b.spend - a.spend || a.label.localeCompare(b.label));
+    .map(([key, list]) => summarize(key, labelFor ? labelFor(key) : key, list))
+    .sort((a, b) => b.spend - a.spend || a.key.localeCompare(b.key));
 }
 
 function buildComparison(current: ReportSummary, previous: ReportSummary): ReportComparisonMetric[] {
@@ -118,12 +122,18 @@ function weekLabel(value: string): string {
   if (!value) return '날짜 없음';
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return '날짜 없음';
-  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const day = target.getUTCDay() || 7;
-  target.setUTCDate(target.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
-  const week = Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return `${target.getUTCFullYear()} W${String(week).padStart(2, '0')}`;
+  const month = date.getMonth() + 1;
+  const week = Math.ceil(date.getDate() / 7);
+  const year = date.getFullYear();
+  return `${year}-${String(month).padStart(2, '0')}-W${String(week).padStart(2, '0')}`;
+}
+
+function weekDisplayLabel(key: string): string {
+  const match = key.match(/^(\d{4})-(\d{2})-W(\d{2})$/);
+  if (!match) return key;
+  const month = parseInt(match[2], 10);
+  const week = parseInt(match[3], 10);
+  return `${month}월 ${week}주차`;
 }
 
 function toIsoDate(date: Date): string {
