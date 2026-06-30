@@ -6,7 +6,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
 import { buildReportView, filterRowsByPeriod, previousMatchingPeriod } from '@/lib/report/aggregate';
 import { DEFAULT_EXCHANGE_RATE } from '@/lib/report/schema';
-import { loadReportFromXlsx, reportSources } from '@/lib/report/sources';
+import { loadReportFromXlsx } from '@/lib/report/sources';
 import {
   createBrand,
   emptyKpi,
@@ -546,14 +546,6 @@ export default function ReportLabPage() {
 
         <div className="content">
           <div className="filter-bar report-lab-controls">
-            <span className="filter-label">데이터 소스</span>
-            <div className="report-source-tabs">
-              {reportSources.map(source => (
-                <button key={source.kind} className={source.status === 'available' ? 'active' : ''} disabled={source.status !== 'available'}>
-                  {source.label}
-                </button>
-              ))}
-            </div>
             <span className="filter-label">환율</span>
             <input
               type="number"
