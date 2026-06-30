@@ -459,24 +459,26 @@ export default function ReportLabPage() {
           )}
           {!isAdmin && brand && <span className="badge">{brand.name}</span>}
         </div>
-        <div className="header-actions">
-          {!user
-            ? <button className="btn outline" onClick={async () => {
-                setAuthError('');
-                try { await signInWithGoogleSafe(); }
-                catch (err) { setAuthError(firebaseAuthErrorMessage(err)); }
-              }}>Google 로그인</button>
-            : <button className="btn ghost" onClick={logout}>로그아웃</button>}
-          <Link className="btn ghost" href="/">대시보드</Link>
-          {isAdmin && brand && <button className="btn ghost" onClick={() => setSettings('brand')}>설정</button>}
-          {brand && <button className="btn ghost" onClick={() => navigator.clipboard.writeText(`${location.origin}/report-lab?share=${brand.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}>공유</button>}
-          {isAdmin && brand && dashboardTab && (
-            <label className="btn brand">
-              RAW 업로드
-              <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
-            </label>
-          )}
-        </div>
+        {isAdmin && (
+          <div className="header-actions">
+            {!user
+              ? <button className="btn outline" onClick={async () => {
+                  setAuthError('');
+                  try { await signInWithGoogleSafe(); }
+                  catch (err) { setAuthError(firebaseAuthErrorMessage(err)); }
+                }}>Google 로그인</button>
+              : <button className="btn ghost" onClick={logout}>로그아웃</button>}
+            <Link className="btn ghost" href="/">대시보드</Link>
+            {brand && <button className="btn ghost" onClick={() => setSettings('brand')}>설정</button>}
+            {brand && <button className="btn ghost" onClick={() => navigator.clipboard.writeText(`${location.origin}/report-lab?share=${brand.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}>공유</button>}
+            {brand && dashboardTab && (
+              <label className="btn brand">
+                RAW 업로드
+                <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
+              </label>
+            )}
+          </div>
+        )}
       </header>
 
       {!brand ? (
