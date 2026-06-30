@@ -2549,6 +2549,10 @@ td[title], .legend-row[title], .donut-legend div[title] {
   border-left: 2px solid var(--c-border-vivid);
 }
 
+.promotion-performance-table thead tr:nth-child(2) th:first-child {
+  text-align: right;
+}
+
 .issue-pill {
   display: inline-flex;
   align-items: center;
