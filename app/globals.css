@@ -2369,6 +2369,31 @@ td[title], .legend-row[title], .donut-legend div[title] {
   font-weight: 700;
 }
 
+.report-comment-line.is-head {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  color: var(--c-ink);
+  margin: 18px 0 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.report-comment-content > .report-comment-line.is-head:first-child {
+  margin-top: 0;
+}
+
+.report-comment-line.is-label {
+  font-weight: 700;
+  color: var(--brand);
+  margin: 12px 0 2px;
+}
+
+.report-comment-line.is-action {
+  padding-left: 14px;
+  text-indent: -14px;
+}
+
 .report-comment-editor textarea {
   width: 100%;
   min-height: 420px;

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -36,7 +36,7 @@ import type {
   ReportView
 } from '@/lib/report/reportTypes';
 
-type PromotionTab = 'always' | 'owned' | 'megawari' | 'megapo' | 'market' | 'hybrid';
+type PromotionTab = 'always' | 'owned' | 'megawari' | 'megapo' | 'market' | 'amazon' | 'hybrid';
 type ReportTab = 'total' | 'daily' | 'campaigns' | 'creatives' | 'summary' | PromotionTab;
 
 const promotionTabs: { id: PromotionTab; label: string }[] = [
@@ -45,6 +45,7 @@ const promotionTabs: { id: PromotionTab; label: string }[] = [
   { id: 'megawari', label: '메가와리' },
   { id: 'megapo', label: '메가포' },
   { id: 'market', label: '마켓' },
+  { id: 'amazon', label: '아마존' },
   { id: 'hybrid', label: '자사몰(하이브리드)' }
 ];
 
@@ -66,6 +67,7 @@ const tabAccents: Record<ReportTab, string> = {
   megawari: '#2F6FED',
   megapo: '#2F6FED',
   market: '#2F6FED',
+  amazon: '#2F6FED',
   owned: '#8E4EC6',
   hybrid: '#8E4EC6',
   summary: '#1A1A1A'
@@ -988,11 +990,20 @@ function ReportCommentContent({ text }: { text: string }) {
   return (
     <div className="report-comment-content">
       {lines.map((line, index) => {
-        const trimmed = line.trimStart();
-        const isTopBullet = trimmed.startsWith('- ') || trimmed === '-';
+        const trimmed = line.trim();
+        const isHead = trimmed === '현 상황' || trimmed === 'NEXT';
+        const labelMatch = /^\[(.+)\]$/.exec(trimmed);
+        const isAction = /^\d+\)/.test(trimmed);
+        const isBullet = trimmed.startsWith('- ') || trimmed === '-';
+        let cls = 'report-comment-line';
+        if (isHead) cls += ' is-head';
+        else if (labelMatch) cls += ' is-label';
+        else if (isAction) cls += ' is-action';
+        else if (isBullet) cls += ' is-bullet';
+        const content = labelMatch ? labelMatch[1] : (line || ' ');
         return (
-          <div key={index} className={isTopBullet ? 'report-comment-line is-bullet' : 'report-comment-line'}>
-            {line || ' '}
+          <div key={index} className={cls}>
+            {content}
           </div>
         );
       })}
@@ -1959,6 +1970,7 @@ function matchesPromotionTab(row: NormalizedReportRow, tab: PromotionTab): boole
   if (tab === 'owned') return text.includes('자사몰');
   if (tab === 'megawari') return text.includes('메가와리') || text.includes('megawari') || text.includes('mega wari');
   if (tab === 'megapo') return text.includes('메가포') || text.includes('megapo') || text.includes('mega po');
+  if (tab === 'amazon') return isAmazonText(promotionText);
   if (tab === 'market') return isMarketText(text);
   return text.includes('상시') || text.includes('always') || text.includes('evergreen') || !hasEventPromotionText(text);
 }
@@ -1971,8 +1983,12 @@ function hasConcretePromotionText(text: string): boolean {
   return Boolean(text) && !text.includes('미분류') && !text.includes('unclassified');
 }
 
+function isAmazonText(text: string): boolean {
+  return ['아마존', 'amazon'].some(keyword => text.includes(keyword));
+}
+
 function isMarketText(text: string): boolean {
-  return ['마켓', 'market', '큐텐', 'qoo10', 'q10', '라쿠텐', 'rakuten', '아마존', 'amazon'].some(keyword => text.includes(keyword));
+  return ['마켓', 'market', '큐텐', 'qoo10', 'q10', '라쿠텐', 'rakuten'].some(keyword => text.includes(keyword));
 }
 
 function hasEventPromotionText(text: string): boolean {
@@ -1986,7 +2002,7 @@ function hasEventPromotionText(text: string): boolean {
     '메가포',
     'megapo',
     'mega po'
-  ].some(keyword => text.includes(keyword)) || isMarketText(text);
+  ].some(keyword => text.includes(keyword)) || isMarketText(text) || isAmazonText(text);
 }
 
 function formatCurrency(value: number): string {
