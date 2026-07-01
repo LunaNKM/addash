@@ -58,6 +58,8 @@ const tabs: { id: ReportTab; label: string }[] = [
   { id: 'summary', label: '요약' }
 ];
 
+const FIXED_REPORT_COMMENT = 'Google Sheet로 전달 예정';
+
 const tabAccents: Record<ReportTab, string> = {
   total: '#E5484D',
   daily: '#E5484D',
@@ -123,7 +125,7 @@ export default function ReportLabPage() {
     setAdFilter('');
   }, []);
 
-  const applyReportResult = useCallback((nextResult: ReportParseResult | null) => {
+  const applyReportResult = useCallback((nextResult: ReportParseResult | null, createdAt?: number) => {
     setResult(nextResult);
     setActiveTab('total');
     setCampaignFilter('');
@@ -134,7 +136,7 @@ export default function ReportLabPage() {
       setPeriodEnd('');
       return;
     }
-    const range = recentSevenDayRange(nextResult.rows);
+    const range = fileInputDayRange(createdAt);
     setPeriodStart(range.start);
     setPeriodEnd(range.end);
   }, []);
@@ -172,7 +174,7 @@ export default function ReportLabPage() {
         getReportFile(target.id, nextTab.id, firstFile.id),
         getReportComment(target.id, nextTab.id, firstFile.id)
       ]);
-      applyReportResult(loadedFile?.result || null);
+      applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || firstFile.createdAt);
       setReportComment(loadedComment);
       setCommentDraft(loadedComment?.text || '');
       setCommentEditing(false);
@@ -204,7 +206,7 @@ export default function ReportLabPage() {
         getReportFile(brand.id, dashboardTab.id, selected.id),
         getReportComment(brand.id, dashboardTab.id, selected.id)
       ]);
-      applyReportResult(loadedFile?.result || null);
+      applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || selected.createdAt);
       setReportComment(loadedComment);
       setCommentDraft(loadedComment?.text || '');
       setCommentEditing(false);
@@ -337,6 +339,7 @@ export default function ReportLabPage() {
     try {
       const parsed = await loadReportFromXlsx(file, exchangeRate);
       const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
+      const createdAt = Date.now();
       const savedId = await saveReportFile(brand.id, dashboardTab.id, {
         filename: file.name,
         fileSize: file.size,
@@ -345,7 +348,7 @@ export default function ReportLabPage() {
         rowCount: parsed.rows.length,
         exchangeRate,
         result: parsed,
-        createdAt: Date.now()
+        createdAt
       });
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       setReportFiles(loadedReportFiles);
@@ -353,7 +356,7 @@ export default function ReportLabPage() {
       setReportComment(null);
       setCommentDraft('');
       setCommentEditing(false);
-      applyReportResult(parsed);
+      applyReportResult(parsed, createdAt);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -419,26 +422,11 @@ export default function ReportLabPage() {
   }
 
   async function generateReportComment() {
-    if (!brand || !dashboardTab || !selectedReportFileId || !user || !reportView || !result) return;
-    setCommentBusy('Comment 생성 중입니다...');
+    if (!brand || !dashboardTab || !selectedReportFileId) return;
+    setCommentBusy('Comment 저장 중입니다...');
     setError('');
     try {
-      const token = await user.getIdToken();
-      const resp = await fetch('/api/report-insight', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(buildReportInsightPayload({
-          brandName: brand.name,
-          reportName: result.fileName,
-          view: reportView,
-          rows: filteredRows,
-          periodStart,
-          periodEnd
-        }))
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Comment 생성에 실패했습니다.');
-      await saveReportCommentFlow(String(data.text || ''));
+      await saveReportCommentFlow(FIXED_REPORT_COMMENT);
     } catch (err) {
       alert(errorMessage(err));
     } finally {
@@ -499,9 +487,9 @@ export default function ReportLabPage() {
           <div className="period-group">
             <div className="period">
               <span>대상 기간</span>
-              <input type="date" value={periodStart} min={dates.min} max={dates.max} onChange={event => setPeriodStart(event.target.value)} />
+              <input type="date" value={periodStart} onChange={event => setPeriodStart(event.target.value)} />
               <span>~</span>
-              <input type="date" value={periodEnd} min={dates.min} max={dates.max} onChange={event => setPeriodEnd(event.target.value)} />
+              <input type="date" value={periodEnd} onChange={event => setPeriodEnd(event.target.value)} />
             </div>
             <div className="period">
               <span>비교 기간</span>
@@ -584,7 +572,7 @@ export default function ReportLabPage() {
                       getReportComment(brand.id, dashboardTab.id, file.id)
                     ])
                       .then(([loadedFile, loadedComment]) => {
-                        applyReportResult(loadedFile?.result || null);
+                        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || file.createdAt);
                         setReportComment(loadedComment);
                         setCommentDraft(loadedComment?.text || '');
                         setCommentEditing(false);
@@ -946,7 +934,7 @@ function ReportCommentSection({
         {isAdmin && (
           <div className="report-comment-actions">
             <button className="btn outline" disabled={Boolean(busy)} onClick={onGenerate}>
-              {busy || 'AI 인사이트 생성'}
+              {busy || 'Comment 생성'}
             </button>
             {comment?.text && !editing && (
               <button className="btn ghost" disabled={Boolean(busy)} onClick={() => {
@@ -978,7 +966,7 @@ function ReportCommentSection({
         <div className="report-comment-box">
           {comment?.text
             ? <ReportCommentContent text={comment.text} />
-            : <span className="muted">AI 인사이트를 생성하면 공유 링크에서도 이 영역에 표시됩니다.</span>}
+            : <span className="muted">Comment를 생성하면 공유 링크에서도 이 영역에 표시됩니다.</span>}
         </div>
       )}
     </section>
@@ -1536,113 +1524,11 @@ function latestReportDate(rows: NormalizedReportRow[]): string {
   return dates[dates.length - 1] || '';
 }
 
-function recentSevenDayRange(rows: NormalizedReportRow[]): { start: string; end: string } {
-  const dates = rows.map(row => row.date).filter(Boolean).sort();
-  const min = dates[0] || '';
-  const end = dates[dates.length - 1] || '';
-  if (!end) return { start: '', end: '' };
-  const recentStart = toIsoDate(addDays(parseIsoDate(end), -6));
-  return { start: min && recentStart < min ? min : recentStart, end };
-}
-
-function buildReportInsightPayload({
-  brandName,
-  reportName,
-  view,
-  rows,
-  periodStart,
-  periodEnd
-}: {
-  brandName: string;
-  reportName: string;
-  view: ReportView;
-  rows: NormalizedReportRow[];
-  periodStart: string;
-  periodEnd: string;
-}) {
-  const dates = rows.map(row => row.date).filter(Boolean).sort();
-  const latestDate = dates[dates.length - 1] || '';
-  const latestRows = latestDate ? rows.filter(row => row.date === latestDate) : [];
-  const recentDaily = view.current.byDaily
-    .slice()
-    .sort((a, b) => b.label.localeCompare(a.label))
-    .slice(0, 10)
-    .reverse()
-    .map(compactSummary);
-
-  return {
-    brandName,
-    reportName,
-    period: {
-      start: periodStart || view.currentPeriod.start,
-      end: periodEnd || view.currentPeriod.end,
-      label: view.currentPeriod.label,
-      previousLabel: view.previousPeriod.label
-    },
-    totalRange: {
-      start: dates[0] || '',
-      end: latestDate,
-      total: compactSummary(summarizeReportRows('all-total', '전체 Total', rows))
-    },
-    current: compactSummary(view.current.total),
-    previous: compactSummary(view.previous.total),
-    latestDay: latestDate ? compactSummary(summarizeReportRows(latestDate, latestDate, latestRows)) : null,
-    recentDaily,
-    promotions: view.current.byPromotion.slice(0, 12).map(compactSummary),
-    media: groupReportRows(rows, row => inferMediaLabel(row), 8).map(compactSummary),
-    objectives: groupReportRows(rows, row => inferObjectiveLabel(row), 8).map(compactSummary),
-    campaigns: view.current.byCampaign.slice(0, 15).map(compactSummary),
-    adgroups: view.current.byAdgroup.slice(0, 15).map(compactSummary),
-    supportingCreativeSignals: view.current.byCreative.slice(0, 6).map(compactSummary)
-  };
-}
-
-function compactSummary(row: ReportSummary) {
-  return {
-    label: row.label,
-    rows: row.rows,
-    spend: Math.round(row.spend),
-    sales: Math.round(row.sales),
-    impressions: Math.round(row.impressions),
-    clicks: Math.round(row.clicks),
-    conversions: Math.round(row.conversions),
-    addToCart: Math.round(row.addToCart),
-    registration: Math.round(row.registration),
-    lead: Math.round(row.lead),
-    order: Math.round(row.order),
-    ctr: roundNumber(row.ctr),
-    cvr: roundNumber(row.cvr),
-    cpc: Math.round(row.cpc),
-    cpa: Math.round(row.cpa),
-    cartCpa: Math.round(row.cartCpa),
-    roas: roundNumber(row.roas)
-  };
-}
-
-function groupReportRows(rows: NormalizedReportRow[], labelFor: (row: NormalizedReportRow) => string, limit: number): ReportSummary[] {
-  const groups = new Map<string, NormalizedReportRow[]>();
-  for (const row of rows) {
-    const label = labelFor(row);
-    const list = groups.get(label) || [];
-    list.push(row);
-    groups.set(label, list);
-  }
-  return [...groups.entries()]
-    .map(([label, list]) => summarizeReportRows(label, label, list))
-    .sort((a, b) => b.spend - a.spend || a.label.localeCompare(b.label, 'ko'))
-    .slice(0, limit);
-}
-
-function inferMediaLabel(row: NormalizedReportRow): string {
-  if (isSingleOneMeta(row)) return '싱글원(S-META)';
-  return row.media || (isMetaMedia(row) ? '메타' : '미분류');
-}
-
-function inferObjectiveLabel(row: NormalizedReportRow): string {
-  if (matchesAnyReportText(row, ['purchase', 'conversion'])) return 'Purchase';
-  if (matchesAnyReportText(row, ['traffic'])) return 'Traffic';
-  if (matchesAnyReportText(row, ['click'])) return 'Click';
-  return '기타';
+function fileInputDayRange(createdAt?: number): { start: string; end: string } {
+  const inputDate = createdAt ? new Date(createdAt) : new Date();
+  const end = toIsoDate(inputDate);
+  const start = toIsoDate(addDays(inputDate, -1));
+  return { start, end };
 }
 
 function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: string): RecentWeeklyData {
