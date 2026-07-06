@@ -813,17 +813,17 @@ function CreativeReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
 function PromotionDetailReport({ title, view, allRows }: { title: string; view: ReportView; allRows: NormalizedReportRow[] }) {
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const dailyData = buildYearDailyGroups(allRows, latestDate);
-  const overallRows = buildPromotionPerformanceRows(allRows, latestDate, [{ label: '전체 성과', test: () => true }]);
-  const mediaRows = buildPromotionPerformanceRows(allRows, latestDate, [
+  const overallRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [{ label: '전체 성과', test: () => true }]);
+  const mediaRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
     { label: '싱글원(S-META)', test: row => isSingleOneMeta(row) },
     { label: '메타', test: row => isMetaMedia(row) && !isSingleOneMeta(row) }
   ], '기타');
-  const objectiveRows = buildPromotionPerformanceRows(allRows, latestDate, [
+  const objectiveRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
     { label: 'Purchase', test: row => matchesAnyReportText(row, ['purchase', 'conversion']) },
     { label: 'Click', test: row => matchesAnyReportText(row, ['click']) },
     { label: 'Traffic', test: row => matchesAnyReportText(row, ['traffic']) }
   ], '기타');
-  const campaignRows = buildCampaignPerformanceRows(allRows, latestDate);
+  const campaignRows = buildCampaignPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end);
 
   return (
     <>
@@ -1178,10 +1178,10 @@ type PromotionPerformanceCategory = {
 type PromotionPerformanceRow = {
   label: string;
   total: ReportSummary;
-  recent: ReportSummary;
+  target: ReportSummary;
   previous: ReportSummary;
-  recentStart: string;
-  recentEnd: string;
+  targetStart: string;
+  targetEnd: string;
 };
 
 function PromotionPerformanceSection({ title, rows }: { title: string; rows: PromotionPerformanceRow[] }) {
@@ -1190,7 +1190,7 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
     <section className="section">
       <div className="section-head">
         <b>{title}</b>
-        <span className="muted">최근 1주일 {first ? `${first.recentStart} ~ ${first.recentEnd}` : '-'}</span>
+        <span className="muted">대상 기간 {first ? formatPromotionPeriodLabel(first.targetStart, first.targetEnd) : '-'}</span>
       </div>
       <div className="table-wrap sticky-detail">
         <table className="promotion-performance-table">
@@ -1198,7 +1198,7 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
             <tr>
               <th rowSpan={2}>구분</th>
               <th colSpan={4}>전체 기간 총합</th>
-              <th colSpan={4}>최근 1주일 총합</th>
+              <th colSpan={4}>대상 기간 총합</th>
               <th colSpan={4}>PoP Diff</th>
             </tr>
             <tr>
@@ -1212,8 +1212,8 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
               <tr key={row.label} className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
                 <td>{row.label}</td>
                 <PromotionCompactCells row={row.total} />
-                <PromotionCompactCells row={row.recent} />
-                <PromotionDiffCells current={row.recent} previous={row.previous} />
+                <PromotionCompactCells row={row.target} />
+                <PromotionDiffCells current={row.target} previous={row.previous} />
               </tr>
             ))}
           </tbody>
@@ -1261,6 +1261,12 @@ function PromotionDiffCell({ current, previous }: { current: number; previous: n
   const rate = (current - previous) / previous;
   const arrow = rate >= 0 ? '▲' : '▼';
   return <td className={trendClass(rate)}>{arrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
+}
+
+function formatPromotionPeriodLabel(start: string, end: string): string {
+  if (!start && !end) return '-';
+  if (start === end) return start;
+  return `${start || '-'} ~ ${end || '-'}`;
 }
 
 function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentWeeklyData; comparisonLabel?: string }) {
@@ -1605,42 +1611,58 @@ function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): 
 
 function buildPromotionPerformanceRows(
   rows: NormalizedReportRow[],
-  latestDate: string,
+  targetRows: NormalizedReportRow[],
+  previousRows: NormalizedReportRow[],
+  targetStart: string,
+  targetEnd: string,
   categories: PromotionPerformanceCategory[],
   fallbackLabel?: string
 ): PromotionPerformanceRow[] {
-  const recentEnd = latestDate || latestReportDate(rows);
-  const recentEndDate = recentEnd ? parseIsoDate(recentEnd) : null;
-  const recentStart = recentEndDate ? toIsoDate(addDays(recentEndDate, -6)) : '';
-  const previousEnd = recentEndDate ? toIsoDate(addDays(parseIsoDate(recentStart), -1)) : '';
-  const previousStart = previousEnd ? toIsoDate(addDays(parseIsoDate(previousEnd), -6)) : '';
-  const buckets = new Map<string, NormalizedReportRow[]>();
+  const labels = categories.map(category => category.label);
+  if (fallbackLabel) labels.push(fallbackLabel);
+  const bucketRows = (sourceRows: NormalizedReportRow[]) => {
+    const buckets = new Map(labels.map(label => [label, [] as NormalizedReportRow[]]));
+    for (const row of sourceRows) {
+      const label = promotionPerformanceLabel(row, categories, fallbackLabel);
+      if (!label) continue;
+      const list = buckets.get(label) || [];
+      list.push(row);
+      buckets.set(label, list);
+    }
+    return buckets;
+  };
+  const totalBuckets = bucketRows(rows);
+  const targetBuckets = bucketRows(targetRows);
+  const previousBuckets = bucketRows(previousRows);
 
-  for (const category of categories) buckets.set(category.label, []);
-  if (fallbackLabel) buckets.set(fallbackLabel, []);
-
-  for (const row of rows) {
-    const category = categories.find(item => item.test(row));
-    const label = category?.label || fallbackLabel;
-    if (!label) continue;
-    const list = buckets.get(label) || [];
-    list.push(row);
-    buckets.set(label, list);
-  }
-
-  return [...buckets.entries()]
-    .filter(([label, list]) => label !== fallbackLabel || list.length > 0)
+  return [...totalBuckets.entries()]
+    .filter(([label, list]) => label !== fallbackLabel || list.length > 0 || (targetBuckets.get(label)?.length || 0) > 0)
     .map(([label, list]) => ({
       label,
       total: summarizeReportRows(`${label}-total`, label, list),
-      recent: summarizeReportRows(`${label}-recent`, label, filterRowsByPeriod(list, recentStart, recentEnd)),
-      previous: summarizeReportRows(`${label}-previous`, label, filterRowsByPeriod(list, previousStart, previousEnd)),
-      recentStart,
-      recentEnd
+      target: summarizeReportRows(`${label}-target`, label, targetBuckets.get(label) || []),
+      previous: summarizeReportRows(`${label}-previous`, label, previousBuckets.get(label) || []),
+      targetStart,
+      targetEnd
     }));
 }
 
-function buildCampaignPerformanceRows(rows: NormalizedReportRow[], latestDate: string): PromotionPerformanceRow[] {
+function promotionPerformanceLabel(
+  row: NormalizedReportRow,
+  categories: PromotionPerformanceCategory[],
+  fallbackLabel?: string
+): string | undefined {
+  const category = categories.find(item => item.test(row));
+  return category?.label || fallbackLabel;
+}
+
+function buildCampaignPerformanceRows(
+  rows: NormalizedReportRow[],
+  targetRows: NormalizedReportRow[],
+  previousRows: NormalizedReportRow[],
+  targetStart: string,
+  targetEnd: string
+): PromotionPerformanceRow[] {
   const groups = new Map<string, NormalizedReportRow[]>();
   for (const row of rows) {
     const label = inferCampaignGroupLabel(row);
@@ -1659,22 +1681,27 @@ function buildCampaignPerformanceRows(rows: NormalizedReportRow[], latestDate: s
   const rest = sorted.slice(12).flatMap(([, list]) => list);
   if (rest.length) top.push(['기타', rest]);
 
-  return top.map(([label, list]) => buildPromotionPerformanceRow(label, list, latestDate));
+  return top.map(([label, list]) => buildPromotionPerformanceRow(label, list, targetRows, previousRows, targetStart, targetEnd));
 }
 
-function buildPromotionPerformanceRow(label: string, rows: NormalizedReportRow[], latestDate: string): PromotionPerformanceRow {
-  const recentEnd = latestDate || latestReportDate(rows);
-  const recentEndDate = recentEnd ? parseIsoDate(recentEnd) : null;
-  const recentStart = recentEndDate ? toIsoDate(addDays(recentEndDate, -6)) : '';
-  const previousEnd = recentEndDate ? toIsoDate(addDays(parseIsoDate(recentStart), -1)) : '';
-  const previousStart = previousEnd ? toIsoDate(addDays(parseIsoDate(previousEnd), -6)) : '';
+function buildPromotionPerformanceRow(
+  label: string,
+  rows: NormalizedReportRow[],
+  targetRows: NormalizedReportRow[],
+  previousRows: NormalizedReportRow[],
+  targetStart: string,
+  targetEnd: string
+): PromotionPerformanceRow {
+  const labels = new Set(rows.map(row => inferCampaignGroupLabel(row)));
+  const targetGroupRows = targetRows.filter(row => labels.has(inferCampaignGroupLabel(row)));
+  const previousGroupRows = previousRows.filter(row => labels.has(inferCampaignGroupLabel(row)));
   return {
     label,
     total: summarizeReportRows(`${label}-total`, label, rows),
-    recent: summarizeReportRows(`${label}-recent`, label, filterRowsByPeriod(rows, recentStart, recentEnd)),
-    previous: summarizeReportRows(`${label}-previous`, label, filterRowsByPeriod(rows, previousStart, previousEnd)),
-    recentStart,
-    recentEnd
+    target: summarizeReportRows(`${label}-target`, label, targetGroupRows),
+    previous: summarizeReportRows(`${label}-previous`, label, previousGroupRows),
+    targetStart,
+    targetEnd
   };
 }
 
