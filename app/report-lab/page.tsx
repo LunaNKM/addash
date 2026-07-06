@@ -1851,14 +1851,19 @@ function matchesPromotionTab(row: NormalizedReportRow, tab: PromotionTab): boole
   const fullText = normalizeSearchText(`${row.promotion} ${row.campaignName} ${row.adgroupName} ${row.adName}`);
   const text = hasConcretePromotionText(promotionText) ? promotionText : fullText;
   const isHybrid = fullText.includes('하이브리드') || fullText.includes('hybrid');
+  const isQoo10CampaignPromotion = promotionText === '큐텐 캠페인';
   if (tab === 'hybrid') return isHybrid;
   if (isHybrid) return false;
+  if (tab === 'always') {
+    return isQoo10CampaignPromotion || text.includes('상시') || text.includes('always') || text.includes('evergreen') || !hasEventPromotionText(text);
+  }
+  if (isQoo10CampaignPromotion) return false;
   if (tab === 'owned') return text.includes('자사몰');
   if (tab === 'megawari') return text.includes('메가와리') || text.includes('megawari') || text.includes('mega wari');
   if (tab === 'megapo') return text.includes('메가포') || text.includes('megapo') || text.includes('mega po');
   if (tab === 'amazon') return isAmazonText(promotionText);
   if (tab === 'market') return isMarketText(text);
-  return text.includes('상시') || text.includes('always') || text.includes('evergreen') || !hasEventPromotionText(text);
+  return false;
 }
 
 function normalizeSearchText(value: string): string {
