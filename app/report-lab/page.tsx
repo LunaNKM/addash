@@ -1198,13 +1198,13 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
             <tr>
               <th rowSpan={2}>구분</th>
               <th colSpan={4}>전체 기간 총합</th>
-              <th colSpan={4}>대상 기간 총합</th>
-              <th colSpan={4}>PoP Diff</th>
+              <th colSpan={6}>대상 기간 총합</th>
+              <th colSpan={6}>PoP Diff</th>
             </tr>
             <tr>
               <PromotionCompactHeaders />
-              <PromotionCompactHeaders />
-              <PromotionCompactHeaders />
+              <PromotionCompactHeaders extended />
+              <PromotionCompactHeaders extended />
             </tr>
           </thead>
           <tbody>
@@ -1212,7 +1212,7 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
               <tr key={row.label} className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
                 <td>{row.label}</td>
                 <PromotionCompactCells row={row.total} />
-                <PromotionCompactCells row={row.target} />
+                <PromotionCompactCells row={row.target} extended />
                 <PromotionDiffCells current={row.target} previous={row.previous} />
               </tr>
             ))}
@@ -1223,24 +1223,36 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
   );
 }
 
-function PromotionCompactHeaders() {
+function PromotionCompactHeaders({ extended = false }: { extended?: boolean }) {
   return (
     <>
       <th>광고비</th>
       <th>매출</th>
       <th>전환</th>
       <th>ROAS</th>
+      {extended && (
+        <>
+          <th>CTR</th>
+          <th>CPC</th>
+        </>
+      )}
     </>
   );
 }
 
-function PromotionCompactCells({ row }: { row: ReportSummary }) {
+function PromotionCompactCells({ row, extended = false }: { row: ReportSummary; extended?: boolean }) {
   return (
     <>
       <td>{formatCurrency(row.spend)}</td>
       <td>{formatCurrency(row.sales)}</td>
       <td>{formatInteger(row.conversions)}</td>
       <td>{row.roas.toFixed(2)}</td>
+      {extended && (
+        <>
+          <td>{formatPercent(row.ctr)}</td>
+          <td>{formatCurrency(row.cpc)}</td>
+        </>
+      )}
     </>
   );
 }
@@ -1252,6 +1264,8 @@ function PromotionDiffCells({ current, previous }: { current: ReportSummary; pre
       <PromotionDiffCell current={current.sales} previous={previous.sales} />
       <PromotionDiffCell current={current.conversions} previous={previous.conversions} />
       <PromotionDiffCell current={current.roas} previous={previous.roas} />
+      <PromotionDiffCell current={current.ctr} previous={previous.ctr} />
+      <PromotionDiffCell current={current.cpc} previous={previous.cpc} />
     </>
   );
 }

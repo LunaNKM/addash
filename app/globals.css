@@ -2607,9 +2607,9 @@ td[title], .legend-row[title], .donut-legend div[title] {
 }
 
 .promotion-performance-table tbody td:nth-child(6),
-.promotion-performance-table tbody td:nth-child(10),
+.promotion-performance-table tbody td:nth-child(12),
 .promotion-performance-table thead tr:nth-child(2) th:nth-child(5),
-.promotion-performance-table thead tr:nth-child(2) th:nth-child(9) {
+.promotion-performance-table thead tr:nth-child(2) th:nth-child(11) {
   border-left: 2px solid var(--c-border-vivid);
 }
 
