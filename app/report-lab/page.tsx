@@ -705,6 +705,7 @@ export default function ReportLabPage() {
                   allRows={filteredRows}
                   marketplace={activeMarketplace.id}
                   marketplaceRows={marketplaceRows}
+                  activeSubTab={activeSubTab}
                 />
               )}
             </>
@@ -861,22 +862,20 @@ function PromotionDetailReport({
   view,
   allRows,
   marketplace,
-  marketplaceRows
+  marketplaceRows,
+  activeSubTab
 }: {
   title: string;
   view: ReportView;
   allRows: NormalizedReportRow[];
   marketplace: MarketplaceTab;
   marketplaceRows: NormalizedReportRow[];
+  activeSubTab: PromotionSubTab;
 }) {
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const dailyData = buildYearDailyGroups(allRows, latestDate);
-  const marketplaceTargetRows = filterRowsByPeriod(marketplaceRows, view.currentPeriod.start, view.currentPeriod.end);
-  const marketplacePreviousRows = filterRowsByPeriod(marketplaceRows, view.previousPeriod.start, view.previousPeriod.end);
-  const qoo10CategoryRows = marketplace === 'qoo10'
-    ? buildQoo10CategoryPerformanceRows(marketplaceRows, marketplaceTargetRows, marketplacePreviousRows, view.currentPeriod.start, view.currentPeriod.end)
-    : [];
-  const megapoHistoryRows = marketplace === 'qoo10' ? buildHistoricalSubTabRows(marketplaceRows, 'megapo') : [];
+  const historicalTitle = historicalSubTabTitle(activeSubTab);
+  const historicalRows = marketplace === 'qoo10' && historicalTitle ? buildHistoricalSubTabRows(marketplaceRows, activeSubTab) : [];
   const overallRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [{ label: '전체 성과', test: () => true }]);
   const mediaRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
     { label: '싱글원(S-META)', test: row => isSingleOneMeta(row) },
@@ -905,8 +904,7 @@ function PromotionDetailReport({
         </div>
       </section>
       <DailyToplineChart rows={view.current.byDaily} />
-      {qoo10CategoryRows.length > 0 && <PromotionPerformanceSection title="Qoo10 하위탭별 효율" rows={qoo10CategoryRows} />}
-      {megapoHistoryRows.length > 0 && <HistoricalPerformanceTable title="역대 메가포 효율" rows={megapoHistoryRows} />}
+      {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} />
       <PromotionPerformanceSection title="미디어별 성과" rows={mediaRows} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} />
@@ -1775,21 +1773,6 @@ function buildPromotionPerformanceRows(
     }));
 }
 
-function buildQoo10CategoryPerformanceRows(
-  rows: NormalizedReportRow[],
-  targetRows: NormalizedReportRow[],
-  previousRows: NormalizedReportRow[],
-  targetStart: string,
-  targetEnd: string
-): PromotionPerformanceRow[] {
-  return buildPromotionPerformanceRows(rows, targetRows, previousRows, targetStart, targetEnd, [
-    { label: '상시', test: row => matchesPromotionSubTab(row, 'qoo10', 'always') },
-    { label: '메가와리', test: row => matchesPromotionSubTab(row, 'qoo10', 'megawari') },
-    { label: '메가포', test: row => matchesPromotionSubTab(row, 'qoo10', 'megapo') },
-    { label: '마켓', test: row => matchesPromotionSubTab(row, 'qoo10', 'market') }
-  ]);
-}
-
 function buildHistoricalSubTabRows(rows: NormalizedReportRow[], subTab: PromotionSubTab): ReportSummary[] {
   const grouped = new Map<string, NormalizedReportRow[]>();
   for (const row of rows) {
@@ -1807,6 +1790,13 @@ function buildHistoricalSubTabRows(rows: NormalizedReportRow[], subTab: Promotio
       const [year, month] = key.split('-');
       return summarizeReportRows(key, `${year}년 ${Number(month)}월`, list);
     });
+}
+
+function historicalSubTabTitle(subTab: PromotionSubTab): string {
+  if (subTab === 'megawari') return '역대 메가와리 효율';
+  if (subTab === 'megapo') return '역대 메가포 효율';
+  if (subTab === 'market') return '역대 마켓 효율';
+  return '';
 }
 
 function promotionPerformanceLabel(
