@@ -37,7 +37,7 @@ import type {
 } from '@/lib/report/reportTypes';
 
 type MarketplaceTab = 'qoo10' | 'owned';
-type PromotionSubTab = 'always' | 'megawari' | 'megapo' | 'hybrid';
+type PromotionSubTab = 'always' | 'megawari' | 'megapo' | 'market' | 'hybrid';
 type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
 
 const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
@@ -49,7 +49,8 @@ const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: s
   qoo10: [
     { id: 'always', label: '상시' },
     { id: 'megawari', label: '메가와리' },
-    { id: 'megapo', label: '메가포' }
+    { id: 'megapo', label: '메가포' },
+    { id: 'market', label: '마켓' }
   ],
   owned: [
     { id: 'always', label: '상시' },
@@ -321,6 +322,18 @@ export default function ReportLabPage() {
       return true;
     });
   }, [activeMarketplace, activeSubTab, adFilter, adgroupFilter, campaignFilter, result]);
+
+  const marketplaceRows = useMemo(() => {
+    if (!result || !activeMarketplace) return [];
+    return result.rows.filter(row => {
+      if (isExcludedAmazonRow(row)) return false;
+      if (!matchesMarketplaceTab(row, activeMarketplace.id)) return false;
+      if (!matchesValue(row.campaignName, campaignFilter)) return false;
+      if (!matchesValue(row.adgroupName, adgroupFilter)) return false;
+      if (!matchesValue(row.adName, adFilter)) return false;
+      return true;
+    });
+  }, [activeMarketplace, adFilter, adgroupFilter, campaignFilter, result]);
 
   const defaultComparison = useMemo(
     () => previousMatchingPeriod(periodStart || dates.min, periodEnd || dates.max),
@@ -685,7 +698,15 @@ export default function ReportLabPage() {
               )}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} />}
-              {activeMarketplace && <PromotionDetailReport title={activeMarketplaceTitle} view={reportView} allRows={filteredRows} />}
+              {activeMarketplace && (
+                <PromotionDetailReport
+                  title={activeMarketplaceTitle}
+                  view={reportView}
+                  allRows={filteredRows}
+                  marketplace={activeMarketplace.id}
+                  marketplaceRows={marketplaceRows}
+                />
+              )}
             </>
           )}
         </div>
@@ -835,9 +856,27 @@ function CreativeReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
   );
 }
 
-function PromotionDetailReport({ title, view, allRows }: { title: string; view: ReportView; allRows: NormalizedReportRow[] }) {
+function PromotionDetailReport({
+  title,
+  view,
+  allRows,
+  marketplace,
+  marketplaceRows
+}: {
+  title: string;
+  view: ReportView;
+  allRows: NormalizedReportRow[];
+  marketplace: MarketplaceTab;
+  marketplaceRows: NormalizedReportRow[];
+}) {
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const dailyData = buildYearDailyGroups(allRows, latestDate);
+  const marketplaceTargetRows = filterRowsByPeriod(marketplaceRows, view.currentPeriod.start, view.currentPeriod.end);
+  const marketplacePreviousRows = filterRowsByPeriod(marketplaceRows, view.previousPeriod.start, view.previousPeriod.end);
+  const qoo10CategoryRows = marketplace === 'qoo10'
+    ? buildQoo10CategoryPerformanceRows(marketplaceRows, marketplaceTargetRows, marketplacePreviousRows, view.currentPeriod.start, view.currentPeriod.end)
+    : [];
+  const megapoHistoryRows = marketplace === 'qoo10' ? buildHistoricalSubTabRows(marketplaceRows, 'megapo') : [];
   const overallRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [{ label: '전체 성과', test: () => true }]);
   const mediaRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
     { label: '싱글원(S-META)', test: row => isSingleOneMeta(row) },
@@ -866,6 +905,8 @@ function PromotionDetailReport({ title, view, allRows }: { title: string; view: 
         </div>
       </section>
       <DailyToplineChart rows={view.current.byDaily} />
+      {qoo10CategoryRows.length > 0 && <PromotionPerformanceSection title="Qoo10 하위탭별 효율" rows={qoo10CategoryRows} />}
+      {megapoHistoryRows.length > 0 && <HistoricalPerformanceTable title="역대 메가포 효율" rows={megapoHistoryRows} />}
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} />
       <PromotionPerformanceSection title="미디어별 성과" rows={mediaRows} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} />
@@ -1253,6 +1294,35 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
                 <PromotionCompactCells row={row.total} />
                 <PromotionCompactCells row={row.target} extended />
                 <PromotionDiffCells current={row.target} previous={row.previous} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function HistoricalPerformanceTable({ title, rows }: { title: string; rows: ReportSummary[] }) {
+  return (
+    <section className="section">
+      <div className="section-head">
+        <b>{title}</b>
+        <span className="muted">전체 데이터 기준 월별 효율</span>
+      </div>
+      <div className="table-wrap sticky-detail">
+        <table>
+          <thead>
+            <tr>
+              <th>기간</th>
+              <MetricHeaders />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.key}>
+                <td>{row.label}</td>
+                <MetricCells row={row} />
               </tr>
             ))}
           </tbody>
@@ -1705,6 +1775,40 @@ function buildPromotionPerformanceRows(
     }));
 }
 
+function buildQoo10CategoryPerformanceRows(
+  rows: NormalizedReportRow[],
+  targetRows: NormalizedReportRow[],
+  previousRows: NormalizedReportRow[],
+  targetStart: string,
+  targetEnd: string
+): PromotionPerformanceRow[] {
+  return buildPromotionPerformanceRows(rows, targetRows, previousRows, targetStart, targetEnd, [
+    { label: '상시', test: row => matchesPromotionSubTab(row, 'qoo10', 'always') },
+    { label: '메가와리', test: row => matchesPromotionSubTab(row, 'qoo10', 'megawari') },
+    { label: '메가포', test: row => matchesPromotionSubTab(row, 'qoo10', 'megapo') },
+    { label: '마켓', test: row => matchesPromotionSubTab(row, 'qoo10', 'market') }
+  ]);
+}
+
+function buildHistoricalSubTabRows(rows: NormalizedReportRow[], subTab: PromotionSubTab): ReportSummary[] {
+  const grouped = new Map<string, NormalizedReportRow[]>();
+  for (const row of rows) {
+    if (!matchesPromotionSubTab(row, 'qoo10', subTab)) continue;
+    const key = row.date.slice(0, 7);
+    if (!key) continue;
+    const list = grouped.get(key) || [];
+    list.push(row);
+    grouped.set(key, list);
+  }
+
+  return [...grouped.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([key, list]) => {
+      const [year, month] = key.split('-');
+      return summarizeReportRows(key, `${year}년 ${Number(month)}월`, list);
+    });
+}
+
 function promotionPerformanceLabel(
   row: NormalizedReportRow,
   categories: PromotionPerformanceCategory[],
@@ -1973,9 +2077,11 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
 
   const isMegawari = promotionText.includes('메가와리') || promotionText.includes('megawari') || promotionText.includes('mega wari');
   const isMegapo = promotionText.includes('메가포') || promotionText.includes('megapo') || promotionText.includes('mega po');
-  if (tab === 'megawari') return isMegawari && !isMegapo;
-  if (tab === 'megapo') return isMegapo && !isMegawari;
-  if (tab === 'always') return !isMegawari && !isMegapo;
+  const isMarket = text.includes('market');
+  if (tab === 'market') return isMarket;
+  if (tab === 'megawari') return !isMarket && isMegawari && !isMegapo;
+  if (tab === 'megapo') return !isMarket && isMegapo && !isMegawari;
+  if (tab === 'always') return !isMarket && !isMegawari && !isMegapo;
   return false;
 }
 
