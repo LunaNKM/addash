@@ -891,13 +891,7 @@ function PromotionDetailReport({
           <b>{title} 성과</b>
           <span className="muted">최신 {latestDate || '-'}</span>
         </div>
-        <div className="report-contract-grid">
-          <ContractItem label="전체 행" value={allRows.length.toLocaleString()} ok={allRows.length > 0} />
-          <ContractItem label="캠페인" value={view.current.byCampaign.length.toLocaleString()} ok={view.current.byCampaign.length > 0} />
-          <ContractItem label="광고세트" value={view.current.byAdgroup.length.toLocaleString()} ok={view.current.byAdgroup.length > 0} />
-          <ContractItem label="소재" value={view.current.byCreative.length.toLocaleString()} ok={view.current.byCreative.length > 0} />
-          <ContractItem label="일자" value={dailyData.groups.reduce((sum, group) => sum + group.days.length, 0).toLocaleString()} ok={Boolean(latestDate)} />
-        </div>
+        <PromotionKpiCards total={view.current.total} />
       </section>
       <DailyToplineChart rows={view.current.byDaily} />
       {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
@@ -909,11 +903,24 @@ function PromotionDetailReport({
   );
 }
 
-function ContractItem({ label, value, ok }: { label: string; value: string; ok: boolean }) {
+function PromotionKpiCards({ total }: { total: ReportSummary }) {
+  const cards = [
+    { label: '광고비', value: formatCurrency(total.spend) },
+    { label: '매출', value: formatCurrency(total.sales) },
+    { label: 'ROAS', value: total.roas.toFixed(2) },
+    { label: 'CTR', value: formatPercent(total.ctr) },
+    { label: 'CVR', value: formatPercent(total.cvr) },
+    { label: 'CPA', value: formatCurrency(total.cpa) }
+  ];
+
   return (
-    <div className={`report-contract-item ${ok ? 'ok' : 'bad'}`}>
-      <small>{label}</small>
-      <b>{value}</b>
+    <div className="report-stat-grid">
+      {cards.map(card => (
+        <div className="report-stat-card" key={card.label}>
+          <small>{card.label}</small>
+          <b>{card.value}</b>
+        </div>
+      ))}
     </div>
   );
 }
