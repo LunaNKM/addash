@@ -1034,7 +1034,7 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
   const chartHeight = height - top - bottom;
   const moneyMax = Math.max(1, ...sorted.flatMap(row => [row.spend, row.sales]));
   const rateValues = sorted
-    .flatMap(row => [row.cvr, row.roas])
+    .map(row => row.roas)
     .filter(value => Number.isFinite(value) && value > 0)
     .sort((a, b) => a - b);
   const rawRateMax = Math.max(0.01, ...rateValues);
@@ -1047,7 +1047,7 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
   const yMoney = (value: number) => top + chartHeight - (value / moneyMax) * chartHeight;
   const yRate = (value: number) => top + chartHeight - (Math.min(value, rateMax) / rateMax) * chartHeight;
   const xCenter = (index: number) => left + slot * index + slot / 2;
-  const linePath = (key: 'cvr' | 'roas') => sorted
+  const linePath = (key: 'roas') => sorted
     .map((row, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yRate(row[key])}`)
     .join(' ');
   const dateTickEvery = Math.max(1, Math.ceil(sorted.length / 14));
@@ -1062,10 +1062,10 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
             <span>광고비 {formatCurrency(tooltip.row.spend)}</span>
             <span>매출 {formatCurrency(tooltip.row.sales)}</span>
             <span>클릭 {formatInteger(tooltip.row.clicks)} / 전환 {formatInteger(tooltip.row.conversions)}</span>
-            <span>CVR {formatPercent(tooltip.row.cvr)} / ROAS {formatPercent(tooltip.row.roas)}</span>
+            <span>ROAS {formatPercent(tooltip.row.roas)}</span>
           </div>
         )}
-        <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="일자별 광고비, 매출, CVR, ROAS 추이">
+        <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="일자별 광고비, 매출, ROAS 추이">
           {[0, 0.25, 0.5, 0.75, 1].map(rate => {
             const y = top + chartHeight - chartHeight * rate;
             const money = moneyMax * rate;
@@ -1096,11 +1096,9 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
             );
           })}
 
-          <path d={linePath('cvr')} fill="none" stroke="var(--c-success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           <path d={linePath('roas')} fill="none" stroke="var(--c-danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           {sorted.map((row, index) => (
             <g key={`${row.key}-points`}>
-              <circle cx={xCenter(index)} cy={yRate(row.cvr)} r="3" fill="var(--c-success)" />
               <circle cx={xCenter(index)} cy={yRate(row.roas)} r="3" fill="var(--c-danger)" />
               <rect
                 x={left + slot * index}
@@ -1117,7 +1115,6 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
         <div className="report-chart-legend">
           <span><i style={{ background: 'var(--chart-1)' }} />광고비</span>
           <span><i style={{ background: 'var(--chart-3)' }} />매출</span>
-          <span><i className="line" style={{ background: 'var(--c-success)' }} />CVR</span>
           <span><i className="line" style={{ background: 'var(--c-danger)' }} />ROAS</span>
         </div>
       </div>
@@ -1126,34 +1123,60 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
 }
 
 function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetric[]; comparisonLabel?: string }) {
+  const metric = (key: ReportComparisonMetric['key']) => rows.find(row => row.key === key);
+  const summary = (prefix: string): ReportSummary => ({
+    key: prefix,
+    label: prefix,
+    rows: 0,
+    spend: metric('spend')?.[prefix as 'current' | 'previous'] || 0,
+    grossSpend: 0,
+    impressions: metric('impressions')?.[prefix as 'current' | 'previous'] || 0,
+    clicks: metric('clicks')?.[prefix as 'current' | 'previous'] || 0,
+    conversions: metric('conversions')?.[prefix as 'current' | 'previous'] || 0,
+    sales: metric('sales')?.[prefix as 'current' | 'previous'] || 0,
+    addToCart: metric('addToCart')?.[prefix as 'current' | 'previous'] || 0,
+    registration: 0,
+    lead: 0,
+    order: 0,
+    ctr: metric('ctr')?.[prefix as 'current' | 'previous'] || 0,
+    cpc: safeRatio(metric('spend')?.[prefix as 'current' | 'previous'] || 0, metric('clicks')?.[prefix as 'current' | 'previous'] || 0),
+    cvr: metric('cvr')?.[prefix as 'current' | 'previous'] || 0,
+    cpa: metric('cpa')?.[prefix as 'current' | 'previous'] || 0,
+    cartCpa: 0,
+    roas: metric('roas')?.[prefix as 'current' | 'previous'] || 0
+  });
+  const current = summary('current');
+  const previous = summary('previous');
+
   return (
     <section className="section">
       <div className="section-head">
-        <PeriodBadge label={comparisonLabel || ''} />
         <b>기간 비교</b>
+        <PeriodBadge label={comparisonLabel || ''} />
         <span className="muted">선택 기간과 직전 동일 길이 기간을 비교합니다.</span>
       </div>
-      <div className="table-wrap">
-        <table>
+      <div className="table-wrap sticky-detail">
+        <table className="promotion-performance-table">
           <thead>
             <tr>
-              <th>지표</th>
-              <th>선택 기간</th>
-              <th>이전 기간</th>
-              <th>차이</th>
-              <th>변화율</th>
+              <th rowSpan={2}>구분</th>
+              <th colSpan={6}>선택 기간</th>
+              <th colSpan={6}>이전 기간</th>
+              <th colSpan={6}>PoP Diff</th>
+            </tr>
+            <tr>
+              <PromotionCompactHeaders extended />
+              <PromotionCompactHeaders extended />
+              <PromotionCompactHeaders extended />
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
-              <tr key={row.key}>
-                <td>{row.label}</td>
-                <td>{formatReportValue(row.key, row.current)}</td>
-                <td>{formatReportValue(row.key, row.previous)}</td>
-                <td className={trendClass(row.delta)}>{formatReportValue(row.key, row.delta)}</td>
-                <td className={trendClass(row.deltaRate)}>{formatSignedPercent(row.deltaRate)}</td>
-              </tr>
-            ))}
+            <tr className="report-total-row">
+              <td>전체 성과</td>
+              <PromotionCompactCells row={current} extended />
+              <PromotionCompactCells row={previous} extended />
+              <PromotionDiffCells current={current} previous={previous} />
+            </tr>
           </tbody>
         </table>
       </div>
@@ -1302,7 +1325,7 @@ function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentW
       <div className="section-head">
         <b>주차별 성과</b>
         <PeriodBadge label={comparisonLabel || ''} />
-        <span className="muted">최근 3개월 · {data.start || '-'} ~ {data.end || '-'}</span>
+        <span className="muted">최근 3개월 · 전월까지 · {data.start || '-'} ~ {data.end || '-'}</span>
       </div>
       <div className="table-wrap sticky-detail">
         <table>
@@ -1569,9 +1592,11 @@ function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: str
     return { rows: [], total: summarizeReportRows('TOTAL', 'TOTAL', []), start: '', end: '' };
   }
   const latest = parseIsoDate(latestDate);
-  const start = new Date(latest.getFullYear(), latest.getMonth() - 2, 1);
+  const start = new Date(latest.getFullYear(), latest.getMonth() - 3, 1);
+  const end = new Date(latest.getFullYear(), latest.getMonth(), 0);
   const startIso = toIsoDate(start);
-  const scopedRows = rows.filter(row => row.date >= startIso && row.date <= latestDate);
+  const endIso = toIsoDate(end);
+  const scopedRows = rows.filter(row => row.date >= startIso && row.date <= endIso);
   const grouped = new Map<string, NormalizedReportRow[]>();
 
   for (const row of scopedRows) {
@@ -1587,7 +1612,7 @@ function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: str
       .map(([key, list]) => summarizeReportRows(key, monthWeekLabel(list[0]?.date || '').label || key, list)),
     total: summarizeReportRows('TOTAL', 'TOTAL', scopedRows),
     start: startIso,
-    end: latestDate
+    end: endIso
   };
 }
 
@@ -1973,20 +1998,8 @@ function formatPercent(value: number): string {
   return `${((Number(value) || 0) * 100).toFixed(2)}%`;
 }
 
-function formatSignedPercent(value: number): string {
-  const safe = Number(value) || 0;
-  return `${safe >= 0 ? '+' : ''}${(safe * 100).toFixed(1)}%`;
-}
-
 function trendClass(value: number): string {
   return Number(value) >= 0 ? 'diff-up' : 'diff-down';
-}
-
-function formatReportValue(key: ReportComparisonMetric['key'], value: number): string {
-  if (key === 'spend' || key === 'sales' || key === 'cpa') return formatCurrency(value);
-  if (key === 'ctr' || key === 'cvr') return formatPercent(value);
-  if (key === 'roas') return value.toFixed(2);
-  return formatInteger(value);
 }
 
 function DiffCell({ current, previous, inverse = false }: { current: number; previous: number; inverse?: boolean }) {
