@@ -2057,10 +2057,16 @@ function isQoo10Row(row: NormalizedReportRow): boolean {
   return text.includes('qoo10') || rawText.includes('s-');
 }
 
+function isOwnedHybridRow(row: NormalizedReportRow): boolean {
+  const text = adIdentityText(row);
+  const rawText = adIdentityRawText(row);
+  return text.includes('wish') && text.includes('hybrid') && !rawText.includes('s-');
+}
+
 function matchesMarketplaceTab(row: NormalizedReportRow, tab: MarketplaceTab): boolean {
   const text = adIdentityText(row);
-  if (tab === 'qoo10') return isQoo10Row(row);
-  if (tab === 'owned') return !isQoo10Row(row) && text.includes('wish');
+  if (tab === 'qoo10') return isQoo10Row(row) && !isOwnedHybridRow(row);
+  if (tab === 'owned') return isOwnedHybridRow(row) || (!isQoo10Row(row) && text.includes('wish'));
   return false;
 }
 
