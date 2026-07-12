@@ -877,12 +877,6 @@ function PromotionDetailReport({
   const historicalTitle = historicalSubTabTitle(activeSubTab);
   const historicalRows = marketplace === 'qoo10' && historicalTitle ? buildHistoricalSubTabRows(marketplaceRows, activeSubTab) : [];
   const overallRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end, [{ label: '전체 성과', test: () => true }]);
-  const mediaRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end, [
-    { label: '싱글원(S-META)', test: row => isSingleOneMeta(row) },
-    { label: '메타', test: row => isMetaMedia(row) && !isSingleOneMeta(row) },
-    { label: '틱톡', test: row => isTikTokMedia(row) },
-    { label: '라인', test: row => isLineMedia(row) }
-  ], '기타');
   const objectiveRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end, [
     { label: 'ATC(장바구니)', test: row => matchesAnyReportText(row, ['atc', 'add to cart', 'addtocart']) },
     { label: 'Purchase', test: row => matchesAnyReportText(row, ['purchase', 'conversion']) },
@@ -908,7 +902,6 @@ function PromotionDetailReport({
       <DailyToplineChart rows={view.current.byDaily} />
       {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} />
-      <PromotionPerformanceSection title="미디어별 성과" rows={mediaRows} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} />
       <PromotionPerformanceSection title="캠페인별 성과" rows={campaignRows} />
       <YearDailyPerformanceTable data={dailyData} />
@@ -1199,7 +1192,7 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
         <span className="muted">선택 기간과 직전 동일 길이 기간을 비교합니다.</span>
       </div>
       <div className="table-wrap sticky-detail">
-        <table className="promotion-performance-table promotion-stacked-table">
+        <table className="promotion-performance-table">
           <thead>
             <tr>
               <th rowSpan={2}>구분</th>
@@ -1277,7 +1270,7 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
         </span>
       </div>
       <div className="table-wrap sticky-detail">
-        <table className="promotion-performance-table">
+        <table className="promotion-performance-table promotion-stacked-table">
           <thead>
             <tr>
               <th>그룹</th>
@@ -1289,6 +1282,10 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
               <React.Fragment key={row.label}>
                 <tr className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
                   <td>{row.label}</td>
+                  <PromotionComparisonCells row={row.total} />
+                </tr>
+                <tr className="promotion-target-row">
+                  <td>대상 기간</td>
                   <PromotionComparisonCells row={row.target} spendDiff={row.target.spend - row.previous.spend} />
                 </tr>
                 <tr className="promotion-period-row">
@@ -1948,23 +1945,6 @@ function reportSearchText(row: NormalizedReportRow): string {
 function matchesAnyReportText(row: NormalizedReportRow, keywords: string[]): boolean {
   const text = reportSearchText(row);
   return keywords.some(keyword => text.includes(normalizeSearchText(keyword)));
-}
-
-function isSingleOneMeta(row: NormalizedReportRow): boolean {
-  const text = reportSearchText(row);
-  return text.includes('s meta') || text.includes('singleone') || text.includes('single one') || text.includes('싱글원');
-}
-
-function isMetaMedia(row: NormalizedReportRow): boolean {
-  return reportSearchText(row).includes('meta');
-}
-
-function isTikTokMedia(row: NormalizedReportRow): boolean {
-  return normalizeSearchText(row.media).includes('tiktok');
-}
-
-function isLineMedia(row: NormalizedReportRow): boolean {
-  return normalizeSearchText(row.media).includes('line');
 }
 
 function monthWeekLabel(value: string): { key: string; label: string } {

@@ -2646,6 +2646,12 @@ td[title], .legend-row[title], .donut-legend div[title] {
   text-align: left;
 }
 
+.promotion-stacked-table th,
+.promotion-stacked-table td {
+  border-left-width: 0 !important;
+  border-right-width: 0 !important;
+}
+
 .promotion-stacked-table tbody td:nth-child(6),
 .promotion-stacked-table tbody td:nth-child(12),
 .promotion-stacked-table tbody td:nth-child(18),
@@ -2658,14 +2664,17 @@ td[title], .legend-row[title], .donut-legend div[title] {
   border-left-width: 0;
 }
 
+.promotion-stacked-table tbody tr.promotion-target-row td {
+  background: var(--c-bg);
+}
+
 .promotion-stacked-table tbody tr.promotion-period-row td {
   background: var(--c-bg-muted);
   color: var(--c-ink-2);
 }
 
 .promotion-stacked-table tbody tr.promotion-pop-row td {
-  background: var(--c-bg-elevated);
-  border-bottom: 1px solid var(--c-border-vivid);
+  background: var(--c-bg-muted);
   font-weight: 750;
 }
 
