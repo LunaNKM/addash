@@ -274,7 +274,7 @@ export default function ReportLabPage() {
 
   const periodRows = useMemo(() => {
     if (!result) return [];
-    return filterRowsByPeriod(result.rows, periodStart || dates.min, periodEnd || dates.max).filter(row => !isExcludedAmazonRow(row));
+    return filterRowsByPeriod(result.rows.filter(row => !isExcludedAmazonRow(row)), periodStart || dates.min, periodEnd || dates.max);
   }, [dates.max, dates.min, periodEnd, periodStart, result]);
 
   const optionRows = useMemo(() => {
@@ -311,14 +311,16 @@ export default function ReportLabPage() {
   }, [adFilter, adOptions, adgroupFilter, adgroupOptions, campaignFilter, campaignOptions]);
 
   const filteredRows = useMemo(() => {
-    return periodRows.filter(row => {
+    if (!result) return [];
+    return result.rows.filter(row => {
+      if (isExcludedAmazonRow(row)) return false;
       if (activeMarketplace && (!matchesMarketplaceTab(row, activeMarketplace.id) || !matchesPromotionSubTab(row, activeMarketplace.id, activeSubTab))) return false;
       if (!matchesValue(row.campaignName, campaignFilter)) return false;
       if (!matchesValue(row.adgroupName, adgroupFilter)) return false;
       if (!matchesValue(row.adName, adFilter)) return false;
       return true;
     });
-  }, [activeMarketplace, activeSubTab, adFilter, adgroupFilter, campaignFilter, periodRows]);
+  }, [activeMarketplace, activeSubTab, adFilter, adgroupFilter, campaignFilter, result]);
 
   const defaultComparison = useMemo(
     () => previousMatchingPeriod(periodStart || dates.min, periodEnd || dates.max),
@@ -1201,6 +1203,7 @@ type YearDailyGroup = {
 
 type YearDailyData = {
   year: number;
+  startDate: string;
   latestDate: string;
   total: ReportSummary;
   groups: YearDailyGroup[];
@@ -1325,7 +1328,7 @@ function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentW
       <div className="section-head">
         <b>주차별 성과</b>
         <PeriodBadge label={comparisonLabel || ''} />
-        <span className="muted">최근 3개월 · 전월까지 · {data.start || '-'} ~ {data.end || '-'}</span>
+        <span className="muted">전월 1주차부터 최신 주차까지 · {data.start || '-'} ~ {data.end || '-'}</span>
       </div>
       <div className="table-wrap sticky-detail">
         <table>
@@ -1375,7 +1378,7 @@ function YearDailyPerformanceTable({ data, comparisonLabel }: { data: YearDailyD
       <div className="section-head">
         <b>일별 성과</b>
         <PeriodBadge label={comparisonLabel || ''} />
-        <span className="muted">{data.year || '-'}년 전체 · 최신 {data.latestDate || '-'}</span>
+        <span className="muted">전체 데이터 · {data.startDate || '-'} ~ {data.latestDate || '-'}</span>
       </div>
       <div className="table-wrap sticky-detail">
         <table>
@@ -1592,11 +1595,9 @@ function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: str
     return { rows: [], total: summarizeReportRows('TOTAL', 'TOTAL', []), start: '', end: '' };
   }
   const latest = parseIsoDate(latestDate);
-  const start = new Date(latest.getFullYear(), latest.getMonth() - 3, 1);
-  const end = new Date(latest.getFullYear(), latest.getMonth(), 0);
+  const start = new Date(latest.getFullYear(), latest.getMonth() - 1, 1);
   const startIso = toIsoDate(start);
-  const endIso = toIsoDate(end);
-  const scopedRows = rows.filter(row => row.date >= startIso && row.date <= endIso);
+  const scopedRows = rows.filter(row => row.date >= startIso && row.date <= latestDate);
   const grouped = new Map<string, NormalizedReportRow[]>();
 
   for (const row of scopedRows) {
@@ -1612,31 +1613,35 @@ function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: str
       .map(([key, list]) => summarizeReportRows(key, monthWeekLabel(list[0]?.date || '').label || key, list)),
     total: summarizeReportRows('TOTAL', 'TOTAL', scopedRows),
     start: startIso,
-    end: endIso
+    end: latestDate
   };
 }
 
 function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): YearDailyData {
   if (!latestDate) {
-    return { year: 0, latestDate: '', total: summarizeReportRows('TOTAL', 'TOTAL', []), groups: [] };
+    return { year: 0, startDate: '', latestDate: '', total: summarizeReportRows('TOTAL', 'TOTAL', []), groups: [] };
   }
+  const sortedDates = rows.map(row => row.date).filter(Boolean).sort();
+  const startDate = sortedDates[0] || latestDate;
+  const first = parseIsoDate(startDate);
   const latest = parseIsoDate(latestDate);
   const year = latest.getFullYear();
-  const yearStart = `${year}-01-01`;
-  const rowsInYear = rows.filter(row => row.date >= yearStart && row.date <= latestDate);
+  const rowsInRange = rows.filter(row => row.date >= startDate && row.date <= latestDate);
   const rowsByDate = new Map<string, NormalizedReportRow[]>();
 
-  for (const row of rowsInYear) {
+  for (const row of rowsInRange) {
     const list = rowsByDate.get(row.date) || [];
     list.push(row);
     rowsByDate.set(row.date, list);
   }
 
   const groups: YearDailyGroup[] = [];
-  for (let month = 0; month <= latest.getMonth(); month += 1) {
-    const monthStart = new Date(year, month, 1);
-    const monthEnd = month === latest.getMonth() ? latest : new Date(year, month + 1, 0);
-    const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+  for (const monthDate = new Date(first.getFullYear(), first.getMonth(), 1); monthDate <= latest; monthDate.setMonth(monthDate.getMonth() + 1)) {
+    const monthYear = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const monthStart = new Date(monthYear, month, monthYear === first.getFullYear() && month === first.getMonth() ? first.getDate() : 1);
+    const monthEnd = monthYear === latest.getFullYear() && month === latest.getMonth() ? latest : new Date(monthYear, month + 1, 0);
+    const key = `${monthYear}-${String(month + 1).padStart(2, '0')}`;
     const days: ReportSummary[] = [];
 
     for (const date = new Date(monthStart); date <= monthEnd; date.setDate(date.getDate() + 1)) {
@@ -1646,17 +1651,18 @@ function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): 
 
     groups.push({
       key,
-      label: `${month + 1}월`,
-      isCurrentMonth: month === latest.getMonth(),
-      total: summarizeReportRows(`${key}-TOTAL`, `${month + 1}월 TOTAL`, rowsInYear.filter(row => row.date.startsWith(key))),
+      label: `${monthYear}년 ${month + 1}월`,
+      isCurrentMonth: monthYear === latest.getFullYear() && month === latest.getMonth(),
+      total: summarizeReportRows(`${key}-TOTAL`, `${monthYear}년 ${month + 1}월 TOTAL`, rowsInRange.filter(row => row.date.startsWith(key))),
       days
     });
   }
 
   return {
     year,
+    startDate,
     latestDate,
-    total: summarizeReportRows('YEAR-TOTAL', `${year} TOTAL`, rowsInYear),
+    total: summarizeReportRows('ALL-DAYS-TOTAL', '전체 데이터 TOTAL', rowsInRange),
     groups
   };
 }
