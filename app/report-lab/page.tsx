@@ -879,12 +879,14 @@ function PromotionDetailReport({
   const overallRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [{ label: '전체 성과', test: () => true }]);
   const mediaRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
     { label: '싱글원(S-META)', test: row => isSingleOneMeta(row) },
-    { label: '메타', test: row => isMetaMedia(row) && !isSingleOneMeta(row) }
+    { label: '메타', test: row => isMetaMedia(row) && !isSingleOneMeta(row) },
+    { label: '틱톡', test: row => isTikTokMedia(row) },
+    { label: '라인', test: row => isLineMedia(row) }
   ], '기타');
   const objectiveRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
+    { label: 'ATC(장바구니)', test: row => matchesAnyReportText(row, ['atc', 'add to cart', 'addtocart']) },
     { label: 'Purchase', test: row => matchesAnyReportText(row, ['purchase', 'conversion']) },
-    { label: 'Click', test: row => matchesAnyReportText(row, ['click']) },
-    { label: 'Traffic', test: row => matchesAnyReportText(row, ['traffic']) }
+    { label: 'Traffic', test: row => matchesAnyReportText(row, ['traffic', 'click']) }
   ], '기타');
   const campaignRows = buildCampaignPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end);
 
@@ -1277,10 +1279,12 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
               <th rowSpan={2}>구분</th>
               <th colSpan={4}>전체 기간 총합</th>
               <th colSpan={6}>대상 기간 총합</th>
+              <th colSpan={6}>이전 기간 총합</th>
               <th colSpan={6}>PoP Diff</th>
             </tr>
             <tr>
               <PromotionCompactHeaders />
+              <PromotionCompactHeaders extended />
               <PromotionCompactHeaders extended />
               <PromotionCompactHeaders extended />
             </tr>
@@ -1291,6 +1295,7 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
                 <td>{row.label}</td>
                 <PromotionCompactCells row={row.total} />
                 <PromotionCompactCells row={row.target} extended />
+                <PromotionCompactCells row={row.previous} extended />
                 <PromotionDiffCells current={row.target} previous={row.previous} />
               </tr>
             ))}
@@ -1817,7 +1822,7 @@ function buildCampaignPerformanceRows(
 ): PromotionPerformanceRow[] {
   const groups = new Map<string, NormalizedReportRow[]>();
   for (const row of rows) {
-    const label = inferCampaignGroupLabel(row);
+    const label = campaignNameLabel(row);
     const list = groups.get(label) || [];
     list.push(row);
     groups.set(label, list);
@@ -1844,9 +1849,9 @@ function buildPromotionPerformanceRow(
   targetStart: string,
   targetEnd: string
 ): PromotionPerformanceRow {
-  const labels = new Set(rows.map(row => inferCampaignGroupLabel(row)));
-  const targetGroupRows = targetRows.filter(row => labels.has(inferCampaignGroupLabel(row)));
-  const previousGroupRows = previousRows.filter(row => labels.has(inferCampaignGroupLabel(row)));
+  const labels = new Set(rows.map(row => campaignNameLabel(row)));
+  const targetGroupRows = targetRows.filter(row => labels.has(campaignNameLabel(row)));
+  const previousGroupRows = previousRows.filter(row => labels.has(campaignNameLabel(row)));
   return {
     label,
     total: summarizeReportRows(`${label}-total`, label, rows),
@@ -1857,67 +1862,8 @@ function buildPromotionPerformanceRow(
   };
 }
 
-function inferCampaignGroupLabel(row: NormalizedReportRow): string {
-  const fullText = normalizeSearchText(`${row.campaignName} ${row.adgroupName} ${row.adName}`);
-  const campaignText = normalizeSearchText(row.campaignName);
-  const alias = campaignAliasLabel(fullText);
-  if (alias) return alias;
-
-  const campaignProduct = pickCampaignProductToken(campaignText);
-  if (campaignProduct) return humanizeCampaignToken(campaignProduct);
-
-  const fallbackProduct = pickCampaignProductToken(fullText);
-  return fallbackProduct ? humanizeCampaignToken(fallbackProduct) : '기타';
-}
-
-function pickCampaignProductToken(text: string): string {
-  const tokens = text
-    .split(/[^a-z0-9가-힣]+/)
-    .map(token => token.trim())
-    .filter(Boolean)
-    .filter(token => !isCampaignNoiseToken(token));
-
-  return tokens.find(token => /[a-z가-힣]/.test(token)) || '';
-}
-
-function campaignAliasLabel(text: string): string {
-  const aliases: { label: string; keys: string[] }[] = [
-    { label: 'PDRN세럼', keys: ['pdrnserum', 'pdrn serum', 'pdrn'] },
-    { label: '배리어 크림', keys: ['barriercream', 'barrier cream', 'barrier', '배리어'] },
-    { label: '블루드롭', keys: ['bluedrop', 'blue drop', '블루드롭'] },
-    { label: '젤리팩클렌저', keys: ['jellypack', 'jelly pack', 'cleanser', '젤리팩', '클렌저'] },
-    { label: '비타민', keys: ['vitamin', '비타민'] },
-    { label: 'EGF/PDRN', keys: ['pdrnegf', 'egf'] },
-    { label: '마린', keys: ['마린', 'marine'] },
-    { label: '클리어런스', keys: ['clearance', '클리어런스'] }
-  ];
-  return aliases.find(alias => alias.keys.some(key => text.includes(normalizeSearchText(key))))?.label || '';
-}
-
-function isCampaignNoiseToken(token: string): boolean {
-  if (/^\d+$/.test(token)) return true;
-  if (/^\d{4}$/.test(token)) return true;
-  if (/^\d{2,4}$/.test(token)) return true;
-  if (/^\d{2,4}f(l\d+)?$/.test(token)) return true;
-  return [
-    'dk', 'bw', 'jp', 'jpn', 'qoo10', 'q10', 'meta', 's', 'tiktok', 'spark', 'ads',
-    'purchase', 'traffic', 'conversion', 'catalog', 'lead', 'registration', 'atc',
-    'asc', 'line', 'cg', 'non', 'wish', 'amazon', 'market', 'megawari', 'megawri',
-    'megapo', '4q', 'img', 'video', 'vid', 'category', 'click', 'rt', 'set',
-    'interest', 'ig', 'l1', 'l2', 'l3', '2064f', '2065f', '2065fl6'
-  ].includes(token);
-}
-
-function humanizeCampaignToken(token: string): string {
-  return token
-    .replace(/cream/g, ' cream')
-    .replace(/serum/g, ' serum')
-    .replace(/drop/g, ' drop')
-    .replace(/cleanser/g, ' cleanser')
-    .replace(/pdrn/g, 'PDRN')
-    .replace(/egf/g, 'EGF')
-    .replace(/\b\w/g, char => char.toUpperCase())
-    .trim();
+function campaignNameLabel(row: NormalizedReportRow): string {
+  return row.campaignName || '미분류 캠페인';
 }
 
 function addDays(date: Date, days: number): Date {
@@ -1942,6 +1888,14 @@ function isSingleOneMeta(row: NormalizedReportRow): boolean {
 
 function isMetaMedia(row: NormalizedReportRow): boolean {
   return reportSearchText(row).includes('meta');
+}
+
+function isTikTokMedia(row: NormalizedReportRow): boolean {
+  return normalizeSearchText(row.media).includes('tiktok');
+}
+
+function isLineMedia(row: NormalizedReportRow): boolean {
+  return normalizeSearchText(row.media).includes('line');
 }
 
 function monthWeekLabel(value: string): { key: string; label: string } {

@@ -2620,13 +2620,16 @@ td[title], .legend-row[title], .donut-legend div[title] {
 
 .promotion-performance-table tbody td:nth-child(6),
 .promotion-performance-table tbody td:nth-child(12),
+.promotion-performance-table tbody td:nth-child(18),
 .promotion-performance-table thead tr:nth-child(2) th:nth-child(5),
-.promotion-performance-table thead tr:nth-child(2) th:nth-child(11) {
+.promotion-performance-table thead tr:nth-child(2) th:nth-child(11),
+.promotion-performance-table thead tr:nth-child(2) th:nth-child(17) {
   border-left: 2px solid var(--c-border-vivid);
 }
 
 .promotion-performance-table thead tr:first-child th:nth-child(3),
-.promotion-performance-table thead tr:first-child th:nth-child(4) {
+.promotion-performance-table thead tr:first-child th:nth-child(4),
+.promotion-performance-table thead tr:first-child th:nth-child(5) {
   border-left: 2px solid var(--c-border-vivid);
 }
 
