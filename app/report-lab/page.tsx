@@ -910,7 +910,7 @@ function PromotionKpiCards({ total }: { total: ReportSummary }) {
     { label: 'ROAS', value: total.roas.toFixed(2) },
     { label: 'CTR', value: formatPercent(total.ctr) },
     { label: 'CVR', value: formatPercent(total.cvr) },
-    { label: 'CPA', value: formatCurrency(total.cpa) }
+    { label: '전환CPA', value: formatCurrency(total.cpa) }
   ];
 
   return (
@@ -932,7 +932,7 @@ function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
     { label: 'ROAS', value: total.roas.toFixed(2), current: total.roas, goal: kpi.roasGoal, goalValue: kpi.roasGoal.toLocaleString() },
     { label: 'CTR', value: formatPercent(total.ctr), current: total.ctr, goal: kpi.ctrGoal, goalValue: formatPercent(kpi.ctrGoal) },
     { label: 'CVR', value: formatPercent(total.cvr) },
-    { label: 'CPA', value: formatCurrency(total.cpa) }
+    { label: '전환CPA', value: formatCurrency(total.cpa) }
   ];
   return (
     <div className="report-stat-grid">
