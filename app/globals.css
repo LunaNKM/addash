@@ -582,6 +582,18 @@ th,
 }
 .tabbar button.active::after { opacity: 1; }
 
+.report-subtabbar {
+  top: 101px;
+  z-index: 29;
+  padding: 0 28px;
+  background: var(--c-bg);
+}
+
+.report-subtabbar button {
+  padding: 10px 14px 9px;
+  font-size: 12px;
+}
+
 /* ─────────────────────────────────────────────────────────────
    CONTENT
    ───────────────────────────────────────────────────────────── */

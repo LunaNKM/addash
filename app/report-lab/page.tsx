@@ -36,43 +36,42 @@ import type {
   ReportView
 } from '@/lib/report/reportTypes';
 
-type PromotionTab = 'always' | 'owned' | 'megawari' | 'megapo' | 'market' | 'amazon' | 'hybrid';
-type ReportTab = 'total' | 'daily' | 'campaigns' | 'creatives' | 'summary' | PromotionTab;
+type MarketplaceTab = 'qoo10' | 'owned';
+type PromotionSubTab = 'always' | 'megawari' | 'megapo' | 'hybrid';
+type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
 
-const promotionTabs: { id: PromotionTab; label: string }[] = [
-  { id: 'always', label: '상시' },
-  { id: 'owned', label: '자사몰' },
-  { id: 'megawari', label: '메가와리' },
-  { id: 'megapo', label: '메가포' },
-  { id: 'market', label: '마켓' },
-  { id: 'amazon', label: '아마존' },
-  { id: 'hybrid', label: '자사몰(하이브리드)' }
+const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
+  { id: 'qoo10', label: 'Qoo10' },
+  { id: 'owned', label: '자사몰' }
 ];
+
+const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: string }[]> = {
+  qoo10: [
+    { id: 'always', label: '상시' },
+    { id: 'megawari', label: '메가와리' },
+    { id: 'megapo', label: '메가포' }
+  ],
+  owned: [
+    { id: 'always', label: '상시' },
+    { id: 'hybrid', label: '하이브리드' }
+  ]
+};
 
 const tabs: { id: ReportTab; label: string }[] = [
   { id: 'total', label: '전체 성과' },
-  { id: 'daily', label: '일자별' },
   { id: 'campaigns', label: '캠페인별' },
   { id: 'creatives', label: '소재별' },
-  ...promotionTabs,
-  { id: 'summary', label: '요약' }
+  ...marketplaceTabs
 ];
 
 const FIXED_REPORT_COMMENT = 'Google Sheet로 전달 예정';
 
 const tabAccents: Record<ReportTab, string> = {
   total: '#E5484D',
-  daily: '#E5484D',
   campaigns: '#E5484D',
   creatives: '#E5484D',
-  always: '#2F6FED',
-  megawari: '#2F6FED',
-  megapo: '#2F6FED',
-  market: '#2F6FED',
-  amazon: '#2F6FED',
-  owned: '#8E4EC6',
-  hybrid: '#8E4EC6',
-  summary: '#1A1A1A'
+  qoo10: '#2F6FED',
+  owned: '#8E4EC6'
 };
 
 export default function ReportLabPage() {
@@ -93,6 +92,7 @@ export default function ReportLabPage() {
   const [settings, setSettings] = useState<SettingsMode>('none');
   const [result, setResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
+  const [activeSubTab, setActiveSubTab] = useState<PromotionSubTab>('always');
   const [exchangeRate, setExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
@@ -262,17 +262,25 @@ export default function ReportLabPage() {
     return { min: list[0] || '', max: list[list.length - 1] || '' };
   }, [result]);
 
-  const activePromotion = useMemo(() => promotionTabs.find(tab => tab.id === activeTab), [activeTab]);
+  const activeMarketplace = useMemo(() => marketplaceTabs.find(tab => tab.id === activeTab), [activeTab]);
+  const activeSubTabs = activeMarketplace ? marketplaceSubTabs[activeMarketplace.id] : [];
+  const activeSubTabLabel = activeSubTabs.find(tab => tab.id === activeSubTab)?.label || '';
+  const activeMarketplaceTitle = activeMarketplace ? `${activeMarketplace.label} ${activeSubTabLabel}`.trim() : '';
+
+  useEffect(() => {
+    if (!activeMarketplace || activeSubTabs.some(tab => tab.id === activeSubTab)) return;
+    setActiveSubTab(activeSubTabs[0]?.id || 'always');
+  }, [activeMarketplace, activeSubTab, activeSubTabs]);
 
   const periodRows = useMemo(() => {
     if (!result) return [];
-    return filterRowsByPeriod(result.rows, periodStart || dates.min, periodEnd || dates.max);
+    return filterRowsByPeriod(result.rows, periodStart || dates.min, periodEnd || dates.max).filter(row => !isExcludedAmazonRow(row));
   }, [dates.max, dates.min, periodEnd, periodStart, result]);
 
   const optionRows = useMemo(() => {
-    if (!activePromotion) return periodRows;
-    return periodRows.filter(row => matchesPromotionTab(row, activePromotion.id));
-  }, [activePromotion, periodRows]);
+    if (!activeMarketplace) return periodRows;
+    return periodRows.filter(row => matchesMarketplaceTab(row, activeMarketplace.id) && matchesPromotionSubTab(row, activeMarketplace.id, activeSubTab));
+  }, [activeMarketplace, activeSubTab, periodRows]);
 
   const campaignOptions = useMemo(() => uniqueLabels(optionRows, row => row.campaignName), [optionRows]);
   const adgroupOptions = useMemo(() => {
@@ -303,15 +311,14 @@ export default function ReportLabPage() {
   }, [adFilter, adOptions, adgroupFilter, adgroupOptions, campaignFilter, campaignOptions]);
 
   const filteredRows = useMemo(() => {
-    if (!result) return [];
-    return result.rows.filter(row => {
-      if (activePromotion && !matchesPromotionTab(row, activePromotion.id)) return false;
+    return periodRows.filter(row => {
+      if (activeMarketplace && (!matchesMarketplaceTab(row, activeMarketplace.id) || !matchesPromotionSubTab(row, activeMarketplace.id, activeSubTab))) return false;
       if (!matchesValue(row.campaignName, campaignFilter)) return false;
       if (!matchesValue(row.adgroupName, adgroupFilter)) return false;
       if (!matchesValue(row.adName, adFilter)) return false;
       return true;
     });
-  }, [activePromotion, adFilter, adgroupFilter, campaignFilter, result]);
+  }, [activeMarketplace, activeSubTab, adFilter, adgroupFilter, campaignFilter, periodRows]);
 
   const defaultComparison = useMemo(
     () => previousMatchingPeriod(periodStart || dates.min, periodEnd || dates.max),
@@ -529,12 +536,30 @@ export default function ReportLabPage() {
               key={tab.id}
               className={activeTab === tab.id ? 'active' : ''}
               style={{ '--tab-accent': tabAccents[tab.id] } as React.CSSProperties}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (tab.id === 'qoo10' || tab.id === 'owned') setActiveSubTab('always');
+              }}
             >
               {tab.label}
             </button>
           ))}
         </div>
+
+        {activeMarketplace && (
+          <div className="tabbar report-subtabbar">
+            {activeSubTabs.map(tab => (
+              <button
+                key={tab.id}
+                className={activeSubTab === tab.id ? 'active' : ''}
+                style={{ '--tab-accent': tabAccents[activeMarketplace.id] } as React.CSSProperties}
+                onClick={() => setActiveSubTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="content">
           <div className="filter-bar report-lab-controls">
@@ -656,11 +681,9 @@ export default function ReportLabPage() {
                   onSave={saveReportCommentFlow}
                 />
               )}
-              {activeTab === 'daily' && <DailyReport view={reportView} kpi={kpi} />}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} />}
-              {activePromotion && <PromotionDetailReport title={activePromotion.label} view={reportView} allRows={filteredRows} />}
-              {activeTab === 'summary' && <SummaryReport view={reportView} kpi={kpi} />}
+              {activeMarketplace && <PromotionDetailReport title={activeMarketplaceTitle} view={reportView} allRows={filteredRows} />}
             </>
           )}
         </div>
@@ -780,10 +803,9 @@ function TotalPerformance({
   );
 }
 
-function DailyReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
+function DailyPerformanceDetails({ view }: { view: ReportView }) {
   return (
     <>
-      <SummaryCards total={view.current.total} kpi={kpi} />
       <DailyToplineChart rows={view.current.byDaily} />
       <SummaryTable title="일자별 핵심 성과" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
       <SummaryTable title="일자별 캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={80} />
@@ -796,6 +818,7 @@ function CampaignReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
     <>
       <SummaryCards total={view.current.total} kpi={kpi} />
       <SummaryTable title="캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} showComparisonRows />
+      <DailyPerformanceDetails view={view} />
       <SummaryTable title="광고그룹 성과" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} showComparisonRows />
     </>
   );
@@ -846,16 +869,6 @@ function PromotionDetailReport({ title, view, allRows }: { title: string; view: 
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} />
       <PromotionPerformanceSection title="캠페인별 성과" rows={campaignRows} />
       <YearDailyPerformanceTable data={dailyData} />
-    </>
-  );
-}
-
-function SummaryReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
-  return (
-    <>
-      <SummaryCards total={view.current.total} kpi={kpi} />
-      <SummaryTable title="주차별 예산 요약" rows={view.current.byWeek} previousRows={view.previous.byWeek} limit={36} showComparisonRows sortByLabel />
-      <SummaryTable title="프로모션별 채널 요약" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={50} showComparisonRows />
     </>
   );
 }
@@ -1887,54 +1900,52 @@ function uniqueLabels(rows: NormalizedReportRow[], pick: (row: NormalizedReportR
   return [...new Set(rows.map(row => pick(row)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
 }
 
-function matchesPromotionTab(row: NormalizedReportRow, tab: PromotionTab): boolean {
-  const promotionText = normalizeSearchText(row.promotion);
-  const fullText = normalizeSearchText(`${row.promotion} ${row.campaignName} ${row.adgroupName} ${row.adName}`);
-  const text = hasConcretePromotionText(promotionText) ? promotionText : fullText;
-  const isHybrid = fullText.includes('하이브리드') || fullText.includes('hybrid');
-  const isQoo10CampaignPromotion = promotionText === '큐텐 캠페인';
-  if (tab === 'hybrid') return isHybrid;
-  if (isHybrid) return false;
-  if (tab === 'always') {
-    return isQoo10CampaignPromotion || text.includes('상시') || text.includes('always') || text.includes('evergreen') || !hasEventPromotionText(text);
-  }
-  if (isQoo10CampaignPromotion) return false;
-  if (tab === 'owned') return text.includes('자사몰');
-  if (tab === 'megawari') return text.includes('메가와리') || text.includes('megawari') || text.includes('mega wari');
-  if (tab === 'megapo') return text.includes('메가포') || text.includes('megapo') || text.includes('mega po');
-  if (tab === 'amazon') return isAmazonText(promotionText);
-  if (tab === 'market') return isMarketText(text);
-  return false;
-}
-
 function normalizeSearchText(value: string): string {
   return value.toLowerCase().replace(/[_-]+/g, ' ').trim();
 }
 
-function hasConcretePromotionText(text: string): boolean {
-  return Boolean(text) && !text.includes('미분류') && !text.includes('unclassified');
+function adIdentityText(row: NormalizedReportRow): string {
+  return normalizeSearchText(`${row.campaignName} ${row.adgroupName} ${row.adName}`);
 }
 
-function isAmazonText(text: string): boolean {
-  return ['아마존', 'amazon'].some(keyword => text.includes(keyword));
+function adIdentityRawText(row: NormalizedReportRow): string {
+  return `${row.campaignName} ${row.adgroupName} ${row.adName}`.toLowerCase();
 }
 
-function isMarketText(text: string): boolean {
-  return ['마켓', 'market', '큐텐', 'qoo10', 'q10', '라쿠텐', 'rakuten'].some(keyword => text.includes(keyword));
+function isExcludedAmazonRow(row: NormalizedReportRow): boolean {
+  return adIdentityText(row).includes('amazon');
 }
 
-function hasEventPromotionText(text: string): boolean {
-  return [
-    '자사몰',
-    '하이브리드',
-    'hybrid',
-    '메가와리',
-    'megawari',
-    'mega wari',
-    '메가포',
-    'megapo',
-    'mega po'
-  ].some(keyword => text.includes(keyword)) || isMarketText(text) || isAmazonText(text);
+function isQoo10Row(row: NormalizedReportRow): boolean {
+  const text = adIdentityText(row);
+  const rawText = adIdentityRawText(row);
+  return text.includes('qoo10') || rawText.includes('s-');
+}
+
+function matchesMarketplaceTab(row: NormalizedReportRow, tab: MarketplaceTab): boolean {
+  const text = adIdentityText(row);
+  if (tab === 'qoo10') return isQoo10Row(row);
+  if (tab === 'owned') return !isQoo10Row(row) && text.includes('wish');
+  return false;
+}
+
+function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: MarketplaceTab, tab: PromotionSubTab): boolean {
+  const text = adIdentityText(row);
+  const promotionText = normalizeSearchText(row.promotion);
+
+  if (marketplace === 'owned') {
+    const isHybrid = text.includes('hybrid');
+    if (tab === 'hybrid') return isHybrid;
+    if (tab === 'always') return !isHybrid;
+    return false;
+  }
+
+  const isMegawari = promotionText.includes('메가와리') || promotionText.includes('megawari') || promotionText.includes('mega wari');
+  const isMegapo = promotionText.includes('메가포') || promotionText.includes('megapo') || promotionText.includes('mega po');
+  if (tab === 'megawari') return isMegawari && !isMegapo;
+  if (tab === 'megapo') return isMegapo && !isMegawari;
+  if (tab === 'always') return !isMegawari && !isMegapo;
+  return false;
 }
 
 function formatCurrency(value: number): string {
