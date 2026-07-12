@@ -2637,6 +2637,43 @@ td[title], .legend-row[title], .donut-legend div[title] {
   text-align: right;
 }
 
+.promotion-stacked-table thead tr:first-child th {
+  text-align: right;
+}
+
+.promotion-stacked-table thead tr:first-child th:first-child,
+.promotion-stacked-table tbody td:first-child {
+  text-align: left;
+}
+
+.promotion-stacked-table tbody td:nth-child(6),
+.promotion-stacked-table tbody td:nth-child(12),
+.promotion-stacked-table tbody td:nth-child(18),
+.promotion-stacked-table thead tr:nth-child(2) th:nth-child(5),
+.promotion-stacked-table thead tr:nth-child(2) th:nth-child(11),
+.promotion-stacked-table thead tr:nth-child(2) th:nth-child(17),
+.promotion-stacked-table thead tr:first-child th:nth-child(3),
+.promotion-stacked-table thead tr:first-child th:nth-child(4),
+.promotion-stacked-table thead tr:first-child th:nth-child(5) {
+  border-left-width: 0;
+}
+
+.promotion-stacked-table tbody tr.promotion-period-row td {
+  background: var(--c-bg-muted);
+  color: var(--c-ink-2);
+}
+
+.promotion-stacked-table tbody tr.promotion-pop-row td {
+  background: var(--c-bg-elevated);
+  border-bottom: 1px solid var(--c-border-vivid);
+  font-weight: 750;
+}
+
+.promotion-stacked-table tbody tr.promotion-pop-row td:first-child {
+  font-style: italic;
+  color: var(--c-ink);
+}
+
 .issue-pill {
   display: inline-flex;
   align-items: center;

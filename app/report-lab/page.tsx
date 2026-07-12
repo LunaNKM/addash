@@ -876,19 +876,19 @@ function PromotionDetailReport({
   const dailyData = buildYearDailyGroups(allRows, latestDate);
   const historicalTitle = historicalSubTabTitle(activeSubTab);
   const historicalRows = marketplace === 'qoo10' && historicalTitle ? buildHistoricalSubTabRows(marketplaceRows, activeSubTab) : [];
-  const overallRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [{ label: '전체 성과', test: () => true }]);
-  const mediaRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
+  const overallRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end, [{ label: '전체 성과', test: () => true }]);
+  const mediaRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end, [
     { label: '싱글원(S-META)', test: row => isSingleOneMeta(row) },
     { label: '메타', test: row => isMetaMedia(row) && !isSingleOneMeta(row) },
     { label: '틱톡', test: row => isTikTokMedia(row) },
     { label: '라인', test: row => isLineMedia(row) }
   ], '기타');
-  const objectiveRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, [
+  const objectiveRows = buildPromotionPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end, [
     { label: 'ATC(장바구니)', test: row => matchesAnyReportText(row, ['atc', 'add to cart', 'addtocart']) },
     { label: 'Purchase', test: row => matchesAnyReportText(row, ['purchase', 'conversion']) },
     { label: 'Traffic', test: row => matchesAnyReportText(row, ['traffic', 'click']) }
   ], '기타');
-  const campaignRows = buildCampaignPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end);
+  const campaignRows = buildCampaignPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end);
 
   return (
     <>
@@ -1199,7 +1199,7 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
         <span className="muted">선택 기간과 직전 동일 길이 기간을 비교합니다.</span>
       </div>
       <div className="table-wrap sticky-detail">
-        <table className="promotion-performance-table">
+        <table className="promotion-performance-table promotion-stacked-table">
           <thead>
             <tr>
               <th rowSpan={2}>구분</th>
@@ -1262,6 +1262,8 @@ type PromotionPerformanceRow = {
   previous: ReportSummary;
   targetStart: string;
   targetEnd: string;
+  previousStart: string;
+  previousEnd: string;
 };
 
 function PromotionPerformanceSection({ title, rows }: { title: string; rows: PromotionPerformanceRow[] }) {
@@ -1270,34 +1272,34 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
     <section className="section">
       <div className="section-head">
         <b>{title}</b>
-        <span className="muted">대상 기간 {first ? formatPromotionPeriodLabel(first.targetStart, first.targetEnd) : '-'}</span>
+        <span className="muted">
+          대상 {first ? formatPromotionPeriodLabel(first.targetStart, first.targetEnd) : '-'} 대비 이전 {first ? formatPromotionPeriodLabel(first.previousStart, first.previousEnd) : '-'}
+        </span>
       </div>
       <div className="table-wrap sticky-detail">
         <table className="promotion-performance-table">
           <thead>
             <tr>
-              <th rowSpan={2}>구분</th>
-              <th colSpan={4}>전체 기간 총합</th>
-              <th colSpan={6}>대상 기간 총합</th>
-              <th colSpan={6}>이전 기간 총합</th>
-              <th colSpan={6}>PoP Diff</th>
-            </tr>
-            <tr>
-              <PromotionCompactHeaders />
-              <PromotionCompactHeaders extended />
-              <PromotionCompactHeaders extended />
-              <PromotionCompactHeaders extended />
+              <th>그룹</th>
+              <PromotionComparisonHeaders />
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr key={row.label} className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
-                <td>{row.label}</td>
-                <PromotionCompactCells row={row.total} />
-                <PromotionCompactCells row={row.target} extended />
-                <PromotionCompactCells row={row.previous} extended />
-                <PromotionDiffCells current={row.target} previous={row.previous} />
-              </tr>
+              <React.Fragment key={row.label}>
+                <tr className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
+                  <td>{row.label}</td>
+                  <PromotionComparisonCells row={row.target} spendDiff={row.target.spend - row.previous.spend} />
+                </tr>
+                <tr className="promotion-period-row">
+                  <td>이전 기간</td>
+                  <PromotionComparisonCells row={row.previous} />
+                </tr>
+                <tr className="promotion-pop-row">
+                  <td>PoP Diff</td>
+                  <PromotionComparisonDiffCells current={row.target} previous={row.previous} />
+                </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -1332,6 +1334,63 @@ function HistoricalPerformanceTable({ title, rows }: { title: string; rows: Repo
         </table>
       </div>
     </section>
+  );
+}
+
+function PromotionComparisonHeaders() {
+  return (
+    <>
+      <th>광고비</th>
+      <th>광고비 차이</th>
+      <th>매출</th>
+      <th>노출</th>
+      <th>클릭</th>
+      <th>전환</th>
+      <th>장바구니</th>
+      <th>CTR</th>
+      <th>CVR</th>
+      <th>CPC</th>
+      <th>CPA</th>
+      <th>ROAS</th>
+    </>
+  );
+}
+
+function PromotionComparisonCells({ row, spendDiff }: { row: ReportSummary; spendDiff?: number }) {
+  return (
+    <>
+      <td>{formatCurrency(row.spend)}</td>
+      <td className={typeof spendDiff === 'number' ? trendClass(spendDiff) : 'muted'}>{typeof spendDiff === 'number' ? formatSignedCurrency(spendDiff) : '-'}</td>
+      <td>{formatCurrency(row.sales)}</td>
+      <td>{formatInteger(row.impressions)}</td>
+      <td>{formatInteger(row.clicks)}</td>
+      <td>{formatInteger(row.conversions)}</td>
+      <td>{formatInteger(row.addToCart)}</td>
+      <td>{formatPercent(row.ctr)}</td>
+      <td>{formatPercent(row.cvr)}</td>
+      <td>{formatCurrency(row.cpc)}</td>
+      <td>{formatCurrency(row.cpa)}</td>
+      <td>{row.roas.toFixed(2)}</td>
+    </>
+  );
+}
+
+function PromotionComparisonDiffCells({ current, previous }: { current: ReportSummary; previous: ReportSummary }) {
+  return (
+    <>
+      <PromotionDiffCell current={current.spend} previous={previous.spend} />
+      <td className="muted">-</td>
+      <PromotionDiffCell current={current.sales} previous={previous.sales} />
+      <PromotionDiffCell current={current.impressions} previous={previous.impressions} />
+      <PromotionDiffCell current={current.clicks} previous={previous.clicks} />
+      <PromotionDiffCell current={current.conversions} previous={previous.conversions} />
+      <PromotionDiffCell current={current.addToCart} previous={previous.addToCart} />
+      <PromotionDiffCell current={current.ctr} previous={previous.ctr} />
+      <PromotionDiffCell current={current.cvr} previous={previous.cvr} />
+      <PromotionDiffCell current={current.cpc} previous={previous.cpc} />
+      <PromotionDiffCell current={current.cpa} previous={previous.cpa} />
+      <PromotionDiffCell current={current.roas} previous={previous.roas} />
+    </>
   );
 }
 
@@ -1746,6 +1805,8 @@ function buildPromotionPerformanceRows(
   previousRows: NormalizedReportRow[],
   targetStart: string,
   targetEnd: string,
+  previousStart: string,
+  previousEnd: string,
   categories: PromotionPerformanceCategory[],
   fallbackLabel?: string
 ): PromotionPerformanceRow[] {
@@ -1774,7 +1835,9 @@ function buildPromotionPerformanceRows(
       target: summarizeReportRows(`${label}-target`, label, targetBuckets.get(label) || []),
       previous: summarizeReportRows(`${label}-previous`, label, previousBuckets.get(label) || []),
       targetStart,
-      targetEnd
+      targetEnd,
+      previousStart,
+      previousEnd
     }));
 }
 
@@ -1818,7 +1881,9 @@ function buildCampaignPerformanceRows(
   targetRows: NormalizedReportRow[],
   previousRows: NormalizedReportRow[],
   targetStart: string,
-  targetEnd: string
+  targetEnd: string,
+  previousStart: string,
+  previousEnd: string
 ): PromotionPerformanceRow[] {
   const groups = new Map<string, NormalizedReportRow[]>();
   for (const row of rows) {
@@ -1838,7 +1903,7 @@ function buildCampaignPerformanceRows(
   const rest = sorted.slice(12).flatMap(([, list]) => list);
   if (rest.length) top.push(['기타', rest]);
 
-  return top.map(([label, list]) => buildPromotionPerformanceRow(label, list, targetRows, previousRows, targetStart, targetEnd));
+  return top.map(([label, list]) => buildPromotionPerformanceRow(label, list, targetRows, previousRows, targetStart, targetEnd, previousStart, previousEnd));
 }
 
 function buildPromotionPerformanceRow(
@@ -1847,7 +1912,9 @@ function buildPromotionPerformanceRow(
   targetRows: NormalizedReportRow[],
   previousRows: NormalizedReportRow[],
   targetStart: string,
-  targetEnd: string
+  targetEnd: string,
+  previousStart: string,
+  previousEnd: string
 ): PromotionPerformanceRow {
   const labels = new Set(rows.map(row => campaignNameLabel(row)));
   const targetGroupRows = targetRows.filter(row => labels.has(campaignNameLabel(row)));
@@ -1858,7 +1925,9 @@ function buildPromotionPerformanceRow(
     target: summarizeReportRows(`${label}-target`, label, targetGroupRows),
     previous: summarizeReportRows(`${label}-previous`, label, previousGroupRows),
     targetStart,
-    targetEnd
+    targetEnd,
+    previousStart,
+    previousEnd
   };
 }
 
@@ -2031,6 +2100,11 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
 
 function formatCurrency(value: number): string {
   return `${Math.round(Number(value) || 0).toLocaleString()}원`;
+}
+
+function formatSignedCurrency(value: number): string {
+  const rounded = Math.round(Number(value) || 0);
+  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString()}원`;
 }
 
 function compactCurrency(value: number): string {
