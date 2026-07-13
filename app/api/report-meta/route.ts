@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { DEFAULT_GROSS_RATE } from '@/lib/report/schema';
 import type { NormalizedReportRow, ReportParseResult } from '@/lib/report/reportTypes';
 
-const META_API_VERSION = process.env.META_API_VERSION || 'v25.0';
+const META_API_VERSION = process.env.META_API_VERSION || 'v20.0';
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
@@ -25,6 +25,16 @@ type MetaInsightRow = {
 
 type MetaCampaign = { id: string; name: string };
 type MetaAdset = { id: string; name: string; campaignId: string; campaignName: string };
+
+type MetaApiErrorBody = {
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+    error_subcode?: number;
+    fbtrace_id?: string;
+  };
+};
 
 function webConfig() {
   const raw = process.env.FIREBASE_WEB_CONFIG;
@@ -85,10 +95,8 @@ async function fetchCampaignsAndAdsets(adAccountId: string, dateStart: string, d
   const rows: Row[] = [];
   let url: string | null = `https://graph.facebook.com/${META_API_VERSION}/act_${normalizeAdAccountId(adAccountId)}/insights?${params}`;
   while (url) {
-    const resp = await fetch(url, { cache: 'no-store' });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(`Meta API: ${data?.error?.message || '조회에 실패했습니다.'}`);
-    rows.push(...(data.data as Row[]));
+    const data = await fetchMetaJson<{ data?: Row[]; paging?: { next?: string } }>(url);
+    rows.push(...(data.data || []));
     url = data.paging?.next || null;
   }
 
@@ -142,14 +150,54 @@ async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd:
   const rows: MetaInsightRow[] = [];
   let url: string | null = `https://graph.facebook.com/${META_API_VERSION}/act_${normalizeAdAccountId(adAccountId)}/insights?${params}`;
   while (url) {
-    const resp = await fetch(url, { cache: 'no-store' });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(`Meta API: ${data?.error?.message || '조회에 실패했습니다.'}`);
-    rows.push(...(data.data as MetaInsightRow[]));
+    const data = await fetchMetaJson<{ data?: MetaInsightRow[]; paging?: { next?: string } }>(url);
+    rows.push(...(data.data || []));
     url = data.paging?.next || null;
   }
 
   return rows;
+}
+
+async function fetchMetaJson<T>(url: string): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const resp = await fetch(url, { cache: 'no-store' });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) return data as T;
+
+      const message = formatMetaError(data as MetaApiErrorBody);
+      const code = (data as MetaApiErrorBody).error?.code;
+      if (code === 1 || code === 2) {
+        lastError = new Error(message);
+        await delay(400 * (attempt + 1));
+        continue;
+      }
+      throw new Error(message);
+    } catch (err) {
+      lastError = err;
+      await delay(400 * (attempt + 1));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Meta API 조회에 실패했습니다.');
+}
+
+function formatMetaError(data: MetaApiErrorBody): string {
+  const error = data.error;
+  if (!error) return 'Meta API: 조회에 실패했습니다.';
+  const parts = [
+    `Meta API: ${error.message || '조회에 실패했습니다.'}`,
+    error.type ? `type=${error.type}` : '',
+    error.code !== undefined ? `code=${error.code}` : '',
+    error.error_subcode !== undefined ? `subcode=${error.error_subcode}` : '',
+    error.fbtrace_id ? `fbtrace_id=${error.fbtrace_id}` : ''
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function toReportResult(insights: MetaInsightRow[], filename: string, exchangeRate: number): ReportParseResult {
