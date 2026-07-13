@@ -292,13 +292,13 @@ function toReportResult(insights: MetaInsightRow[], filename: string, exchangeRa
 
 function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate: number): NormalizedReportRow {
   const spend = number(row.spend);
-  const sales = actionValue(row.action_values, ['purchase']);
+  const sales = actionValue(row.action_values, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']);
   const clicks = number(row.inline_link_clicks) || number(row.clicks);
   const impressions = number(row.impressions);
-  const conversions = actionValue(row.actions, ['purchase', 'offsite_conversion.fb_pixel_purchase', 'omni_purchase']);
-  const addToCart = actionValue(row.actions, ['add_to_cart', 'offsite_conversion.fb_pixel_add_to_cart', 'omni_add_to_cart']);
-  const registration = actionValue(row.actions, ['complete_registration', 'offsite_conversion.fb_pixel_complete_registration']);
-  const lead = actionValue(row.actions, ['lead', 'offsite_conversion.fb_pixel_lead']);
+  const conversions = actionValue(row.actions, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']);
+  const addToCart = actionValue(row.actions, ['omni_add_to_cart', 'add_to_cart', 'offsite_conversion.fb_pixel_add_to_cart']);
+  const registration = actionValue(row.actions, ['omni_complete_registration', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration']);
+  const lead = actionValue(row.actions, ['omni_lead', 'lead', 'offsite_conversion.fb_pixel_lead']);
   const costKrw = spend * exchangeRate;
   const salesKrw = sales * exchangeRate;
 
@@ -399,15 +399,11 @@ function toFirestoreValue(value: unknown): unknown {
 
 function actionValue(actions: MetaAction[] | undefined, exactTypes: string[]): number {
   if (!actions?.length) return 0;
-  const exact = new Set(exactTypes);
-  return actions.reduce((sum, action) => {
-    const type = action.action_type || '';
-    if (exact.has(type)) return sum + number(action.value);
-    if (exactTypes.some(candidate => type.endsWith(candidate) || type.includes(candidate))) {
-      return sum + number(action.value);
-    }
-    return sum;
-  }, 0);
+  for (const type of exactTypes) {
+    const matched = actions.find(action => action.action_type === type);
+    if (matched) return number(matched.value);
+  }
+  return 0;
 }
 
 function number(value: unknown): number {
