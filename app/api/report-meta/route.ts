@@ -5,6 +5,8 @@ import type { NormalizedReportRow, ReportParseResult } from '@/lib/report/report
 const META_API_VERSION = process.env.META_API_VERSION || 'v20.0';
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
+const META_DATE_CHUNK_DAYS = 7;
+const META_ADSET_FILTER_CHUNK_SIZE = 50;
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
 
 type MetaAction = { action_type: string; value: string };
@@ -83,6 +85,29 @@ function metaToken() {
 }
 
 async function fetchCampaignsAndAdsets(adAccountId: string, dateStart: string, dateEnd: string): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[] }> {
+  const campaignMap = new Map<string, string>();
+  const adsetMap = new Map<string, Omit<MetaAdset, 'id'>>();
+
+  const chunks = dateChunks(dateStart, dateEnd, META_DATE_CHUNK_DAYS);
+  for (const chunk of chunks) {
+    const result = await withDailyFallback(chunk.start, chunk.end, (start, end) => fetchCampaignsAndAdsetsWindow(adAccountId, start, end));
+    for (const campaign of result.campaigns) campaignMap.set(campaign.id, campaign.name);
+    for (const adset of result.adsets) {
+      adsetMap.set(adset.id, {
+        name: adset.name,
+        campaignId: adset.campaignId,
+        campaignName: adset.campaignName
+      });
+    }
+  }
+
+  return {
+    campaigns: Array.from(campaignMap.entries()).map(([id, name]) => ({ id, name })),
+    adsets: Array.from(adsetMap.entries()).map(([id, rest]) => ({ id, ...rest }))
+  };
+}
+
+async function fetchCampaignsAndAdsetsWindow(adAccountId: string, dateStart: string, dateEnd: string): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[] }> {
   const params = new URLSearchParams({
     access_token: metaToken(),
     level: 'adset',
@@ -119,6 +144,21 @@ async function fetchCampaignsAndAdsets(adAccountId: string, dateStart: string, d
 }
 
 async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd: string, adsetIds?: string[]): Promise<MetaInsightRow[]> {
+  const rows: MetaInsightRow[] = [];
+  const adsetChunks = adsetIds?.length ? chunk(adsetIds, META_ADSET_FILTER_CHUNK_SIZE) : [[]];
+  const rangeChunks = dateChunks(dateStart, dateEnd, META_DATE_CHUNK_DAYS);
+
+  for (const range of rangeChunks) {
+    for (const ids of adsetChunks) {
+      const result = await withDailyFallback(range.start, range.end, (start, end) => fetchAllInsightsWindow(adAccountId, start, end, ids));
+      rows.push(...result);
+    }
+  }
+
+  return rows;
+}
+
+async function fetchAllInsightsWindow(adAccountId: string, dateStart: string, dateEnd: string, adsetIds?: string[]): Promise<MetaInsightRow[]> {
   const fields = [
     'date_start',
     'date_stop',
@@ -156,6 +196,34 @@ async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd:
   }
 
   return rows;
+}
+
+async function withDailyFallback<T>(dateStart: string, dateEnd: string, fetcher: (start: string, end: string) => Promise<T>): Promise<T> {
+  try {
+    return await fetcher(dateStart, dateEnd);
+  } catch (err) {
+    if (!isTemporaryMetaError(err) || dateStart === dateEnd) throw err;
+    const dailyResults: T[] = [];
+    for (const chunk of dateChunks(dateStart, dateEnd, 1)) {
+      dailyResults.push(await fetcher(chunk.start, chunk.end));
+    }
+    const first = dailyResults[0];
+    if (Array.isArray(first)) return dailyResults.flat() as T;
+    const campaigns = new Map<string, string>();
+    const adsets = new Map<string, MetaAdset>();
+    for (const result of dailyResults as { campaigns: MetaCampaign[]; adsets: MetaAdset[] }[]) {
+      for (const campaign of result.campaigns) campaigns.set(campaign.id, campaign.name);
+      for (const adset of result.adsets) adsets.set(adset.id, adset);
+    }
+    return {
+      campaigns: Array.from(campaigns.entries()).map(([id, name]) => ({ id, name })),
+      adsets: Array.from(adsets.values())
+    } as T;
+  }
+}
+
+function isTemporaryMetaError(err: unknown): boolean {
+  return err instanceof Error && (err.message.includes('code=2') || err.message.includes('code=1'));
 }
 
 async function fetchMetaJson<T>(url: string): Promise<T> {
@@ -359,6 +427,35 @@ function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
   return chunks;
+}
+
+function dateChunks(start: string, end: string, days: number): { start: string; end: string }[] {
+  const startDate = parseIsoDate(start);
+  const endDate = parseIsoDate(end);
+  if (!startDate || !endDate || startDate > endDate) return [{ start, end }];
+
+  const chunks: { start: string; end: string }[] = [];
+  let cursor = startDate;
+  while (cursor <= endDate) {
+    const chunkStart = cursor;
+    const chunkEnd = new Date(cursor);
+    chunkEnd.setDate(chunkEnd.getDate() + days - 1);
+    if (chunkEnd > endDate) chunkEnd.setTime(endDate.getTime());
+    chunks.push({ start: toIsoDate(chunkStart), end: toIsoDate(chunkEnd) });
+
+    cursor = new Date(chunkEnd);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return chunks;
+}
+
+function parseIsoDate(value: string): Date | null {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toIsoDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function dateRange(rows: NormalizedReportRow[]) {
