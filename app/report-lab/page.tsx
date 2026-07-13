@@ -946,7 +946,7 @@ function PromotionDetailReport({
         </div>
         <PromotionKpiCards total={view.current.total} showRegistration={marketplace === 'owned'} />
       </section>
-      <DailyToplineChart rows={view.current.byDaily} />
+      <DailyToplineChart rows={view.current.byDaily} lineMetric={marketplace === 'owned' ? 'registration' : 'roas'} />
       {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} showRegistration={marketplace === 'owned'} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} showRegistration={marketplace === 'owned'} />
@@ -1114,9 +1114,19 @@ function ReportCommentContent({ text }: { text: string }) {
   );
 }
 
-function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; comparisonLabel?: string }) {
+function DailyToplineChart({
+  rows,
+  comparisonLabel,
+  lineMetric = 'roas'
+}: {
+  rows: ReportSummary[];
+  comparisonLabel?: string;
+  lineMetric?: 'roas' | 'registration';
+}) {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; row: ReportSummary } | null>(null);
   const sorted = [...rows].filter(row => row.key !== '날짜 없음').sort((a, b) => a.label.localeCompare(b.label));
+  const lineLabel = lineMetric === 'registration' ? '회원가입수' : 'ROAS';
+  const formatLineValue = (value: number) => lineMetric === 'registration' ? formatInteger(value) : formatPercent(value);
   if (!sorted.length) {
     return (
       <section className="section report-chart-section">
@@ -1135,22 +1145,22 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
   const chartWidth = width - left - right;
   const chartHeight = height - top - bottom;
   const moneyMax = Math.max(1, ...sorted.flatMap(row => [row.spend, row.sales]));
-  const rateValues = sorted
-    .map(row => row.roas)
+  const lineValues = sorted
+    .map(row => row[lineMetric])
     .filter(value => Number.isFinite(value) && value > 0)
     .sort((a, b) => a - b);
-  const rawRateMax = Math.max(0.01, ...rateValues);
-  const p90Rate = percentile(rateValues, 0.9);
-  const p75Rate = percentile(rateValues, 0.75);
-  const robustRateMax = Math.max(0.01, p90Rate * 1.35, p75Rate * 2);
-  const rateMax = rawRateMax > robustRateMax * 1.5 ? robustRateMax : rawRateMax;
+  const rawLineMax = Math.max(1, ...lineValues);
+  const p90Line = percentile(lineValues, 0.9);
+  const p75Line = percentile(lineValues, 0.75);
+  const robustLineMax = Math.max(1, p90Line * 1.35, p75Line * 2);
+  const lineMax = rawLineMax > robustLineMax * 1.5 ? robustLineMax : rawLineMax;
   const slot = chartWidth / Math.max(sorted.length, 1);
   const barWidth = Math.min(22, Math.max(7, slot * 0.36));
   const yMoney = (value: number) => top + chartHeight - (value / moneyMax) * chartHeight;
-  const yRate = (value: number) => top + chartHeight - (Math.min(value, rateMax) / rateMax) * chartHeight;
+  const yLine = (value: number) => top + chartHeight - (Math.min(value, lineMax) / lineMax) * chartHeight;
   const xCenter = (index: number) => left + slot * index + slot / 2;
-  const linePath = (key: 'roas') => sorted
-    .map((row, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yRate(row[key])}`)
+  const linePath = sorted
+    .map((row, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yLine(row[lineMetric])}`)
     .join(' ');
   const dateTickEvery = Math.max(1, Math.ceil(sorted.length / 14));
 
@@ -1164,19 +1174,19 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
             <span>광고비 {formatCurrency(tooltip.row.spend)}</span>
             <span>매출 {formatCurrency(tooltip.row.sales)}</span>
             <span>클릭 {formatInteger(tooltip.row.clicks)} / 전환 {formatInteger(tooltip.row.conversions)}</span>
-            <span>ROAS {formatPercent(tooltip.row.roas)}</span>
+            <span>{lineLabel} {formatLineValue(tooltip.row[lineMetric])}</span>
           </div>
         )}
-        <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="일자별 광고비, 매출, ROAS 추이">
+        <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`일자별 광고비, 매출, ${lineLabel} 추이`}>
           {[0, 0.25, 0.5, 0.75, 1].map(rate => {
             const y = top + chartHeight - chartHeight * rate;
             const money = moneyMax * rate;
-            const pct = rateMax * rate;
+            const lineValue = lineMax * rate;
             return (
               <g key={rate}>
                 <line x1={left} x2={width - right} y1={y} y2={y} stroke="var(--chart-grid-strong)" strokeWidth="1" />
                 <text x={left - 8} y={y + 4} textAnchor="end" className="report-chart-axis">{compactCurrency(money)}</text>
-                <text x={width - right + 8} y={y + 4} textAnchor="start" className="report-chart-axis">{rate === 1 && rawRateMax > rateMax ? `>${formatPercent(pct)}` : formatPercent(pct)}</text>
+                <text x={width - right + 8} y={y + 4} textAnchor="start" className="report-chart-axis">{rate === 1 && rawLineMax > lineMax ? `>${formatLineValue(lineValue)}` : formatLineValue(lineValue)}</text>
               </g>
             );
           })}
@@ -1198,10 +1208,10 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
             );
           })}
 
-          <path d={linePath('roas')} fill="none" stroke="var(--c-danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={linePath} fill="none" stroke="var(--c-danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
           {sorted.map((row, index) => (
             <g key={`${row.key}-points`}>
-              <circle cx={xCenter(index)} cy={yRate(row.roas)} r="3" fill="var(--c-danger)" />
+              <circle cx={xCenter(index)} cy={yLine(row[lineMetric])} r="3" fill="var(--c-danger)" />
               <rect
                 x={left + slot * index}
                 y={top}
@@ -1217,7 +1227,7 @@ function DailyToplineChart({ rows, comparisonLabel }: { rows: ReportSummary[]; c
         <div className="report-chart-legend">
           <span><i style={{ background: 'var(--chart-1)' }} />광고비</span>
           <span><i style={{ background: 'var(--chart-3)' }} />매출</span>
-          <span><i className="line" style={{ background: 'var(--c-danger)' }} />ROAS</span>
+          <span><i className="line" style={{ background: 'var(--c-danger)' }} />{lineLabel}</span>
         </div>
       </div>
     </section>
@@ -1352,7 +1362,7 @@ function PromotionPerformanceSection({ title, rows, showRegistration = false }: 
                 </tr>
                 <tr className="promotion-target-row">
                   <td>대상 기간</td>
-                  <PromotionComparisonCells row={row.target} spendDiff={row.target.spend - row.previous.spend} showRegistration={showRegistration} />
+                  <PromotionComparisonCells row={row.target} showRegistration={showRegistration} />
                 </tr>
                 <tr className="promotion-period-row">
                   <td>이전 기간</td>
@@ -1404,7 +1414,6 @@ function PromotionComparisonHeaders({ showRegistration = false }: { showRegistra
   return (
     <>
       <th>광고비</th>
-      <th>광고비 차이</th>
       <th>매출</th>
       <th>노출</th>
       <th>클릭</th>
@@ -1425,11 +1434,10 @@ function PromotionComparisonHeaders({ showRegistration = false }: { showRegistra
   );
 }
 
-function PromotionComparisonCells({ row, spendDiff, showRegistration = false }: { row: ReportSummary; spendDiff?: number; showRegistration?: boolean }) {
+function PromotionComparisonCells({ row, showRegistration = false }: { row: ReportSummary; showRegistration?: boolean }) {
   return (
     <>
       <td>{formatCurrency(row.spend)}</td>
-      <td className={typeof spendDiff === 'number' ? trendClass(spendDiff) : 'muted'}>{typeof spendDiff === 'number' ? formatSignedCurrency(spendDiff) : '-'}</td>
       <td>{formatCurrency(row.sales)}</td>
       <td>{formatInteger(row.impressions)}</td>
       <td>{formatInteger(row.clicks)}</td>
@@ -1454,7 +1462,6 @@ function PromotionComparisonDiffCells({ current, previous, showRegistration = fa
   return (
     <>
       <PromotionDiffCell current={current.spend} previous={previous.spend} />
-      <td className="muted">-</td>
       <PromotionDiffCell current={current.sales} previous={previous.sales} />
       <PromotionDiffCell current={current.impressions} previous={previous.impressions} />
       <PromotionDiffCell current={current.clicks} previous={previous.clicks} />
@@ -1724,7 +1731,6 @@ function SummaryTable({
             <tr>
               <th>그룹</th>
               <th>광고비</th>
-              <th>광고비 차이</th>
               <th>매출</th>
               <th>노출</th>
               <th>클릭</th>
@@ -1740,14 +1746,12 @@ function SummaryTable({
           <tbody>
             {displayRows.slice(0, limit).map(row => {
               const previous = previousByKey.get(row.key);
-              const spendDiff = previous ? row.spend - previous.spend : row.spend;
               const showPrevious = showComparisonRows && previous;
               return (
                 <React.Fragment key={row.key}>
                   <tr>
                     <td title={row.label}>{trim(row.label, 44)}</td>
                     <td>{formatCurrency(row.spend)}</td>
-                    <td className={spendDiff >= 0 ? 'diff-up' : 'diff-down'}>{formatCurrency(spendDiff)}</td>
                     <td>{formatCurrency(row.sales)}</td>
                     <td>{formatInteger(row.impressions)}</td>
                     <td>{formatInteger(row.clicks)}</td>
@@ -1763,7 +1767,6 @@ function SummaryTable({
                     <tr className="report-previous-row">
                       <td>이전 기간</td>
                       <td>{formatCurrency(previous.spend)}</td>
-                      <td>-</td>
                       <td>{formatCurrency(previous.sales)}</td>
                       <td>{formatInteger(previous.impressions)}</td>
                       <td>{formatInteger(previous.clicks)}</td>
@@ -1780,7 +1783,6 @@ function SummaryTable({
                     <tr className="report-diff-row">
                       <td>증감률</td>
                       <DiffCell current={row.spend} previous={previous.spend} />
-                      <td>-</td>
                       <DiffCell current={row.sales} previous={previous.sales} />
                       <DiffCell current={row.impressions} previous={previous.impressions} />
                       <DiffCell current={row.clicks} previous={previous.clicks} />
@@ -2202,11 +2204,6 @@ function formatCurrency(value: number): string {
   return `${Math.round(Number(value) || 0).toLocaleString()}원`;
 }
 
-function formatSignedCurrency(value: number): string {
-  const rounded = Math.round(Number(value) || 0);
-  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString()}원`;
-}
-
 function compactCurrency(value: number): string {
   const safe = Math.round(Number(value) || 0);
   if (Math.abs(safe) >= 100000000) return `${(safe / 100000000).toFixed(1)}억`;
@@ -2226,10 +2223,6 @@ function formatInteger(value: number): string {
 
 function formatPercent(value: number): string {
   return `${((Number(value) || 0) * 100).toFixed(2)}%`;
-}
-
-function trendClass(value: number): string {
-  return Number(value) >= 0 ? 'diff-up' : 'diff-down';
 }
 
 function DiffCell({ current, previous, inverse = false }: { current: number; previous: number; inverse?: boolean }) {
