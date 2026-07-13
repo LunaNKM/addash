@@ -226,6 +226,41 @@ export async function saveReportFile(brandId: string, tabId: string, file: Omit<
   }
 }
 
+export async function updateReportFileResult(brandId: string, tabId: string, fileId: string, result: ReportParseResult) {
+  const ref = doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId);
+  const rows = stripReportRows(result.rows);
+  const chunks = chunk(rows, REPORT_FILE_ROWS_PER_CHUNK);
+  const resultMeta: ReportParseResult = { ...result, rows: [], preview: [] };
+  const dates = result.rows.map(row => row.date).filter(Boolean).sort();
+
+  const existingChunks = await getDocs(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId, 'chunks'));
+  for (let index = 0; index < existingChunks.docs.length; index += 450) {
+    const batch = writeBatch(db);
+    existingChunks.docs.slice(index, index + 450).forEach(chunkDoc => batch.delete(chunkDoc.ref));
+    await batch.commit();
+  }
+
+  for (let index = 0; index < chunks.length; index += REPORT_FILE_CHUNKS_PER_COMMIT) {
+    const batch = writeBatch(db);
+    chunks.slice(index, index + REPORT_FILE_CHUNKS_PER_COMMIT).forEach((rowsChunk, offset) => {
+      const chunkIndex = index + offset;
+      batch.set(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId, 'chunks', String(chunkIndex).padStart(4, '0')), {
+        index: chunkIndex,
+        rows: rowsChunk
+      });
+    });
+    await batch.commit();
+  }
+
+  await updateDoc(ref, cleanFirestoreData({
+    dateStart: dates[0] || '',
+    dateEnd: dates[dates.length - 1] || '',
+    rowCount: result.rows.length,
+    result: resultMeta,
+    chunkCount: chunks.length
+  }));
+}
+
 export async function deleteReportFile(brandId: string, tabId: string, fileId: string) {
   const chunks = await getDocs(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId, 'chunks'));
   for (let index = 0; index < chunks.docs.length; index += 450) {

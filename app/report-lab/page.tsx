@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
 import { buildReportView, filterRowsByPeriod, previousMatchingPeriod } from '@/lib/report/aggregate';
+import { mergeRegistrationIntoReport, parseRegistrationFile, type RegistrationMergeStats } from '@/lib/report/registration';
 import { DEFAULT_EXCHANGE_RATE } from '@/lib/report/schema';
 import { loadReportFromXlsx } from '@/lib/report/sources';
 import {
@@ -21,6 +22,7 @@ import {
   saveKpi,
   saveReportComment,
   saveReportFile,
+  updateReportFileResult,
   updateBrand
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
@@ -101,6 +103,7 @@ export default function ReportLabPage() {
   const [comparisonEnd, setComparisonEnd] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [campaignFilter, setCampaignFilter] = useState('');
   const [adgroupFilter, setAdgroupFilter] = useState('');
   const [adFilter, setAdFilter] = useState('');
@@ -124,6 +127,7 @@ export default function ReportLabPage() {
     setCampaignFilter('');
     setAdgroupFilter('');
     setAdFilter('');
+    setNotice('');
   }, []);
 
   const applyReportResult = useCallback((nextResult: ReportParseResult | null, createdAt?: number) => {
@@ -358,6 +362,7 @@ export default function ReportLabPage() {
     }
     setBusy('RAW 데이터를 읽는 중입니다...');
     setError('');
+    setNotice('');
     try {
       const parsed = await loadReportFromXlsx(file, exchangeRate);
       const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
@@ -379,6 +384,38 @@ export default function ReportLabPage() {
       setCommentDraft('');
       setCommentEditing(false);
       applyReportResult(parsed, createdAt);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function handleRegistrationFile(file: File) {
+    if (!brand || !dashboardTab || !isAdmin) {
+      setError('회원가입수 적용을 위해서는 관리자 로그인과 브랜드 선택이 필요합니다.');
+      return;
+    }
+    if (!selectedReportFileId || !result) {
+      setError('먼저 회원가입수를 적용할 RAW 파일을 선택해주세요.');
+      return;
+    }
+
+    setBusy('회원가입수 데이터를 읽는 중입니다...');
+    setError('');
+    setNotice('');
+    try {
+      const registration = await parseRegistrationFile(file);
+      const merged = mergeRegistrationIntoReport(result, registration);
+      if (!merged.stats.matchedRows) {
+        throw new Error(`회원가입수 파일의 행이 현재 RAW와 매칭되지 않았습니다. 날짜와 캠페인/광고그룹/소재명이 같은 파일인지 확인해주세요. (${registration.sheet.sheetName})`);
+      }
+
+      await updateReportFileResult(brand.id, dashboardTab.id, selectedReportFileId, merged.result);
+      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
+      setReportFiles(loadedReportFiles);
+      setResult(merged.result);
+      setNotice(formatRegistrationMergeNotice(merged.stats, registration.sheet.sheetName));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -487,6 +524,21 @@ export default function ReportLabPage() {
               <label className="btn brand">
                 RAW 업로드
                 <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
+              </label>
+            )}
+            {brand && dashboardTab && result && selectedReportFileId && (
+              <label className="btn outline">
+                회원가입수 업로드
+                <input
+                  hidden
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={event => {
+                    const file = event.target.files?.[0];
+                    if (file) handleRegistrationFile(file);
+                    event.currentTarget.value = '';
+                  }}
+                />
               </label>
             )}
           </div>
@@ -675,6 +727,7 @@ export default function ReportLabPage() {
           )}
 
           {error && <div className="warn">{error}</div>}
+          {notice && <div className="notice">{notice}</div>}
 
           {!result || !reportView ? (
             <EmptyUpload onFile={handleFile} busy={busy} exchangeRate={exchangeRate} canUpload={Boolean(isAdmin && brand && dashboardTab)} />
@@ -891,19 +944,19 @@ function PromotionDetailReport({
           <b>{title} 성과</b>
           <span className="muted">최신 {latestDate || '-'}</span>
         </div>
-        <PromotionKpiCards total={view.current.total} />
+        <PromotionKpiCards total={view.current.total} showRegistration={marketplace === 'owned'} />
       </section>
       <DailyToplineChart rows={view.current.byDaily} />
       {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
-      <PromotionPerformanceSection title="전체 성과" rows={overallRows} />
-      <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} />
-      <PromotionPerformanceSection title="캠페인별 성과" rows={campaignRows} />
+      <PromotionPerformanceSection title="전체 성과" rows={overallRows} showRegistration={marketplace === 'owned'} />
+      <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} showRegistration={marketplace === 'owned'} />
+      <PromotionPerformanceSection title="캠페인별 성과" rows={campaignRows} showRegistration={marketplace === 'owned'} />
       <YearDailyPerformanceTable data={dailyData} />
     </>
   );
 }
 
-function PromotionKpiCards({ total }: { total: ReportSummary }) {
+function PromotionKpiCards({ total, showRegistration = false }: { total: ReportSummary; showRegistration?: boolean }) {
   const cards = [
     { label: '광고비', value: formatCurrency(total.spend) },
     { label: '매출', value: formatCurrency(total.sales) },
@@ -912,6 +965,12 @@ function PromotionKpiCards({ total }: { total: ReportSummary }) {
     { label: 'CVR', value: formatPercent(total.cvr) },
     { label: '전환CPA', value: formatCurrency(total.cpa) }
   ];
+  if (showRegistration) {
+    cards.push(
+      { label: '회원가입수', value: formatInteger(total.registration) },
+      { label: '회원가입 CPA', value: formatCurrency(safeRatio(total.spend, total.registration)) }
+    );
+  }
 
   return (
     <div className="report-stat-grid">
@@ -1266,7 +1325,7 @@ type PromotionPerformanceRow = {
   previousEnd: string;
 };
 
-function PromotionPerformanceSection({ title, rows }: { title: string; rows: PromotionPerformanceRow[] }) {
+function PromotionPerformanceSection({ title, rows, showRegistration = false }: { title: string; rows: PromotionPerformanceRow[]; showRegistration?: boolean }) {
   const first = rows[0];
   return (
     <section className="section">
@@ -1281,7 +1340,7 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
           <thead>
             <tr>
               <th>그룹</th>
-              <PromotionComparisonHeaders />
+              <PromotionComparisonHeaders showRegistration={showRegistration} />
             </tr>
           </thead>
           <tbody>
@@ -1289,19 +1348,19 @@ function PromotionPerformanceSection({ title, rows }: { title: string; rows: Pro
               <React.Fragment key={row.label}>
                 <tr className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
                   <td>{row.label}</td>
-                  <PromotionComparisonCells row={row.total} />
+                  <PromotionComparisonCells row={row.total} showRegistration={showRegistration} />
                 </tr>
                 <tr className="promotion-target-row">
                   <td>대상 기간</td>
-                  <PromotionComparisonCells row={row.target} spendDiff={row.target.spend - row.previous.spend} />
+                  <PromotionComparisonCells row={row.target} spendDiff={row.target.spend - row.previous.spend} showRegistration={showRegistration} />
                 </tr>
                 <tr className="promotion-period-row">
                   <td>이전 기간</td>
-                  <PromotionComparisonCells row={row.previous} />
+                  <PromotionComparisonCells row={row.previous} showRegistration={showRegistration} />
                 </tr>
                 <tr className="promotion-pop-row">
                   <td>PoP Diff</td>
-                  <PromotionComparisonDiffCells current={row.target} previous={row.previous} />
+                  <PromotionComparisonDiffCells current={row.target} previous={row.previous} showRegistration={showRegistration} />
                 </tr>
               </React.Fragment>
             ))}
@@ -1341,7 +1400,7 @@ function HistoricalPerformanceTable({ title, rows }: { title: string; rows: Repo
   );
 }
 
-function PromotionComparisonHeaders() {
+function PromotionComparisonHeaders({ showRegistration = false }: { showRegistration?: boolean }) {
   return (
     <>
       <th>광고비</th>
@@ -1351,6 +1410,12 @@ function PromotionComparisonHeaders() {
       <th>클릭</th>
       <th>전환</th>
       <th>장바구니</th>
+      {showRegistration && (
+        <>
+          <th>회원가입수</th>
+          <th>회원가입 CPA</th>
+        </>
+      )}
       <th>CTR</th>
       <th>CVR</th>
       <th>CPC</th>
@@ -1360,7 +1425,7 @@ function PromotionComparisonHeaders() {
   );
 }
 
-function PromotionComparisonCells({ row, spendDiff }: { row: ReportSummary; spendDiff?: number }) {
+function PromotionComparisonCells({ row, spendDiff, showRegistration = false }: { row: ReportSummary; spendDiff?: number; showRegistration?: boolean }) {
   return (
     <>
       <td>{formatCurrency(row.spend)}</td>
@@ -1370,6 +1435,12 @@ function PromotionComparisonCells({ row, spendDiff }: { row: ReportSummary; spen
       <td>{formatInteger(row.clicks)}</td>
       <td>{formatInteger(row.conversions)}</td>
       <td>{formatInteger(row.addToCart)}</td>
+      {showRegistration && (
+        <>
+          <td>{formatInteger(row.registration)}</td>
+          <td>{formatCurrency(safeRatio(row.spend, row.registration))}</td>
+        </>
+      )}
       <td>{formatPercent(row.ctr)}</td>
       <td>{formatPercent(row.cvr)}</td>
       <td>{formatCurrency(row.cpc)}</td>
@@ -1379,7 +1450,7 @@ function PromotionComparisonCells({ row, spendDiff }: { row: ReportSummary; spen
   );
 }
 
-function PromotionComparisonDiffCells({ current, previous }: { current: ReportSummary; previous: ReportSummary }) {
+function PromotionComparisonDiffCells({ current, previous, showRegistration = false }: { current: ReportSummary; previous: ReportSummary; showRegistration?: boolean }) {
   return (
     <>
       <PromotionDiffCell current={current.spend} previous={previous.spend} />
@@ -1389,6 +1460,12 @@ function PromotionComparisonDiffCells({ current, previous }: { current: ReportSu
       <PromotionDiffCell current={current.clicks} previous={previous.clicks} />
       <PromotionDiffCell current={current.conversions} previous={previous.conversions} />
       <PromotionDiffCell current={current.addToCart} previous={previous.addToCart} />
+      {showRegistration && (
+        <>
+          <PromotionDiffCell current={current.registration} previous={previous.registration} />
+          <PromotionDiffCell current={safeRatio(current.spend, current.registration)} previous={safeRatio(previous.spend, previous.registration)} inverse />
+        </>
+      )}
       <PromotionDiffCell current={current.ctr} previous={previous.ctr} />
       <PromotionDiffCell current={current.cvr} previous={previous.cvr} />
       <PromotionDiffCell current={current.cpc} previous={previous.cpc} />
@@ -1445,11 +1522,12 @@ function PromotionDiffCells({ current, previous }: { current: ReportSummary; pre
   );
 }
 
-function PromotionDiffCell({ current, previous }: { current: number; previous: number }) {
+function PromotionDiffCell({ current, previous, inverse = false }: { current: number; previous: number; inverse?: boolean }) {
   if (!previous) return <td className="muted">-</td>;
   const rate = (current - previous) / previous;
   const arrow = rate >= 0 ? '▲' : '▼';
-  return <td className={trendClass(rate)}>{arrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
+  const good = inverse ? rate <= 0 : rate >= 0;
+  return <td className={good ? 'diff-up' : 'diff-down'}>{arrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
 }
 
 function formatPromotionPeriodLabel(start: string, end: string): string {
@@ -1708,6 +1786,15 @@ function SummaryTable({
 function PeriodBadge({ label }: { label: string }) {
   if (!label) return null;
   return <span className="report-period-badge">{label}</span>;
+}
+
+function formatRegistrationMergeNotice(stats: RegistrationMergeStats, sheetName: string): string {
+  return [
+    `회원가입수 적용 완료: ${formatInteger(stats.appliedTotal)}건`,
+    `매칭 행 ${stats.matchedRows.toLocaleString()}개`,
+    `미매칭 키 ${stats.unmatchedKeys.toLocaleString()}개`,
+    `시트 ${sheetName}`
+  ].join(' · ');
 }
 
 function formatComparisonLabel(view: ReportView): string {
@@ -2128,8 +2215,6 @@ function trendClass(value: number): string {
 function DiffCell({ current, previous, inverse = false }: { current: number; previous: number; inverse?: boolean }) {
   if (!previous) return <td className="muted">-</td>;
   const rate = (current - previous) / previous;
-  const trendArrow = rate >= 0 ? '▲' : '▼';
-  return <td className={trendClass(rate)}>{trendArrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
   const good = inverse ? rate <= 0 : rate >= 0;
   const arrow = rate >= 0 ? '▲' : '▼';
   return <td className={good ? 'diff-up' : 'diff-down'}>{arrow}{Math.abs(rate * 100).toFixed(2)}%</td>;
