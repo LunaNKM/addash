@@ -951,7 +951,7 @@ function PromotionDetailReport({
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} showRegistration={marketplace === 'owned'} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} showRegistration={marketplace === 'owned'} />
       <PromotionPerformanceSection title="캠페인별 성과" rows={campaignRows} showRegistration={marketplace === 'owned'} />
-      <YearDailyPerformanceTable data={dailyData} />
+      <YearDailyPerformanceTable data={dailyData} showRegistration={marketplace === 'owned'} />
     </>
   );
 }
@@ -1570,7 +1570,15 @@ function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentW
   );
 }
 
-function YearDailyPerformanceTable({ data, comparisonLabel }: { data: YearDailyData; comparisonLabel?: string }) {
+function YearDailyPerformanceTable({
+  data,
+  comparisonLabel,
+  showRegistration = false
+}: {
+  data: YearDailyData;
+  comparisonLabel?: string;
+  showRegistration?: boolean;
+}) {
   const defaultOpen = useMemo(() => new Set(data.groups.filter(group => group.isCurrentMonth).map(group => group.key)), [data.groups]);
   const [openMonths, setOpenMonths] = useState(defaultOpen);
 
@@ -1599,13 +1607,13 @@ function YearDailyPerformanceTable({ data, comparisonLabel }: { data: YearDailyD
           <thead>
             <tr>
               <th>일자</th>
-              <MetricHeaders />
+              <MetricHeaders showRegistration={showRegistration} />
             </tr>
           </thead>
           <tbody>
             <tr className="report-total-row">
               <td>{data.year || '-'} TOTAL</td>
-              <MetricCells row={data.total} />
+              <MetricCells row={data.total} showRegistration={showRegistration} />
             </tr>
             {data.groups.map(group => {
               const isOpen = openMonths.has(group.key);
@@ -1618,12 +1626,12 @@ function YearDailyPerformanceTable({ data, comparisonLabel }: { data: YearDailyD
                         <b>{group.label} TOTAL</b>
                       </button>
                     </td>
-                    <MetricCells row={group.total} />
+                    <MetricCells row={group.total} showRegistration={showRegistration} />
                   </tr>
                   {isOpen && group.days.map(day => (
                     <tr key={day.key}>
                       <td>{day.label}</td>
-                      <MetricCells row={day} />
+                      <MetricCells row={day} showRegistration={showRegistration} />
                     </tr>
                   ))}
                 </React.Fragment>
@@ -1636,7 +1644,7 @@ function YearDailyPerformanceTable({ data, comparisonLabel }: { data: YearDailyD
   );
 }
 
-function MetricHeaders() {
+function MetricHeaders({ showRegistration = false }: { showRegistration?: boolean }) {
   return (
     <>
       <th>광고비</th>
@@ -1645,6 +1653,12 @@ function MetricHeaders() {
       <th>클릭</th>
       <th>전환</th>
       <th>장바구니</th>
+      {showRegistration && (
+        <>
+          <th>회원가입수</th>
+          <th>회원가입 CPA</th>
+        </>
+      )}
       <th>CTR</th>
       <th>CVR</th>
       <th>CPC</th>
@@ -1654,7 +1668,7 @@ function MetricHeaders() {
   );
 }
 
-function MetricCells({ row }: { row: ReportSummary }) {
+function MetricCells({ row, showRegistration = false }: { row: ReportSummary; showRegistration?: boolean }) {
   return (
     <>
       <td>{formatCurrency(row.spend)}</td>
@@ -1663,6 +1677,12 @@ function MetricCells({ row }: { row: ReportSummary }) {
       <td>{formatInteger(row.clicks)}</td>
       <td>{formatInteger(row.conversions)}</td>
       <td>{formatInteger(row.addToCart)}</td>
+      {showRegistration && (
+        <>
+          <td>{formatInteger(row.registration)}</td>
+          <td>{formatCurrency(safeRatio(row.spend, row.registration))}</td>
+        </>
+      )}
       <td>{formatPercent(row.ctr)}</td>
       <td>{formatPercent(row.cvr)}</td>
       <td>{formatCurrency(row.cpc)}</td>
