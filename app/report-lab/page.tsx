@@ -29,6 +29,7 @@ import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
 import type { Brand, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc } from '@/lib/types';
 import { Empty } from '../components/Empty';
+import { MetaFilterModal } from '../components/MetaFilterModal';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
 import type {
   NormalizedReportRow,
@@ -92,6 +93,7 @@ export default function ReportLabPage() {
   const [commentDraft, setCommentDraft] = useState('');
   const [commentEditing, setCommentEditing] = useState(false);
   const [commentBusy, setCommentBusy] = useState('');
+  const [metaImportOpen, setMetaImportOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsMode>('none');
   const [result, setResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
@@ -423,6 +425,52 @@ export default function ReportLabPage() {
     }
   }
 
+  async function fetchReportFromMeta(adsetIds: string[], dateStart: string, dateEnd: string) {
+    if (!brand || !dashboardTab || !user || !isAdmin) return;
+    setMetaImportOpen(false);
+    setBusy('Meta API에서 자사몰 데이터를 가져오는 중입니다...');
+    setError('');
+    setNotice('');
+    try {
+      const token = await user.getIdToken();
+      const resp = await fetch('/api/report-meta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          brandId: brand.id,
+          tabId: dashboardTab.id,
+          adAccountId: brand.metaAdAccountId,
+          dateStart,
+          dateEnd,
+          adsetIds,
+          exchangeRate
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Meta API 가져오기에 실패했습니다.');
+
+      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
+      const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles[0] || null;
+      setReportFiles(loadedReportFiles);
+      setSelectedReportFileId(saved?.id || '');
+      setReportComment(null);
+      setCommentDraft('');
+      setCommentEditing(false);
+
+      if (saved) {
+        const loadedFile = await getReportFile(brand.id, dashboardTab.id, saved.id);
+        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || saved.createdAt);
+      }
+      setActiveTab('owned');
+      setActiveSubTab('always');
+      setNotice(`Meta API 자사몰 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function saveKpiFlow(next: Kpi) {
     if (!brand || !dashboardTab) return;
     await saveKpi(brand.id, dashboardTab.id, next);
@@ -526,6 +574,11 @@ export default function ReportLabPage() {
                 <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
               </label>
             )}
+            {brand && dashboardTab && user && (
+              <button className="btn outline" onClick={() => setMetaImportOpen(true)}>
+                Meta API 가져오기
+              </button>
+            )}
             {brand && dashboardTab && result && selectedReportFileId && (
               <label className="btn outline">
                 회원가입수 업로드
@@ -556,7 +609,7 @@ export default function ReportLabPage() {
           <div className="sub-header-title">
             <div className="sub-header-eyebrow">캠페인 보고서 생성</div>
             <b>{brand.name}</b>
-            <small>{result ? `${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : '현재는 XLSX 업로드 방식으로 생성합니다.'}</small>
+            <small>{result ? `${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : 'XLSX 업로드 또는 Meta API 가져오기로 생성합니다.'}</small>
           </div>
           <div className="period-group">
             <div className="period">
@@ -768,6 +821,15 @@ export default function ReportLabPage() {
       )}
 
       {busy && <div className="busy">{busy}</div>}
+      {metaImportOpen && brand && user && (
+        <MetaFilterModal
+          brand={brand}
+          user={user}
+          apiPath="/api/report-meta"
+          onClose={() => setMetaImportOpen(false)}
+          onImport={fetchReportFromMeta}
+        />
+      )}
       {authError && (
         <div className="modal">
           <div className="modal-card" style={{ maxWidth: 480 }}>
@@ -2175,7 +2237,10 @@ function isOwnedHybridRow(row: NormalizedReportRow): boolean {
 function matchesMarketplaceTab(row: NormalizedReportRow, tab: MarketplaceTab): boolean {
   const text = adIdentityText(row);
   if (tab === 'qoo10') return isQoo10Row(row) && !isOwnedHybridRow(row);
-  if (tab === 'owned') return isOwnedHybridRow(row) || (!isQoo10Row(row) && text.includes('wish'));
+  if (tab === 'owned') {
+    const isMetaOwned = normalizeSearchText(row.media) === 'meta' && normalizeSearchText(row.promotion) === '자사몰';
+    return isMetaOwned || isOwnedHybridRow(row) || (!isQoo10Row(row) && text.includes('wish'));
+  }
   return false;
 }
 
