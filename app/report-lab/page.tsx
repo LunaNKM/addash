@@ -42,6 +42,7 @@ import type {
 type MarketplaceTab = 'qoo10' | 'owned';
 type PromotionSubTab = 'always' | 'megawari' | 'megapo' | 'market' | 'hybrid';
 type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
+type ReportSourceType = 'xlsx' | 'meta';
 
 const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
   { id: 'qoo10', label: 'Qoo10' },
@@ -88,14 +89,16 @@ export default function ReportLabPage() {
   const [dashboardTabs, setDashboardTabs] = useState<DashboardTab[]>([]);
   const [kpi, setKpi] = useState<Kpi>(emptyKpi);
   const [reportFiles, setReportFiles] = useState<ReportFileDoc[]>([]);
-  const [selectedReportFileId, setSelectedReportFileId] = useState('');
+  const [selectedXlsxReportFileId, setSelectedXlsxReportFileId] = useState('');
+  const [selectedMetaReportFileId, setSelectedMetaReportFileId] = useState('');
   const [reportComment, setReportComment] = useState<ReportCommentDoc | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentEditing, setCommentEditing] = useState(false);
   const [commentBusy, setCommentBusy] = useState('');
   const [metaImportOpen, setMetaImportOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsMode>('none');
-  const [result, setResult] = useState<ReportParseResult | null>(null);
+  const [xlsxResult, setXlsxResult] = useState<ReportParseResult | null>(null);
+  const [metaResult, setMetaResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
   const [activeSubTab, setActiveSubTab] = useState<PromotionSubTab>('always');
   const [exchangeRate, setExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
@@ -116,9 +119,11 @@ export default function ReportLabPage() {
   }, [brand?.color]);
 
   const resetReportState = useCallback(() => {
-    setResult(null);
+    setXlsxResult(null);
+    setMetaResult(null);
     setReportFiles([]);
-    setSelectedReportFileId('');
+    setSelectedXlsxReportFileId('');
+    setSelectedMetaReportFileId('');
     setReportComment(null);
     setCommentDraft('');
     setCommentEditing(false);
@@ -132,12 +137,22 @@ export default function ReportLabPage() {
     setNotice('');
   }, []);
 
-  const applyReportResult = useCallback((nextResult: ReportParseResult | null, createdAt?: number) => {
-    setResult(nextResult);
-    setActiveTab('total');
+  const applyReportResult = useCallback((
+    nextResult: ReportParseResult | null,
+    createdAt: number | undefined,
+    source: ReportSourceType,
+    options: { activate?: boolean; updatePeriod?: boolean } = {}
+  ) => {
+    if (source === 'meta') setMetaResult(nextResult);
+    else setXlsxResult(nextResult);
+
+    const activate = options.activate ?? true;
+    const updatePeriod = options.updatePeriod ?? true;
+    if (activate) setActiveTab(source === 'meta' ? 'owned' : 'total');
     setCampaignFilter('');
     setAdgroupFilter('');
     setAdFilter('');
+    if (!updatePeriod) return;
     if (!nextResult) {
       setPeriodStart('');
       setPeriodEnd('');
@@ -174,23 +189,39 @@ export default function ReportLabPage() {
     ]);
     setKpi(loadedKpi);
     setReportFiles(loadedReportFiles);
-    const firstFile = loadedReportFiles[0] || null;
-    setSelectedReportFileId(firstFile?.id || '');
-    if (firstFile) {
-      const [loadedFile, loadedComment] = await Promise.all([
-        getReportFile(target.id, nextTab.id, firstFile.id),
-        getReportComment(target.id, nextTab.id, firstFile.id)
-      ]);
-      applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || firstFile.createdAt);
-      setReportComment(loadedComment);
-      setCommentDraft(loadedComment?.text || '');
-      setCommentEditing(false);
+
+    const firstXlsx = loadedReportFiles.find(file => !isMetaReportFile(file)) || null;
+    const firstMeta = loadedReportFiles.find(file => isMetaReportFile(file)) || null;
+    setSelectedXlsxReportFileId(firstXlsx?.id || '');
+    setSelectedMetaReportFileId(firstMeta?.id || '');
+
+    const [loadedXlsx, loadedMeta, loadedComment] = await Promise.all([
+      firstXlsx ? getReportFile(target.id, nextTab.id, firstXlsx.id) : Promise.resolve(null),
+      firstMeta ? getReportFile(target.id, nextTab.id, firstMeta.id) : Promise.resolve(null),
+      firstXlsx ? getReportComment(target.id, nextTab.id, firstXlsx.id) : firstMeta ? getReportComment(target.id, nextTab.id, firstMeta.id) : Promise.resolve(null)
+    ]);
+
+    if (loadedXlsx) {
+      applyReportResult(loadedXlsx.result, loadedXlsx.createdAt || firstXlsx?.createdAt, 'xlsx', { activate: true, updatePeriod: true });
     } else {
-      applyReportResult(null);
-      setReportComment(null);
-      setCommentDraft('');
-      setCommentEditing(false);
+      setXlsxResult(null);
     }
+
+    if (loadedMeta) {
+      applyReportResult(loadedMeta.result, loadedMeta.createdAt || firstMeta?.createdAt, 'meta', {
+        activate: !loadedXlsx,
+        updatePeriod: !loadedXlsx
+      });
+    } else {
+      setMetaResult(null);
+    }
+
+    if (!loadedXlsx && !loadedMeta) {
+      applyReportResult(null, undefined, 'xlsx');
+    }
+    setReportComment(loadedComment);
+    setCommentDraft(loadedComment?.text || '');
+    setCommentEditing(false);
   }, [applyReportResult, resetReportState]);
 
   const selectBrand = useCallback(async (brandId: string) => {
@@ -206,24 +237,33 @@ export default function ReportLabPage() {
     if (!brand || !dashboardTab) return;
     const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
     setReportFiles(loadedReportFiles);
-    const selected = loadedReportFiles.find(file => file.id === selectedReportFileId) || loadedReportFiles[0] || null;
-    setSelectedReportFileId(selected?.id || '');
-    if (selected) {
-      const [loadedFile, loadedComment] = await Promise.all([
-        getReportFile(brand.id, dashboardTab.id, selected.id),
-        getReportComment(brand.id, dashboardTab.id, selected.id)
-      ]);
-      applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || selected.createdAt);
-      setReportComment(loadedComment);
-      setCommentDraft(loadedComment?.text || '');
-      setCommentEditing(false);
-    } else {
-      applyReportResult(null);
-      setReportComment(null);
-      setCommentDraft('');
-      setCommentEditing(false);
-    }
-  }, [applyReportResult, brand, dashboardTab, selectedReportFileId]);
+    const selectedXlsx = loadedReportFiles.find(file => file.id === selectedXlsxReportFileId && !isMetaReportFile(file))
+      || loadedReportFiles.find(file => !isMetaReportFile(file))
+      || null;
+    const selectedMeta = loadedReportFiles.find(file => file.id === selectedMetaReportFileId && isMetaReportFile(file))
+      || loadedReportFiles.find(file => isMetaReportFile(file))
+      || null;
+    const currentFile = activeTab === 'owned' ? selectedMeta || selectedXlsx : selectedXlsx || selectedMeta;
+
+    setSelectedXlsxReportFileId(selectedXlsx?.id || '');
+    setSelectedMetaReportFileId(selectedMeta?.id || '');
+
+    const [loadedXlsx, loadedMeta, loadedComment] = await Promise.all([
+      selectedXlsx ? getReportFile(brand.id, dashboardTab.id, selectedXlsx.id) : Promise.resolve(null),
+      selectedMeta ? getReportFile(brand.id, dashboardTab.id, selectedMeta.id) : Promise.resolve(null),
+      currentFile ? getReportComment(brand.id, dashboardTab.id, currentFile.id) : Promise.resolve(null)
+    ]);
+
+    if (loadedXlsx) applyReportResult(loadedXlsx.result, loadedXlsx.createdAt || selectedXlsx?.createdAt, 'xlsx', { activate: false, updatePeriod: activeTab !== 'owned' });
+    else setXlsxResult(null);
+    if (loadedMeta) applyReportResult(loadedMeta.result, loadedMeta.createdAt || selectedMeta?.createdAt, 'meta', { activate: false, updatePeriod: activeTab === 'owned' });
+    else setMetaResult(null);
+
+    if (!loadedXlsx && !loadedMeta) applyReportResult(null, undefined, 'xlsx');
+    setReportComment(loadedComment);
+    setCommentDraft(loadedComment?.text || '');
+    setCommentEditing(false);
+  }, [activeTab, applyReportResult, brand, dashboardTab, selectedMetaReportFileId, selectedXlsxReportFileId]);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -263,6 +303,10 @@ export default function ReportLabPage() {
 
     return () => unsub?.();
   }, [loadBrandContext]);
+
+  const usesMetaResult = activeTab === 'owned' && Boolean(metaResult);
+  const result = usesMetaResult ? metaResult : xlsxResult;
+  const selectedReportFileId = usesMetaResult ? selectedMetaReportFileId : selectedXlsxReportFileId;
 
   const dates = useMemo(() => {
     const list = result?.rows.map(row => row.date).filter(Boolean).sort() || [];
@@ -381,11 +425,11 @@ export default function ReportLabPage() {
       });
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       setReportFiles(loadedReportFiles);
-      setSelectedReportFileId(savedId);
+      setSelectedXlsxReportFileId(savedId);
       setReportComment(null);
       setCommentDraft('');
       setCommentEditing(false);
-      applyReportResult(parsed, createdAt);
+      applyReportResult(parsed, createdAt, 'xlsx');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -398,8 +442,8 @@ export default function ReportLabPage() {
       setError('회원가입수 적용을 위해서는 관리자 로그인과 브랜드 선택이 필요합니다.');
       return;
     }
-    if (!selectedReportFileId || !result) {
-      setError('먼저 회원가입수를 적용할 RAW 파일을 선택해주세요.');
+    if (!selectedXlsxReportFileId || !xlsxResult) {
+      setError('먼저 회원가입수를 적용할 XLSX RAW 파일을 선택해주세요.');
       return;
     }
 
@@ -408,15 +452,15 @@ export default function ReportLabPage() {
     setNotice('');
     try {
       const registration = await parseRegistrationFile(file);
-      const merged = mergeRegistrationIntoReport(result, registration);
+      const merged = mergeRegistrationIntoReport(xlsxResult, registration);
       if (!merged.stats.matchedRows) {
         throw new Error(`회원가입수 파일의 행이 현재 RAW와 매칭되지 않았습니다. 날짜와 캠페인/광고그룹/소재명이 같은 파일인지 확인해주세요. (${registration.sheet.sheetName})`);
       }
 
-      await updateReportFileResult(brand.id, dashboardTab.id, selectedReportFileId, merged.result);
+      await updateReportFileResult(brand.id, dashboardTab.id, selectedXlsxReportFileId, merged.result);
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       setReportFiles(loadedReportFiles);
-      setResult(merged.result);
+      applyReportResult(merged.result, undefined, 'xlsx', { activate: false, updatePeriod: false });
       setNotice(formatRegistrationMergeNotice(merged.stats, registration.sheet.sheetName));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -450,16 +494,16 @@ export default function ReportLabPage() {
       if (!resp.ok) throw new Error(data.error || 'Meta API 가져오기에 실패했습니다.');
 
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
-      const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles[0] || null;
+      const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
       setReportFiles(loadedReportFiles);
-      setSelectedReportFileId(saved?.id || '');
+      setSelectedMetaReportFileId(saved?.id || '');
       setReportComment(null);
       setCommentDraft('');
       setCommentEditing(false);
 
       if (saved) {
         const loadedFile = await getReportFile(brand.id, dashboardTab.id, saved.id);
-        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || saved.createdAt);
+        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || saved.createdAt, 'meta');
       }
       setActiveTab('owned');
       setActiveSubTab('always');
@@ -579,7 +623,7 @@ export default function ReportLabPage() {
                 Meta API 가져오기
               </button>
             )}
-            {brand && dashboardTab && result && selectedReportFileId && (
+            {brand && dashboardTab && xlsxResult && selectedXlsxReportFileId && (
               <label className="btn outline">
                 회원가입수 업로드
                 <input
@@ -710,14 +754,16 @@ export default function ReportLabPage() {
                   className={`chip ${selectedReportFileId === file.id ? 'active' : ''}`}
                   onClick={() => {
                     if (!brand || !dashboardTab) return;
-                    setSelectedReportFileId(file.id);
+                    const source: ReportSourceType = isMetaReportFile(file) ? 'meta' : 'xlsx';
+                    if (source === 'meta') setSelectedMetaReportFileId(file.id);
+                    else setSelectedXlsxReportFileId(file.id);
                     setBusy('저장된 RAW 파일을 불러오는 중입니다...');
                     Promise.all([
                       getReportFile(brand.id, dashboardTab.id, file.id),
                       getReportComment(brand.id, dashboardTab.id, file.id)
                     ])
                       .then(([loadedFile, loadedComment]) => {
-                        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || file.createdAt);
+                        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || file.createdAt, source);
                         setReportComment(loadedComment);
                         setCommentDraft(loadedComment?.text || '');
                         setCommentEditing(false);
@@ -1879,6 +1925,12 @@ function formatRegistrationMergeNotice(stats: RegistrationMergeStats, sheetName:
     `미매칭 키 ${stats.unmatchedKeys.toLocaleString()}개`,
     `시트 ${sheetName}`
   ].join(' · ');
+}
+
+function isMetaReportFile(file: ReportFileDoc): boolean {
+  const sheetName = normalizeSearchText(file.result?.sheet?.sheetName || '');
+  const filename = normalizeSearchText(file.filename || file.result?.fileName || '');
+  return sheetName === 'meta api' || filename.startsWith('meta api');
 }
 
 function formatComparisonLabel(view: ReportView): string {
