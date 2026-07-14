@@ -40,7 +40,7 @@ import type {
 } from '@/lib/report/reportTypes';
 
 type MarketplaceTab = 'qoo10' | 'owned';
-type PromotionSubTab = 'always' | 'megawari' | 'megapo' | 'market' | 'hybrid';
+type PromotionSubTab = 'total' | 'always' | 'megawari' | 'megapo' | 'market' | 'hybrid';
 type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
 type ReportSourceType = 'xlsx' | 'meta';
 
@@ -51,12 +51,14 @@ const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
 
 const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: string }[]> = {
   qoo10: [
+    { id: 'total', label: '전체 성과' },
     { id: 'always', label: '상시' },
     { id: 'megawari', label: '메가와리' },
     { id: 'megapo', label: '메가포' },
     { id: 'market', label: '마켓' }
   ],
   owned: [
+    { id: 'total', label: '전체 성과' },
     { id: 'always', label: '상시' },
     { id: 'hybrid', label: '하이브리드' }
   ]
@@ -320,7 +322,7 @@ export default function ReportLabPage() {
 
   useEffect(() => {
     if (!activeMarketplace || activeSubTabs.some(tab => tab.id === activeSubTab)) return;
-    setActiveSubTab(activeSubTabs[0]?.id || 'always');
+    setActiveSubTab(activeSubTabs[0]?.id || 'total');
   }, [activeMarketplace, activeSubTab, activeSubTabs]);
 
   const periodRows = useMemo(() => {
@@ -702,7 +704,7 @@ export default function ReportLabPage() {
               style={{ '--tab-accent': tabAccents[tab.id] } as React.CSSProperties}
               onClick={() => {
                 setActiveTab(tab.id);
-                if (tab.id === 'qoo10' || tab.id === 'owned') setActiveSubTab('always');
+                if (tab.id === 'qoo10' || tab.id === 'owned') setActiveSubTab('total');
               }}
             >
               {tab.label}
@@ -2299,6 +2301,7 @@ function matchesMarketplaceTab(row: NormalizedReportRow, tab: MarketplaceTab): b
 function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: MarketplaceTab, tab: PromotionSubTab): boolean {
   const text = adIdentityText(row);
   const promotionText = normalizeSearchText(row.promotion);
+  if (tab === 'total') return true;
 
   if (marketplace === 'owned') {
     const isHybrid = text.includes('hybrid');
