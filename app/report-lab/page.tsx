@@ -45,8 +45,8 @@ type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
 type ReportSourceType = 'xlsx' | 'meta';
 
 const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
-  { id: 'qoo10', label: 'SingleOne' },
-  { id: 'owned', label: 'Meta' }
+  { id: 'qoo10', label: 'Qoo10' },
+  { id: 'owned', label: '자사몰' }
 ];
 
 const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: string }[]> = {
@@ -58,7 +58,9 @@ const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: s
     { id: 'market', label: '마켓' }
   ],
   owned: [
-    { id: 'total', label: '전체 성과' }
+    { id: 'total', label: '전체 성과' },
+    { id: 'always', label: '상시' },
+    { id: 'hybrid', label: '하이브리드' }
   ]
 };
 
@@ -2335,8 +2337,8 @@ function isExcludedAmazonRow(row: NormalizedReportRow): boolean {
 }
 
 function matchesMarketplaceTab(row: NormalizedReportRow, tab: MarketplaceTab): boolean {
-  if (tab === 'qoo10') return isSingleOneUploadRow(row);
-  if (tab === 'owned') return isMetaApiRow(row);
+  if (tab === 'qoo10') return isQoo10LandingRow(row);
+  if (tab === 'owned') return isOwnedLandingRow(row);
   return false;
 }
 
@@ -2346,6 +2348,9 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
   if (tab === 'total') return true;
 
   if (marketplace === 'owned') {
+    const isHybrid = text.includes('hybrid');
+    if (tab === 'hybrid') return isHybrid;
+    if (tab === 'always') return !isHybrid;
     return false;
   }
 
@@ -2359,8 +2364,18 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
   return false;
 }
 
-function isMetaApiRow(row: NormalizedReportRow): boolean {
-  return normalizeSearchText(row.media) === 'meta';
+function isQoo10LandingRow(row: NormalizedReportRow): boolean {
+  const text = adLandingText(row);
+  return text.includes('qoo10') || (isSingleOneUploadRow(row) && !text.includes('wish'));
+}
+
+function isOwnedLandingRow(row: NormalizedReportRow): boolean {
+  const text = adLandingText(row);
+  return !isQoo10LandingRow(row) && text.includes('wish');
+}
+
+function adLandingText(row: NormalizedReportRow): string {
+  return normalizeSearchText(row.adName || `${row.campaignName} ${row.adgroupName}`);
 }
 
 function isSingleOneUploadRow(row: NormalizedReportRow): boolean {
