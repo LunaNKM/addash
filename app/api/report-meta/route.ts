@@ -307,7 +307,7 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
     date: row.date_start || row.date_stop || '',
     brand: '',
     media: 'Meta',
-    promotion: '자사몰',
+    promotion: 'Meta',
     campaignName: row.campaign_name || 'Meta 캠페인',
     adgroupName: row.adset_name || 'Meta 광고세트',
     adName: row.ad_name || 'Meta 광고',
@@ -504,7 +504,7 @@ export async function POST(req: Request) {
     }
 
     const safeExchangeRate = Number(exchangeRate || 1) || 1;
-    const filename = `Meta API 자사몰 ${dateStart}~${dateEnd}`;
+    const filename = `Meta API ${dateStart}~${dateEnd}`;
     const result = toReportResult(insights, filename, safeExchangeRate);
     const range = dateRange(result.rows);
     const createdAt = Date.now();

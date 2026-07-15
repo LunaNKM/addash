@@ -45,8 +45,8 @@ type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
 type ReportSourceType = 'xlsx' | 'meta';
 
 const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
-  { id: 'qoo10', label: 'Qoo10' },
-  { id: 'owned', label: '자사몰' }
+  { id: 'qoo10', label: 'SingleOne' },
+  { id: 'owned', label: 'Meta' }
 ];
 
 const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: string }[]> = {
@@ -58,9 +58,7 @@ const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: s
     { id: 'market', label: '마켓' }
   ],
   owned: [
-    { id: 'total', label: '전체 성과' },
-    { id: 'always', label: '상시' },
-    { id: 'hybrid', label: '하이브리드' }
+    { id: 'total', label: '전체 성과' }
   ]
 };
 
@@ -145,17 +143,21 @@ export default function ReportLabPage() {
     source: ReportSourceType,
     options: { activate?: boolean; updatePeriod?: boolean } = {}
   ) => {
-    if (source === 'meta') setMetaResult(nextResult);
-    else setXlsxResult(nextResult);
+    const scopedResult = source === 'xlsx' && nextResult
+      ? filterReportResultRows(nextResult, isSingleOneUploadRow, 'SingleOne Upload')
+      : nextResult;
+
+    if (source === 'meta') setMetaResult(scopedResult);
+    else setXlsxResult(scopedResult);
 
     const activate = options.activate ?? true;
     const updatePeriod = options.updatePeriod ?? true;
-    if (activate) setActiveTab(source === 'meta' ? 'owned' : 'total');
+    if (activate) setActiveTab('total');
     setCampaignFilter('');
     setAdgroupFilter('');
     setAdFilter('');
     if (!updatePeriod) return;
-    if (!nextResult) {
+    if (!scopedResult) {
       setPeriodStart('');
       setPeriodEnd('');
       return;
@@ -245,7 +247,7 @@ export default function ReportLabPage() {
     const selectedMeta = loadedReportFiles.find(file => file.id === selectedMetaReportFileId && isMetaReportFile(file))
       || loadedReportFiles.find(file => isMetaReportFile(file))
       || null;
-    const currentFile = activeTab === 'owned' ? selectedMeta || selectedXlsx : selectedXlsx || selectedMeta;
+    const currentFile = selectedXlsx || selectedMeta;
 
     setSelectedXlsxReportFileId(selectedXlsx?.id || '');
     setSelectedMetaReportFileId(selectedMeta?.id || '');
@@ -256,9 +258,9 @@ export default function ReportLabPage() {
       currentFile ? getReportComment(brand.id, dashboardTab.id, currentFile.id) : Promise.resolve(null)
     ]);
 
-    if (loadedXlsx) applyReportResult(loadedXlsx.result, loadedXlsx.createdAt || selectedXlsx?.createdAt, 'xlsx', { activate: false, updatePeriod: activeTab !== 'owned' });
+    if (loadedXlsx) applyReportResult(loadedXlsx.result, loadedXlsx.createdAt || selectedXlsx?.createdAt, 'xlsx', { activate: false, updatePeriod: Boolean(selectedXlsx) });
     else setXlsxResult(null);
-    if (loadedMeta) applyReportResult(loadedMeta.result, loadedMeta.createdAt || selectedMeta?.createdAt, 'meta', { activate: false, updatePeriod: activeTab === 'owned' });
+    if (loadedMeta) applyReportResult(loadedMeta.result, loadedMeta.createdAt || selectedMeta?.createdAt, 'meta', { activate: false, updatePeriod: !selectedXlsx });
     else setMetaResult(null);
 
     if (!loadedXlsx && !loadedMeta) applyReportResult(null, undefined, 'xlsx');
@@ -306,9 +308,8 @@ export default function ReportLabPage() {
     return () => unsub?.();
   }, [loadBrandContext]);
 
-  const usesMetaResult = activeTab === 'owned' && Boolean(metaResult);
-  const result = usesMetaResult ? metaResult : xlsxResult;
-  const selectedReportFileId = usesMetaResult ? selectedMetaReportFileId : selectedXlsxReportFileId;
+  const result = useMemo(() => combineReportResults(xlsxResult, metaResult), [metaResult, xlsxResult]);
+  const selectedReportFileId = selectedXlsxReportFileId || selectedMetaReportFileId;
 
   const dates = useMemo(() => {
     const list = result?.rows.map(row => row.date).filter(Boolean).sort() || [];
@@ -412,7 +413,14 @@ export default function ReportLabPage() {
     setError('');
     setNotice('');
     try {
-      const parsed = await loadReportFromXlsx(file, exchangeRate);
+      const parsed = filterReportResultRows(
+        await loadReportFromXlsx(file, exchangeRate),
+        isSingleOneUploadRow,
+        'SingleOne Upload'
+      );
+      if (!parsed.rows.length) {
+        throw new Error('업로드 파일에서 media가 s-로 시작하는 SingleOne 행을 찾지 못했습니다.');
+      }
       const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
       const createdAt = Date.now();
       const savedId = await saveReportFile(brand.id, dashboardTab.id, {
@@ -474,7 +482,7 @@ export default function ReportLabPage() {
   async function fetchReportFromMeta(adsetIds: string[], dateStart: string, dateEnd: string) {
     if (!brand || !dashboardTab || !user || !isAdmin) return;
     setMetaImportOpen(false);
-    setBusy('Meta API에서 자사몰 데이터를 가져오는 중입니다...');
+    setBusy('Meta API에서 데이터를 가져오는 중입니다...');
     setError('');
     setNotice('');
     try {
@@ -507,9 +515,9 @@ export default function ReportLabPage() {
         const loadedFile = await getReportFile(brand.id, dashboardTab.id, saved.id);
         applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || saved.createdAt, 'meta');
       }
-      setActiveTab('owned');
-      setActiveSubTab('always');
-      setNotice(`Meta API 자사몰 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}`);
+      setActiveTab('total');
+      setActiveSubTab('total');
+      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -655,7 +663,7 @@ export default function ReportLabPage() {
           <div className="sub-header-title">
             <div className="sub-header-eyebrow">캠페인 보고서 생성</div>
             <b>{brand.name}</b>
-            <small>{result ? `${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : 'XLSX 업로드 또는 Meta API 가져오기로 생성합니다.'}</small>
+            <small>{result ? `${result.rows.length.toLocaleString()}행 · ${reportView?.currentPeriod.label}` : 'SingleOne RAW 업로드와 Meta API 가져오기로 생성합니다.'}</small>
           </div>
           <div className="period-group">
             <div className="period">
@@ -753,7 +761,7 @@ export default function ReportLabPage() {
               {reportFiles.map(file => (
                 <button
                   key={file.id}
-                  className={`chip ${selectedReportFileId === file.id ? 'active' : ''}`}
+                  className={`chip ${file.id === selectedXlsxReportFileId || file.id === selectedMetaReportFileId ? 'active' : ''}`}
                   onClick={() => {
                     if (!brand || !dashboardTab) return;
                     const source: ReportSourceType = isMetaReportFile(file) ? 'meta' : 'xlsx';
@@ -919,8 +927,8 @@ function EmptyUpload({ onFile, busy, exchangeRate, canUpload }: { onFile: (file:
           <span className="muted">현재 환율: {exchangeRate.toFixed(2)}</span>
         </div>
         <p>
-          XLSX RAW 파일을 업로드하면 컬럼을 자동으로 탐지하고 보고서 출력에 필요한 표준 데이터로 변환합니다.
-          추후 Meta API도 같은 보고서 구조에 연결할 예정입니다.
+          XLSX RAW 파일을 업로드하면 media가 s-로 시작하는 SingleOne 행만 보고서 데이터로 변환합니다.
+          Meta 데이터는 Meta API 가져오기 결과와 함께 반영됩니다.
         </p>
         {canUpload ? (
           <label className="btn brand">
@@ -1935,6 +1943,60 @@ function isMetaReportFile(file: ReportFileDoc): boolean {
   return sheetName === 'meta api' || filename.startsWith('meta api');
 }
 
+function filterReportResultRows(
+  result: ReportParseResult,
+  predicate: (row: NormalizedReportRow) => boolean,
+  sheetName = result.sheet.sheetName
+): ReportParseResult {
+  const rows = result.rows.filter(predicate);
+  return {
+    ...result,
+    sheet: {
+      ...result.sheet,
+      sheetName,
+      rowCount: rows.length
+    },
+    rows,
+    preview: rows.slice(0, 12)
+  };
+}
+
+function combineReportResults(singleOneResult: ReportParseResult | null, metaResult: ReportParseResult | null): ReportParseResult | null {
+  if (!singleOneResult && !metaResult) return null;
+  const base = metaResult || singleOneResult;
+  if (!base) return null;
+
+  const rows = [
+    ...(metaResult?.rows || []),
+    ...(singleOneResult?.rows || [])
+  ];
+  if (!rows.length) return null;
+
+  const fileName = [
+    metaResult?.fileName,
+    singleOneResult?.fileName
+  ].filter(Boolean).join(' + ');
+
+  return {
+    ...base,
+    fileName: fileName || base.fileName,
+    sheet: {
+      ...base.sheet,
+      sheetName: metaResult && singleOneResult ? 'Meta API + SingleOne' : base.sheet.sheetName,
+      rowCount: rows.length
+    },
+    detections: singleOneResult?.detections || base.detections,
+    rows,
+    preview: rows.slice(0, 12),
+    issues: [
+      ...(metaResult?.issues || []),
+      ...(singleOneResult?.issues || [])
+    ],
+    exchangeRate: metaResult?.exchangeRate || singleOneResult?.exchangeRate || base.exchangeRate,
+    generatedAt: Math.max(metaResult?.generatedAt || 0, singleOneResult?.generatedAt || 0, base.generatedAt || 0)
+  };
+}
+
 function formatComparisonLabel(view: ReportView): string {
   return `${view.currentPeriod.label} 대비 ${view.previousPeriod.label}`;
 }
@@ -2268,33 +2330,13 @@ function adIdentityText(row: NormalizedReportRow): string {
   return normalizeSearchText(`${row.campaignName} ${row.adgroupName} ${row.adName}`);
 }
 
-function adIdentityRawText(row: NormalizedReportRow): string {
-  return `${row.campaignName} ${row.adgroupName} ${row.adName}`.toLowerCase();
-}
-
 function isExcludedAmazonRow(row: NormalizedReportRow): boolean {
   return adIdentityText(row).includes('amazon');
 }
 
-function isQoo10Row(row: NormalizedReportRow): boolean {
-  const text = adIdentityText(row);
-  const rawText = adIdentityRawText(row);
-  return text.includes('qoo10') || rawText.includes('s-');
-}
-
-function isOwnedHybridRow(row: NormalizedReportRow): boolean {
-  const text = adIdentityText(row);
-  const rawText = adIdentityRawText(row);
-  return text.includes('wish') && text.includes('hybrid') && !rawText.includes('s-');
-}
-
 function matchesMarketplaceTab(row: NormalizedReportRow, tab: MarketplaceTab): boolean {
-  const text = adIdentityText(row);
-  if (tab === 'qoo10') return isQoo10Row(row) && !isOwnedHybridRow(row);
-  if (tab === 'owned') {
-    const isMetaOwned = normalizeSearchText(row.media) === 'meta' && normalizeSearchText(row.promotion) === '자사몰';
-    return isMetaOwned || isOwnedHybridRow(row) || (!isQoo10Row(row) && text.includes('wish'));
-  }
+  if (tab === 'qoo10') return isSingleOneUploadRow(row);
+  if (tab === 'owned') return isMetaApiRow(row);
   return false;
 }
 
@@ -2304,9 +2346,6 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
   if (tab === 'total') return true;
 
   if (marketplace === 'owned') {
-    const isHybrid = text.includes('hybrid');
-    if (tab === 'hybrid') return isHybrid;
-    if (tab === 'always') return !isHybrid;
     return false;
   }
 
@@ -2318,6 +2357,14 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
   if (tab === 'megapo') return !isMarket && isMegapo && !isMegawari;
   if (tab === 'always') return !isMarket && !isMegawari && !isMegapo;
   return false;
+}
+
+function isMetaApiRow(row: NormalizedReportRow): boolean {
+  return normalizeSearchText(row.media) === 'meta';
+}
+
+function isSingleOneUploadRow(row: NormalizedReportRow): boolean {
+  return row.media.trim().toLowerCase().startsWith('s-');
 }
 
 function formatCurrency(value: number): string {
