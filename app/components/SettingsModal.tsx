@@ -49,7 +49,8 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
             </div>
             <div>
               <label>Meta Ad Account ID</label>
-              <input type="text" value={adAccountId} onChange={event => setAdAccountId(event.target.value)} placeholder="숫자 또는 act_숫자" />
+              <small className="muted">최대 2개까지 쉼표, 공백, 줄바꿈으로 구분해 입력할 수 있습니다.</small>
+              <input type="text" value={adAccountId} onChange={event => setAdAccountId(event.target.value)} placeholder="act_123, act_456" />
             </div>
             <div>
               <label>브랜드 컬러 (HEX)</label>

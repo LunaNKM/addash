@@ -107,6 +107,32 @@ async function fetchCampaignsAndAdsets(adAccountId: string, dateStart: string, d
   };
 }
 
+async function fetchCampaignsAndAdsetsForAccounts(adAccountIds: string[], dateStart: string, dateEnd: string): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[] }> {
+  const results = await Promise.all(adAccountIds.map(adAccountId => fetchCampaignsAndAdsets(adAccountId, dateStart, dateEnd)));
+  const campaigns: MetaCampaign[] = [];
+  const adsets: MetaAdset[] = [];
+
+  results.forEach((result, index) => {
+    const adAccountId = adAccountIds[index];
+    for (const campaign of result.campaigns) {
+      campaigns.push({
+        id: accountScopedId(adAccountId, campaign.id),
+        name: adAccountIds.length > 1 ? `${campaign.name} · act_${adAccountId}` : campaign.name
+      });
+    }
+    for (const adset of result.adsets) {
+      adsets.push({
+        id: accountScopedId(adAccountId, adset.id),
+        name: adAccountIds.length > 1 ? `${adset.name} · act_${adAccountId}` : adset.name,
+        campaignId: accountScopedId(adAccountId, adset.campaignId),
+        campaignName: adAccountIds.length > 1 ? `${adset.campaignName} · act_${adAccountId}` : adset.campaignName
+      });
+    }
+  });
+
+  return { campaigns, adsets };
+}
+
 async function fetchCampaignsAndAdsetsWindow(adAccountId: string, dateStart: string, dateEnd: string): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[] }> {
   const params = new URLSearchParams({
     access_token: metaToken(),
@@ -156,6 +182,16 @@ async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd:
   }
 
   return rows;
+}
+
+async function fetchAllInsightsForAccounts(adAccountIds: string[], dateStart: string, dateEnd: string, adsetIds?: string[]): Promise<MetaInsightRow[]> {
+  const filtersByAccount = adsetIds?.length ? adsetFiltersByAccount(adAccountIds, adsetIds) : null;
+  const results = await Promise.all(adAccountIds.map(adAccountId => {
+    const scopedAdsetIds = filtersByAccount?.get(adAccountId);
+    if (filtersByAccount && !scopedAdsetIds?.length) return Promise.resolve([] as MetaInsightRow[]);
+    return fetchAllInsights(adAccountId, dateStart, dateEnd, scopedAdsetIds);
+  }));
+  return results.flat();
 }
 
 async function fetchAllInsightsWindow(adAccountId: string, dateStart: string, dateEnd: string, adsetIds?: string[]): Promise<MetaInsightRow[]> {
@@ -419,6 +455,34 @@ function normalizeAdAccountId(value: string): string {
   return value.trim().replace(/^act_/, '');
 }
 
+function parseAdAccountIds(value: string): string[] {
+  const ids = value
+    .split(/[\s,;]+/)
+    .map(part => normalizeAdAccountId(part))
+    .filter(Boolean);
+  const uniqueIds = Array.from(new Set(ids));
+  if (uniqueIds.some(id => !/^\d+$/.test(id))) throw new Error('Ad Account ID는 숫자 또는 act_숫자 형식이어야 합니다.');
+  if (uniqueIds.length > 2) throw new Error('브랜드당 Ad Account ID는 최대 2개까지 입력할 수 있습니다.');
+  return uniqueIds;
+}
+
+function accountScopedId(adAccountId: string, id: string): string {
+  return `${adAccountId}:${id}`;
+}
+
+function adsetFiltersByAccount(adAccountIds: string[], adsetIds: string[]): Map<string, string[]> {
+  const filters = new Map(adAccountIds.map(adAccountId => [adAccountId, [] as string[]]));
+  for (const id of adsetIds) {
+    const [maybeAccountId, rawId] = id.split(':');
+    if (rawId && filters.has(maybeAccountId)) {
+      filters.get(maybeAccountId)?.push(rawId);
+      continue;
+    }
+    for (const adAccountId of adAccountIds) filters.get(adAccountId)?.push(id);
+  }
+  return filters;
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
@@ -468,11 +532,12 @@ export async function GET(req: Request) {
     const adAccountId = url.searchParams.get('adAccountId') || '';
     const dateStart = url.searchParams.get('dateStart') || '';
     const dateEnd = url.searchParams.get('dateEnd') || '';
-    if (!adAccountId || !dateStart || !dateEnd) {
+    const adAccountIds = parseAdAccountIds(adAccountId);
+    if (!adAccountIds.length || !dateStart || !dateEnd) {
       return NextResponse.json({ error: '필수 파라미터가 누락되었습니다.' }, { status: 400 });
     }
 
-    const result = await fetchCampaignsAndAdsets(adAccountId, dateStart, dateEnd);
+    const result = await fetchCampaignsAndAdsetsForAccounts(adAccountIds, dateStart, dateEnd);
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';
@@ -494,17 +559,18 @@ export async function POST(req: Request) {
       adsetIds?: string[];
       exchangeRate?: number;
     };
-    if (!brandId || !tabId || !adAccountId || !dateStart || !dateEnd) {
+    const adAccountIds = parseAdAccountIds(adAccountId);
+    if (!brandId || !tabId || !adAccountIds.length || !dateStart || !dateEnd) {
       return NextResponse.json({ error: '필수 파라미터가 누락되었습니다.' }, { status: 400 });
     }
 
-    const insights = await fetchAllInsights(adAccountId, dateStart, dateEnd, adsetIds);
+    const insights = await fetchAllInsightsForAccounts(adAccountIds, dateStart, dateEnd, adsetIds);
     if (!insights.length) {
       return NextResponse.json({ error: '해당 기간에 가져올 Meta 데이터가 없습니다.' }, { status: 404 });
     }
 
     const safeExchangeRate = Number(exchangeRate || 1) || 1;
-    const filename = `Meta API ${dateStart}~${dateEnd}`;
+    const filename = `Meta API${adAccountIds.length > 1 ? ` ${adAccountIds.length} accounts` : ''} ${dateStart}~${dateEnd}`;
     const result = toReportResult(insights, filename, safeExchangeRate);
     const range = dateRange(result.rows);
     const createdAt = Date.now();

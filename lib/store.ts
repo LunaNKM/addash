@@ -110,12 +110,21 @@ export async function updateBrand(brandId: string, patch: { name?: string; color
     update.color = color;
   }
   if (patch.metaAdAccountId !== undefined) {
-    const id = patch.metaAdAccountId.trim();
-    if (id && !/^\d+$/.test(id.replace(/^act_/, ''))) throw new Error('Ad Account ID는 숫자 또는 act_숫자 형식이어야 합니다.');
-    update.metaAdAccountId = id.replace(/^act_/, '');
+    update.metaAdAccountId = normalizeMetaAdAccountIds(patch.metaAdAccountId);
   }
   if (Object.keys(update).length === 0) return;
   await updateDoc(doc(db, 'brands', brandId), update);
+}
+
+function normalizeMetaAdAccountIds(value: string): string {
+  const ids = value
+    .split(/[\s,;]+/)
+    .map(part => part.trim().replace(/^act_/, ''))
+    .filter(Boolean);
+  const uniqueIds = Array.from(new Set(ids));
+  if (uniqueIds.some(id => !/^\d+$/.test(id))) throw new Error('Ad Account ID는 숫자 또는 act_숫자 형식이어야 합니다.');
+  if (uniqueIds.length > 2) throw new Error('브랜드당 Ad Account ID는 최대 2개까지 입력할 수 있습니다.');
+  return uniqueIds.join(', ');
 }
 
 export async function listTabs(brandId: string): Promise<DashboardTab[]> {

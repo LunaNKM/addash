@@ -79,6 +79,7 @@ export function MetaFilterModal({
   const [selectedAdsetIds, setSelectedAdsetIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const adAccountIds = parseAdAccountIds(brand.metaAdAccountId || '');
 
   async function loadCampaigns() {
     setLoading(true);
@@ -144,8 +145,8 @@ export function MetaFilterModal({
     <div className="modal">
       <div className="modal-card">
         <h3>Meta API 데이터 가져오기</h3>
-        {brand.metaAdAccountId
-          ? <p className="muted">Ad Account: act_{brand.metaAdAccountId}</p>
+        {adAccountIds.length
+          ? <p className="muted">Ad Accounts: {adAccountIds.map(id => `act_${id}`).join(', ')}</p>
           : <p style={{ color: 'var(--c-warn)' }}>브랜드 설정에서 Ad Account ID를 먼저 입력해주세요.</p>}
 
         {step === 'date' && (
@@ -166,7 +167,7 @@ export function MetaFilterModal({
               <button
                 type="button"
                 className="btn brand"
-                disabled={!brand.metaAdAccountId || !dateStart || !dateEnd || loading}
+                disabled={!adAccountIds.length || !dateStart || !dateEnd || loading}
                 onClick={loadCampaigns}
               >
                 {loading ? '불러오는 중...' : '다음'}
@@ -220,4 +221,13 @@ export function MetaFilterModal({
       </div>
     </div>
   );
+}
+
+function parseAdAccountIds(value: string): string[] {
+  return Array.from(new Set(
+    value
+      .split(/[\s,;]+/)
+      .map(part => part.trim().replace(/^act_/, ''))
+      .filter(Boolean)
+  )).slice(0, 2);
 }
