@@ -1163,7 +1163,7 @@ function CampaignReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
 }
 
 function CreativeReport({ view, kpi, creativeAssets }: { view: ReportView; kpi: Kpi; creativeAssets: Record<string, CreativeAssetDoc> }) {
-  const creativeRows = view.current.byCreative.filter(row => row.spend > 0);
+  const creativeRows = view.current.byCreative.filter(hasReportPerformance);
   return (
     <>
       <SummaryCards total={view.current.total} kpi={kpi} />
@@ -1605,7 +1605,8 @@ type PromotionPerformanceRow = {
 };
 
 function PromotionPerformanceSection({ title, rows, showRegistration = false }: { title: string; rows: PromotionPerformanceRow[]; showRegistration?: boolean }) {
-  const first = rows[0];
+  const visibleRows = rows.filter(row => hasReportPerformance(row.target));
+  const first = visibleRows[0] || rows[0];
   return (
     <section className="section">
       <div className="section-head">
@@ -1623,7 +1624,7 @@ function PromotionPerformanceSection({ title, rows, showRegistration = false }: 
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
+            {visibleRows.map((row, index) => (
               <React.Fragment key={row.label}>
                 <tr className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
                   <td>{row.label}</td>
@@ -1651,6 +1652,7 @@ function PromotionPerformanceSection({ title, rows, showRegistration = false }: 
 }
 
 function HistoricalPerformanceTable({ title, rows }: { title: string; rows: ReportSummary[] }) {
+  const visibleRows = rows.filter(hasReportPerformance);
   return (
     <section className="section">
       <div className="section-head">
@@ -1666,7 +1668,7 @@ function HistoricalPerformanceTable({ title, rows }: { title: string; rows: Repo
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
+            {visibleRows.map(row => (
               <tr key={row.key}>
                 <td>{row.label}</td>
                 <MetricCells row={row} />
@@ -1813,6 +1815,7 @@ function formatPromotionPeriodLabel(start: string, end: string): string {
 }
 
 function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentWeeklyData; comparisonLabel?: string }) {
+  const visibleRows = data.rows.filter(hasReportPerformance);
   return (
     <section className="section">
       <div className="section-head">
@@ -1833,7 +1836,7 @@ function RecentWeeklyPerformanceTable({ data, comparisonLabel }: { data: RecentW
               <td>TOTAL</td>
               <MetricCells row={data.total} />
             </tr>
-            {data.rows.map(row => (
+            {visibleRows.map(row => (
               <tr key={row.key}>
                 <td>{row.label}</td>
                 <MetricCells row={row} />
@@ -1855,7 +1858,13 @@ function YearDailyPerformanceTable({
   comparisonLabel?: string;
   showRegistration?: boolean;
 }) {
-  const defaultOpen = useMemo(() => new Set(data.groups.filter(group => group.isCurrentMonth).map(group => group.key)), [data.groups]);
+  const visibleGroups = useMemo(() => data.groups
+    .map(group => ({
+      ...group,
+      days: group.days.filter(hasReportPerformance)
+    }))
+    .filter(group => hasReportPerformance(group.total) || group.days.length > 0), [data.groups]);
+  const defaultOpen = useMemo(() => new Set(visibleGroups.filter(group => group.isCurrentMonth).map(group => group.key)), [visibleGroups]);
   const [openMonths, setOpenMonths] = useState(defaultOpen);
 
   useEffect(() => {
@@ -1891,7 +1900,7 @@ function YearDailyPerformanceTable({
               <td>{data.year || '-'} TOTAL</td>
               <MetricCells row={data.total} showRegistration={showRegistration} />
             </tr>
-            {data.groups.map(group => {
+            {visibleGroups.map(group => {
               const isOpen = openMonths.has(group.key);
               return (
                 <React.Fragment key={group.key}>
@@ -1968,6 +1977,21 @@ function MetricCells({ row, showRegistration = false }: { row: ReportSummary; sh
   );
 }
 
+function hasReportPerformance(row: ReportSummary): boolean {
+  return [
+    row.spend,
+    row.grossSpend,
+    row.sales,
+    row.impressions,
+    row.clicks,
+    row.conversions,
+    row.addToCart,
+    row.registration,
+    row.lead,
+    row.order
+  ].some(value => Math.abs(Number(value) || 0) > 0);
+}
+
 function SummaryTable({
   title,
   rows,
@@ -1988,13 +2012,15 @@ function SummaryTable({
   creativeAssets?: Record<string, CreativeAssetDoc>;
 }) {
   const previousByKey = new Map(previousRows.map(row => [row.key, row]));
-  const displayRows = [...rows].sort((a, b) => sortByLabel ? a.key.localeCompare(b.key) : b.spend - a.spend || a.label.localeCompare(b.label));
+  const displayRows = rows
+    .filter(hasReportPerformance)
+    .sort((a, b) => sortByLabel ? a.key.localeCompare(b.key) : b.spend - a.spend || a.label.localeCompare(b.label));
   return (
     <section className="section">
       <div className="section-head">
         <PeriodBadge label={comparisonLabel || ''} />
         <b>{title}</b>
-        <span className="muted">총 {rows.length.toLocaleString()}개 그룹 중 {Math.min(rows.length, limit).toLocaleString()}개 표시</span>
+        <span className="muted">총 {displayRows.length.toLocaleString()}개 그룹 중 {Math.min(displayRows.length, limit).toLocaleString()}개 표시</span>
       </div>
       <div className="table-wrap sticky-detail">
         <table>
