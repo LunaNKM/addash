@@ -171,7 +171,7 @@ function summarize(key: string, label: string, rows: NormalizedReportRow[]): Rep
   };
 
   for (const row of rows) {
-    bucket.spend += row.grossCostKrw;
+    bucket.spend += row.costKrw;
     bucket.grossSpend += row.grossCostKrw;
     bucket.impressions += row.impressions;
     bucket.clicks += row.clicks;
