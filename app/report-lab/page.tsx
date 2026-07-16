@@ -6,7 +6,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
 import { buildReportView, filterRowsByPeriod, previousMatchingPeriod } from '@/lib/report/aggregate';
 import { mergeRegistrationIntoReport, parseRegistrationFile, type RegistrationMergeStats } from '@/lib/report/registration';
-import { DEFAULT_EXCHANGE_RATE } from '@/lib/report/schema';
+import { DEFAULT_EXCHANGE_RATE, toGrossCostKrw } from '@/lib/report/schema';
 import { loadReportFromXlsx } from '@/lib/report/sources';
 import {
   createBrand,
@@ -145,9 +145,10 @@ export default function ReportLabPage() {
     source: ReportSourceType,
     options: { activate?: boolean; updatePeriod?: boolean } = {}
   ) => {
-    const scopedResult = source === 'xlsx' && nextResult
-      ? filterReportResultRows(nextResult, isSingleOneUploadRow, 'SingleOne Upload')
-      : nextResult;
+    const grossResult = nextResult ? applyGrossSpendRule(nextResult) : null;
+    const scopedResult = source === 'xlsx' && grossResult
+      ? filterReportResultRows(grossResult, isSingleOneUploadRow, 'SingleOne Upload')
+      : grossResult;
 
     if (source === 'meta') setMetaResult(scopedResult);
     else setXlsxResult(scopedResult);
@@ -1963,6 +1964,18 @@ function filterReportResultRows(
   };
 }
 
+function applyGrossSpendRule(result: ReportParseResult): ReportParseResult {
+  const rows = result.rows.map(row => ({
+    ...row,
+    grossCostKrw: row.costKrw ? toGrossCostKrw(row.costKrw, row.date) : row.grossCostKrw
+  }));
+  return {
+    ...result,
+    rows,
+    preview: rows.slice(0, 12)
+  };
+}
+
 function combineReportResults(singleOneResult: ReportParseResult | null, metaResult: ReportParseResult | null): ReportParseResult | null {
   if (!singleOneResult && !metaResult) return null;
   const base = metaResult || singleOneResult;
@@ -2257,7 +2270,7 @@ function monthWeekLabel(value: string): { key: string; label: string } {
 function summarizeReportRows(key: string, label: string, rows: NormalizedReportRow[]): ReportSummary {
   const summary = rows.reduce(
     (acc, row) => {
-      acc.spend += row.costKrw;
+      acc.spend += row.grossCostKrw;
       acc.grossSpend += row.grossCostKrw;
       acc.impressions += row.impressions;
       acc.clicks += row.clicks;

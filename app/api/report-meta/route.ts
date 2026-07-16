@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DEFAULT_GROSS_RATE } from '@/lib/report/schema';
+import { toGrossCostKrw } from '@/lib/report/schema';
 import type { NormalizedReportRow, ReportParseResult } from '@/lib/report/reportTypes';
 
 const META_API_VERSION = process.env.META_API_VERSION || 'v20.0';
@@ -335,12 +335,13 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
   const addToCart = actionValue(row.actions, ['omni_add_to_cart', 'add_to_cart', 'offsite_conversion.fb_pixel_add_to_cart']);
   const registration = actionValue(row.actions, ['omni_complete_registration', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration']);
   const lead = actionValue(row.actions, ['omni_lead', 'lead', 'offsite_conversion.fb_pixel_lead']);
+  const date = row.date_start || row.date_stop || '';
   const costKrw = spend * exchangeRate;
   const salesKrw = sales * exchangeRate;
 
   return {
     sourceRowNumber,
-    date: row.date_start || row.date_stop || '',
+    date,
     brand: '',
     media: 'Meta',
     promotion: 'Meta',
@@ -352,7 +353,7 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
     conversions,
     costJpy: spend,
     costKrw,
-    grossCostKrw: costKrw * DEFAULT_GROSS_RATE,
+    grossCostKrw: toGrossCostKrw(costKrw, date),
     salesJpy: sales,
     salesKrw,
     addToCart,

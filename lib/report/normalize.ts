@@ -1,4 +1,4 @@
-import { DEFAULT_EXCHANGE_RATE, DEFAULT_GROSS_RATE, detectColumns, getMissingColumns, scoreDetection } from './schema';
+import { DEFAULT_EXCHANGE_RATE, detectColumns, getMissingColumns, scoreDetection, toGrossCostKrw } from './schema';
 import type { NormalizedReportRow, ReportColumnKey, ReportParseResult, ReportRawRow, SheetDetection } from './reportTypes';
 import { validateReportRows } from './validate';
 
@@ -94,7 +94,7 @@ function normalizeRow(
   const costJpy = parseNumber(value('costJpy'));
   const explicitCostKrw = parseNumber(value('costKrw'));
   const costKrw = explicitCostKrw || (costJpy ? costJpy * exchangeRate : 0);
-  const grossCostKrw = parseNumber(value('grossCostKrw')) || (costKrw ? costKrw * DEFAULT_GROSS_RATE : 0);
+  const grossCostKrw = costKrw ? toGrossCostKrw(costKrw, date) : parseNumber(value('grossCostKrw'));
   const salesJpy = parseNumber(value('salesJpy'));
   const explicitSalesKrw = parseNumber(value('salesKrw'));
   const salesKrw = explicitSalesKrw || (salesJpy ? salesJpy * exchangeRate : 0);
