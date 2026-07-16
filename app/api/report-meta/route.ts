@@ -338,13 +338,14 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
   const date = row.date_start || row.date_stop || '';
   const costKrw = spend * exchangeRate;
   const salesKrw = sales * exchangeRate;
+  const identityText = `${row.campaign_name || ''} ${row.adset_name || ''} ${row.ad_name || ''}`;
 
   return {
     sourceRowNumber,
     date,
     brand: '',
     media: 'Meta',
-    promotion: 'Meta',
+    promotion: inferMetaPromotion(identityText),
     campaignName: row.campaign_name || 'Meta 캠페인',
     adgroupName: row.adset_name || 'Meta 광고세트',
     adName: row.ad_name || 'Meta 광고',
@@ -368,6 +369,26 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
     roas: ratio(salesKrw, costKrw),
     raw: row as Record<string, unknown>
   };
+}
+
+function inferMetaPromotion(value: string): string {
+  if (textIncludesAny(value, ['메가포', 'megapo', 'mega po'])) return '메가포 캠페인';
+  if (textIncludesAny(value, ['메가와리', 'megawari', 'mega wari'])) return '메가와리 캠페인';
+  if (textIncludesAny(value, ['market', '마켓'])) return '마켓';
+  return 'Meta';
+}
+
+function normalizeText(value: string): string {
+  return value.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function textIncludesAny(value: string, keywords: string[]): boolean {
+  const text = normalizeText(value);
+  const compactText = text.replace(/\s+/g, '');
+  return keywords.some(keyword => {
+    const normalized = normalizeText(keyword);
+    return text.includes(normalized) || compactText.includes(normalized.replace(/\s+/g, ''));
+  });
 }
 
 async function saveReportFileToFirestore(brandId: string, tabId: string, fileDoc: {

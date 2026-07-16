@@ -2517,7 +2517,16 @@ function uniqueLabels(rows: NormalizedReportRow[], pick: (row: NormalizedReportR
 }
 
 function normalizeSearchText(value: string): string {
-  return value.toLowerCase().replace(/[_-]+/g, ' ').trim();
+  return value.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function textIncludesAny(value: string, keywords: string[]): boolean {
+  const text = normalizeSearchText(value);
+  const compactText = text.replace(/\s+/g, '');
+  return keywords.some(keyword => {
+    const normalized = normalizeSearchText(keyword);
+    return text.includes(normalized) || compactText.includes(normalized.replace(/\s+/g, ''));
+  });
 }
 
 function adIdentityText(row: NormalizedReportRow): string {
@@ -2536,7 +2545,7 @@ function matchesMarketplaceTab(row: NormalizedReportRow, tab: MarketplaceTab): b
 
 function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: MarketplaceTab, tab: PromotionSubTab): boolean {
   const text = adIdentityText(row);
-  const promotionText = normalizeSearchText(row.promotion);
+  const fullText = normalizeSearchText(`${row.promotion} ${row.campaignName} ${row.adgroupName} ${row.adName}`);
   if (tab === 'total') return true;
 
   if (marketplace === 'owned') {
@@ -2546,8 +2555,8 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
     return false;
   }
 
-  const isMegawari = promotionText.includes('메가와리') || promotionText.includes('megawari') || promotionText.includes('mega wari');
-  const isMegapo = promotionText.includes('메가포') || promotionText.includes('megapo') || promotionText.includes('mega po');
+  const isMegawari = textIncludesAny(fullText, ['메가와리', 'megawari', 'mega wari']);
+  const isMegapo = textIncludesAny(fullText, ['메가포', 'megapo', 'mega po']);
   const isMarket = text.includes('market');
   if (tab === 'market') return isMarket;
   if (tab === 'megawari') return !isMarket && isMegawari && !isMegapo;
@@ -2558,7 +2567,7 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
 
 function isQoo10LandingRow(row: NormalizedReportRow): boolean {
   const text = adLandingText(row);
-  return text.includes('qoo10') || (isSingleOneUploadRow(row) && !text.includes('wish'));
+  return textIncludesAny(text, ['qoo10', 'qoo 10', 'q10', '큐텐']) || (isSingleOneUploadRow(row) && !text.includes('wish'));
 }
 
 function isOwnedLandingRow(row: NormalizedReportRow): boolean {
@@ -2567,7 +2576,7 @@ function isOwnedLandingRow(row: NormalizedReportRow): boolean {
 }
 
 function adLandingText(row: NormalizedReportRow): string {
-  return normalizeSearchText(row.adName || `${row.campaignName} ${row.adgroupName}`);
+  return adIdentityText(row);
 }
 
 function isSingleOneUploadRow(row: NormalizedReportRow): boolean {
