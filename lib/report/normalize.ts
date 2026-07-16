@@ -93,11 +93,11 @@ function normalizeRow(
   const date = parseDate(value('date'));
   const costJpy = parseNumber(value('costJpy'));
   const explicitCostKrw = parseNumber(value('costKrw'));
-  const costKrw = explicitCostKrw || (costJpy ? costJpy * exchangeRate : 0);
+  const costKrw = detection.columns.costKrw ? explicitCostKrw : costJpy ? costJpy * exchangeRate : 0;
   const grossCostKrw = costKrw ? toGrossCostKrw(costKrw, date) : parseNumber(value('grossCostKrw'));
   const salesJpy = parseNumber(value('salesJpy'));
   const explicitSalesKrw = parseNumber(value('salesKrw'));
-  const salesKrw = explicitSalesKrw || (salesJpy ? salesJpy * exchangeRate : 0);
+  const salesKrw = detection.columns.salesKrw ? explicitSalesKrw : salesJpy ? salesJpy * exchangeRate : 0;
   const impressions = parseNumber(value('impressions'));
   const clicks = parseNumber(value('clicks'));
   const conversions = parseNumber(value('conversions'));
