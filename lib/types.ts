@@ -105,6 +105,29 @@ export type ReportCommentDoc = {
   updatedAt: number;
 };
 
+export type CreativeAssetDoc = {
+  id: string;
+  key: string;
+  source: 'singleone';
+  media: string;
+  campaignName: string;
+  adgroupName: string;
+  adName: string;
+  imageData?: string;
+  sourceImageUrl?: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  imageHash: string;
+  capturedAt: number;
+  updatedAt: number;
+};
+
+export type SingleOneCollectorSettings = {
+  token: string;
+  updatedAt: number;
+};
+
 export type InsightDoc = {
   id: string;
   text: string;

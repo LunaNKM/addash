@@ -9,12 +9,39 @@ service cloud.firestore {
         (signedIn() && exists(/databases/$(database)/documents/admins/$(email())));
     }
 
-    // Service-account-free architecture:
-    // Public read is required for login-free client share links.
-    // All mutations are admin-only.
-    match /{document=**} {
+    match /admins/{adminEmail} {
+      allow read, write: if isAdmin();
+    }
+
+    match /brands/{brandId} {
       allow read: if true;
       allow write: if isAdmin();
+
+      match /tabs/{tabId} {
+        allow read: if true;
+        allow write: if isAdmin();
+
+        match /collectorSettings/{settingId} {
+          allow read, write: if isAdmin();
+        }
+
+        match /{publicCollection}/{docId} {
+          allow read: if publicCollection in [
+            'kpi',
+            'files',
+            'reportFiles',
+            'reportComments',
+            'insights',
+            'creativeAssets'
+          ];
+          allow write: if isAdmin();
+
+          match /{nestedCollection}/{nestedId} {
+            allow read: if publicCollection in ['reportFiles'];
+            allow write: if isAdmin();
+          }
+        }
+      }
     }
   }
 }

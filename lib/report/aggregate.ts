@@ -6,6 +6,7 @@ import type {
   ReportSummary,
   ReportView
 } from './reportTypes';
+import { creativeLabelFromKey, makeCreativeKey } from './creativeKey';
 
 type Bucket = Omit<ReportSummary, 'ctr' | 'cpc' | 'cvr' | 'cpa' | 'cartCpa' | 'roas'>;
 
@@ -18,7 +19,7 @@ export function buildReportAggregation(rows: NormalizedReportRow[]): ReportAggre
     byCampaign: groupRows(rows, row => row.campaignName || '미분류 캠페인'),
     byAdgroup: groupRows(rows, row => row.adgroupName || '미분류 광고그룹'),
     byDaily: groupRows(rows, row => row.date || '날짜 없음'),
-    byCreative: groupRows(rows, row => row.adName || '이름 없는 소재')
+    byCreative: groupRows(rows, makeCreativeKey, (key, list) => list[0]?.adName || creativeLabelFromKey(key))
   };
 }
 
@@ -64,7 +65,7 @@ export function filterRowsByPeriod(rows: NormalizedReportRow[], start: string, e
 function groupRows(
   rows: NormalizedReportRow[],
   keyFor: (row: NormalizedReportRow) => string,
-  labelFor?: (key: string) => string
+  labelFor?: (key: string, rows: NormalizedReportRow[]) => string
 ): ReportSummary[] {
   const grouped = new Map<string, NormalizedReportRow[]>();
   for (const row of rows) {
@@ -74,7 +75,7 @@ function groupRows(
     grouped.set(key, list);
   }
   return [...grouped.entries()]
-    .map(([key, list]) => summarize(key, labelFor ? labelFor(key) : key, list))
+    .map(([key, list]) => summarize(key, labelFor ? labelFor(key, list) : key, list))
     .sort((a, b) => b.spend - a.spend || a.key.localeCompare(b.key));
 }
 

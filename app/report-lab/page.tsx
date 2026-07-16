@@ -15,11 +15,14 @@ import {
   getKpi,
   getReportComment,
   getReportFile,
+  getSingleOneCollectorSettings,
   isAdminEmail,
+  listCreativeAssets,
   listBrandsForAdmin,
   listReportFiles,
   listTabs,
   saveKpi,
+  saveSingleOneCollectorSettings,
   saveReportComment,
   saveReportFile,
   updateReportFileResult,
@@ -27,7 +30,7 @@ import {
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import type { Brand, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc } from '@/lib/types';
+import type { Brand, CreativeAssetDoc, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc, SingleOneCollectorSettings } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import { MetaFilterModal } from '../components/MetaFilterModal';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
@@ -94,11 +97,14 @@ export default function ReportLabPage() {
   const [selectedXlsxReportFileId, setSelectedXlsxReportFileId] = useState('');
   const [selectedMetaReportFileId, setSelectedMetaReportFileId] = useState('');
   const [reportComment, setReportComment] = useState<ReportCommentDoc | null>(null);
+  const [creativeAssets, setCreativeAssets] = useState<Record<string, CreativeAssetDoc>>({});
   const [commentDraft, setCommentDraft] = useState('');
   const [commentEditing, setCommentEditing] = useState(false);
   const [commentBusy, setCommentBusy] = useState('');
   const [metaImportOpen, setMetaImportOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsMode>('none');
+  const [collectorOpen, setCollectorOpen] = useState(false);
+  const [collectorSettings, setCollectorSettings] = useState<SingleOneCollectorSettings | null>(null);
   const [xlsxResult, setXlsxResult] = useState<ReportParseResult | null>(null);
   const [metaResult, setMetaResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
@@ -127,6 +133,7 @@ export default function ReportLabPage() {
     setSelectedXlsxReportFileId('');
     setSelectedMetaReportFileId('');
     setReportComment(null);
+    setCreativeAssets({});
     setCommentDraft('');
     setCommentEditing(false);
     setPeriodStart('');
@@ -190,12 +197,14 @@ export default function ReportLabPage() {
       return;
     }
 
-    const [loadedKpi, loadedReportFiles] = await Promise.all([
+    const [loadedKpi, loadedReportFiles, loadedCreativeAssets] = await Promise.all([
       getKpi(target.id, nextTab.id),
-      listReportFiles(target.id, nextTab.id)
+      listReportFiles(target.id, nextTab.id),
+      listCreativeAssets(target.id, nextTab.id)
     ]);
     setKpi(loadedKpi);
     setReportFiles(loadedReportFiles);
+    setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
 
     const firstXlsx = loadedReportFiles.find(file => !isMetaReportFile(file)) || null;
     const firstMeta = loadedReportFiles.find(file => isMetaReportFile(file)) || null;
@@ -242,8 +251,12 @@ export default function ReportLabPage() {
 
   const reloadReportFiles = useCallback(async () => {
     if (!brand || !dashboardTab) return;
-    const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
+    const [loadedReportFiles, loadedCreativeAssets] = await Promise.all([
+      listReportFiles(brand.id, dashboardTab.id),
+      listCreativeAssets(brand.id, dashboardTab.id)
+    ]);
     setReportFiles(loadedReportFiles);
+    setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
     const selectedXlsx = loadedReportFiles.find(file => file.id === selectedXlsxReportFileId && !isMetaReportFile(file))
       || loadedReportFiles.find(file => !isMetaReportFile(file))
       || null;
@@ -598,6 +611,27 @@ export default function ReportLabPage() {
     }
   }
 
+  async function openCollectorSettings() {
+    if (!brand || !dashboardTab) return;
+    try {
+      const settings = await getSingleOneCollectorSettings(brand.id, dashboardTab.id);
+      setCollectorSettings(settings);
+      setCollectorOpen(true);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function regenerateCollectorToken() {
+    if (!brand || !dashboardTab) return;
+    const next: SingleOneCollectorSettings = {
+      token: makeCollectorToken(),
+      updatedAt: Date.now()
+    };
+    await saveSingleOneCollectorSettings(brand.id, dashboardTab.id, next);
+    setCollectorSettings(next);
+  }
+
   if (loading) return <Empty message="보고서 데이터를 불러오는 중입니다." />;
 
   return (
@@ -624,6 +658,7 @@ export default function ReportLabPage() {
               : <button className="btn ghost" onClick={logout}>로그아웃</button>}
             <Link className="btn ghost" href="/">대시보드</Link>
             {brand && <button className="btn ghost" onClick={() => setSettings('brand')}>설정</button>}
+            {brand && dashboardTab && <button className="btn ghost" onClick={openCollectorSettings}>싱글원 수집기</button>}
             {brand && <button className="btn ghost" onClick={() => navigator.clipboard.writeText(`${location.origin}/report-lab?share=${brand.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}>공유</button>}
             {brand && dashboardTab && (
               <label className="btn brand">
@@ -862,7 +897,7 @@ export default function ReportLabPage() {
                 />
               )}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} />}
-              {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} />}
+              {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} creativeAssets={creativeAssets} />}
               {activeMarketplace && (
                 <PromotionDetailReport
                   title={activeMarketplaceTitle}
@@ -917,6 +952,111 @@ export default function ReportLabPage() {
           sharePath="/report-lab"
         />
       )}
+      {collectorOpen && brand && dashboardTab && (
+        <CollectorSettingsModal
+          brand={brand}
+          tab={dashboardTab}
+          user={user}
+          settings={collectorSettings}
+          onClose={() => setCollectorOpen(false)}
+          onRegenerate={regenerateCollectorToken}
+        />
+      )}
+    </div>
+  );
+}
+
+function CollectorSettingsModal({
+  brand,
+  tab,
+  user,
+  settings,
+  onClose,
+  onRegenerate
+}: {
+  brand: Brand;
+  tab: DashboardTab;
+  user: User | null;
+  settings: SingleOneCollectorSettings | null;
+  onClose: () => void;
+  onRegenerate: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [authToken, setAuthToken] = useState('');
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const config = {
+    appName: 'GFU DASH',
+    baseUrl,
+    brandId: brand.id,
+    tabId: tab.id,
+    collectorToken: settings?.token || '',
+    authToken,
+    media: 's-meta'
+  };
+  const configText = JSON.stringify(config, null, 2);
+
+  useEffect(() => {
+    user?.getIdToken(true).then(setAuthToken).catch(() => setAuthToken(''));
+  }, [user]);
+
+  async function runRegenerate() {
+    if (settings?.token && !confirm('기존 수집기 토큰을 재발급하면 이전 확장 프로그램 설정은 더 이상 사용할 수 없습니다. 계속할까요?')) return;
+    setBusy(true);
+    try {
+      await onRegenerate();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal">
+      <div className="modal-card collector-modal">
+        <h3>GFU DASH 싱글원 수집기</h3>
+        <span className="muted">{brand.name} · {tab.name}</span>
+
+        <div className="collector-config-grid">
+          <label>
+            Add-on URL
+            <input readOnly value={baseUrl} />
+          </label>
+          <label>
+            brandId
+            <input readOnly value={brand.id} />
+          </label>
+          <label>
+            tabId
+            <input readOnly value={tab.id} />
+          </label>
+          <label>
+            collectorToken
+            <input readOnly value={settings?.token || '토큰을 생성해주세요'} />
+          </label>
+          <label>
+            authToken
+            <input readOnly value={authToken ? 'Firebase 관리자 인증 토큰 포함됨' : '로그인 토큰을 가져오지 못했습니다'} />
+          </label>
+        </div>
+
+        <textarea className="collector-config-text" readOnly value={configText} />
+
+        <div className="modal-actions">
+          <button className="btn outline" onClick={onClose}>닫기</button>
+          <button
+            className="btn outline"
+            disabled={!authToken && !settings?.token}
+            onClick={() => navigator.clipboard.writeText(configText).then(() => alert('수집기 설정을 복사했습니다.'))}
+          >
+            설정 복사
+          </button>
+          <button className="btn outline" onClick={() => user?.getIdToken(true).then(setAuthToken)}>
+            인증 토큰 새로고침
+          </button>
+          <button className="btn brand" disabled={busy} onClick={runRegenerate}>
+            {settings?.token ? '토큰 재발급' : '토큰 생성'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1022,11 +1162,19 @@ function CampaignReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
   );
 }
 
-function CreativeReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
+function CreativeReport({ view, kpi, creativeAssets }: { view: ReportView; kpi: Kpi; creativeAssets: Record<string, CreativeAssetDoc> }) {
+  const creativeRows = view.current.byCreative.filter(row => row.spend > 0);
   return (
     <>
       <SummaryCards total={view.current.total} kpi={kpi} />
-      <SummaryTable title="소재 성과" rows={view.current.byCreative} previousRows={view.previous.byCreative} limit={140} showComparisonRows />
+      <SummaryTable
+        title="소재 성과"
+        rows={creativeRows}
+        previousRows={view.previous.byCreative}
+        limit={140}
+        showComparisonRows
+        creativeAssets={creativeAssets}
+      />
     </>
   );
 }
@@ -1827,7 +1975,8 @@ function SummaryTable({
   limit,
   sortByLabel = false,
   showComparisonRows = false,
-  comparisonLabel
+  comparisonLabel,
+  creativeAssets
 }: {
   title: string;
   rows: ReportSummary[];
@@ -1836,6 +1985,7 @@ function SummaryTable({
   sortByLabel?: boolean;
   showComparisonRows?: boolean;
   comparisonLabel?: string;
+  creativeAssets?: Record<string, CreativeAssetDoc>;
 }) {
   const previousByKey = new Map(previousRows.map(row => [row.key, row]));
   const displayRows = [...rows].sort((a, b) => sortByLabel ? a.key.localeCompare(b.key) : b.spend - a.spend || a.label.localeCompare(b.label));
@@ -1871,7 +2021,11 @@ function SummaryTable({
               return (
                 <React.Fragment key={row.key}>
                   <tr>
-                    <td title={row.label}>{trim(row.label, 44)}</td>
+                    <td title={row.label}>
+                      {creativeAssets
+                        ? <CreativeGroupCell row={row} asset={creativeAssets[row.key]} />
+                        : trim(row.label, 44)}
+                    </td>
                     <td>{formatCurrency(row.spend)}</td>
                     <td>{formatCurrency(row.sales)}</td>
                     <td>{formatInteger(row.impressions)}</td>
@@ -1926,6 +2080,18 @@ function SummaryTable({
   );
 }
 
+function CreativeGroupCell({ row, asset }: { row: ReportSummary; asset?: CreativeAssetDoc }) {
+  const src = asset?.imageData || asset?.sourceImageUrl || '';
+  return (
+    <div className="creative-performance-cell">
+      <div className={`creative-thumbnail-slot${src ? '' : ' empty'}`}>
+        {src && <img src={src} alt="" loading="lazy" />}
+      </div>
+      <span>{trim(row.label, 44)}</span>
+    </div>
+  );
+}
+
 function PeriodBadge({ label }: { label: string }) {
   if (!label) return null;
   return <span className="report-period-badge">{label}</span>;
@@ -1944,6 +2110,19 @@ function isMetaReportFile(file: ReportFileDoc): boolean {
   const sheetName = normalizeSearchText(file.result?.sheet?.sheetName || '');
   const filename = normalizeSearchText(file.filename || file.result?.fileName || '');
   return sheetName === 'meta api' || filename.startsWith('meta api');
+}
+
+function indexCreativeAssets(assets: CreativeAssetDoc[]): Record<string, CreativeAssetDoc> {
+  return assets.reduce<Record<string, CreativeAssetDoc>>((acc, asset) => {
+    if (asset.key) acc[asset.key] = asset;
+    return acc;
+  }, {});
+}
+
+function makeCollectorToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return `gfu_collector_${Array.from(bytes).map(byte => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
 function filterReportResultRows(

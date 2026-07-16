@@ -13,8 +13,9 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi, ReportCommentDoc, ReportFileDoc } from './types';
+import type { Brand, CreativeAssetDoc, DashboardTab, FileDoc, InsightDoc, Kpi, ReportCommentDoc, ReportFileDoc, SingleOneCollectorSettings } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
+import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
 
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
 const REPORT_FILE_CHUNKS_PER_COMMIT = 8;
@@ -163,6 +164,8 @@ export async function deleteTab(brandId: string, tabId: string, opts: { allowLas
   for (const comment of reportComments) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', comment.id));
   const insights = await listInsights(brandId, tabId);
   for (const insight of insights) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'insights', insight.id));
+  const creativeAssets = await listCreativeAssets(brandId, tabId);
+  for (const asset of creativeAssets) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'creativeAssets', asset.id));
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'kpi', 'default'));
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId));
 }
@@ -319,6 +322,52 @@ export async function saveInsight(brandId: string, tabId: string, insight: Omit<
   return ref.id;
 }
 
+export async function listCreativeAssets(brandId: string, tabId: string): Promise<CreativeAssetDoc[]> {
+  const snap = await getDocs(collection(db, 'brands', brandId, 'tabs', tabId, 'creativeAssets'));
+  return snap.docs.map(d => normalizeCreativeAsset(d.id, d.data()));
+}
+
+export async function upsertCreativeAssets(brandId: string, tabId: string, assets: Array<Partial<CreativeAssetDoc>>) {
+  const now = Date.now();
+  for (let index = 0; index < assets.length; index += 450) {
+    const batch = writeBatch(db);
+    assets.slice(index, index + 450).forEach(asset => {
+      const key = asset.key || makeCreativeKey(asset);
+      if (!key.replace(/\|/g, '')) return;
+      const id = asset.id || creativeAssetId(key);
+      batch.set(doc(db, 'brands', brandId, 'tabs', tabId, 'creativeAssets', id), cleanFirestoreData({
+        ...asset,
+        id: undefined,
+        key,
+        source: asset.source || 'singleone',
+        media: asset.media || 's-meta',
+        mimeType: asset.mimeType || 'image/webp',
+        capturedAt: Number(asset.capturedAt || now),
+        updatedAt: now
+      }), { merge: true });
+    });
+    await batch.commit();
+  }
+}
+
+export async function deleteCreativeAsset(brandId: string, tabId: string, assetId: string) {
+  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'creativeAssets', assetId));
+}
+
+export async function getSingleOneCollectorSettings(brandId: string, tabId: string): Promise<SingleOneCollectorSettings | null> {
+  const snap = await getDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'collectorSettings', 'singleone'));
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return {
+    token: String(data.token || ''),
+    updatedAt: Number(data.updatedAt || 0)
+  };
+}
+
+export async function saveSingleOneCollectorSettings(brandId: string, tabId: string, settings: SingleOneCollectorSettings) {
+  await setDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'collectorSettings', 'singleone'), cleanFirestoreData(settings), { merge: true });
+}
+
 function makeShareToken() {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
@@ -449,6 +498,30 @@ function normalizeReportComment(id: string, data: Record<string, unknown>): Repo
     periodEnd: String(data.periodEnd || ''),
     createdAt: Number(data.createdAt || 0),
     updatedAt: Number(data.updatedAt || 0)
+  };
+}
+
+function normalizeCreativeAsset(id: string, data: Record<string, unknown>): CreativeAssetDoc {
+  const asset = {
+    id,
+    key: String(data.key || ''),
+    source: 'singleone' as const,
+    media: String(data.media || 's-meta'),
+    campaignName: String(data.campaignName || ''),
+    adgroupName: String(data.adgroupName || ''),
+    adName: String(data.adName || ''),
+    imageData: data.imageData ? String(data.imageData) : undefined,
+    sourceImageUrl: data.sourceImageUrl ? String(data.sourceImageUrl) : undefined,
+    mimeType: String(data.mimeType || 'image/webp'),
+    width: Number(data.width || 0),
+    height: Number(data.height || 0),
+    imageHash: String(data.imageHash || ''),
+    capturedAt: Number(data.capturedAt || 0),
+    updatedAt: Number(data.updatedAt || 0)
+  };
+  return {
+    ...asset,
+    key: asset.key || makeCreativeKey(asset)
   };
 }
 
