@@ -22,18 +22,34 @@ sendBtn.addEventListener('click', async () => {
     const config = await saveConfig();
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error('현재 탭을 찾을 수 없습니다.');
+    if (!/^https?:\/\//.test(tab.url || '')) {
+      throw new Error('싱글원 웹페이지를 연 탭에서 실행해주세요.');
+    }
 
     setStatus('싱글원 페이지에서 소재를 수집하는 중...');
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      type: 'GFU_DASH_COLLECT_SINGLEONE',
-      config
-    });
+    const response = await collectFromTab(tab.id, config);
     if (!response?.ok) throw new Error(response?.error || '수집에 실패했습니다.');
     setStatus(`전송 완료: ${response.count}개 소재`);
   } catch (err) {
     setStatus(`오류: ${err.message || err}`);
   }
 });
+
+async function collectFromTab(tabId, config) {
+  const message = { type: 'GFU_DASH_COLLECT_SINGLEONE', config };
+  try {
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (err) {
+    const messageText = String(err?.message || err);
+    if (!messageText.includes('Receiving end does not exist')) throw err;
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+    return chrome.tabs.sendMessage(tabId, message);
+  }
+}
 
 async function saveConfig() {
   const base = parseJson(configJson.value, 'GFU DASH 설정 JSON');
