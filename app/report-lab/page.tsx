@@ -517,8 +517,47 @@ export default function ReportLabPage() {
           exchangeRate
         })
       });
-      const data = await resp.json();
+      const data = await readApiJsonResponse(resp);
       if (!resp.ok) throw new Error(data.error || 'Meta API 가져오기에 실패했습니다.');
+
+      const creativeCandidates = Array.isArray(data.creativeCandidates) ? data.creativeCandidates : [];
+      const imageStats = {
+        total: creativeCandidates.length,
+        requested: 0,
+        skippedExisting: 0,
+        saved: 0,
+        failed: 0
+      };
+      let imageError = '';
+      const imageBatches = chunkItems(creativeCandidates, 25);
+      for (let index = 0; index < imageBatches.length; index += 1) {
+        const batch = imageBatches[index];
+        setBusy(`Meta 소재 이미지를 저장하는 중입니다... ${index + 1}/${imageBatches.length}`);
+        try {
+          const imageToken = await user.getIdToken();
+          const imageResp = await fetch('/api/report-meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${imageToken}` },
+            body: JSON.stringify({
+              action: 'sync-creatives',
+              brandId: brand.id,
+              tabId: dashboardTab.id,
+              creativeCandidates: batch
+            })
+          });
+          const imageData = await readApiJsonResponse(imageResp);
+          if (!imageResp.ok) throw new Error(imageData.error || 'Meta 소재 이미지 저장에 실패했습니다.');
+          const batchStats = imageData.creativeImages || {};
+          imageStats.requested += Number(batchStats.requested || 0);
+          imageStats.skippedExisting += Number(batchStats.skippedExisting || 0);
+          imageStats.saved += Number(batchStats.saved || 0);
+          imageStats.failed += Number(batchStats.failed || 0);
+        } catch (err) {
+          imageStats.requested += batch.length;
+          imageStats.failed += batch.length;
+          imageError = err instanceof Error ? err.message : String(err);
+        }
+      }
 
       const [loadedReportFiles, loadedCreativeAssets] = await Promise.all([
         listReportFiles(brand.id, dashboardTab.id),
@@ -538,12 +577,11 @@ export default function ReportLabPage() {
       }
       setActiveTab('total');
       setActiveSubTab('total');
-      const imageStats = data.creativeImages || {};
       const imageSummary = Number(imageStats.total || 0)
         ? ` · 소재 이미지 ${Number(imageStats.saved || 0).toLocaleString()}개 저장 · 기존 ${Number(imageStats.skippedExisting || 0).toLocaleString()}개 건너뜀${Number(imageStats.failed || 0) ? ` · ${Number(imageStats.failed).toLocaleString()}개 실패` : ''}`
         : '';
-      const imageError = data.creativeImageError ? ` · 이미지 오류: ${data.creativeImageError}` : '';
-      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}${imageSummary}${imageError}`);
+      const imageErrorSummary = imageError ? ` · 이미지 오류: ${imageError}` : '';
+      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}${imageSummary}${imageErrorSummary}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2727,6 +2765,25 @@ function formatInteger(value: number): string {
 
 function formatPercent(value: number): string {
   return `${((Number(value) || 0) * 100).toFixed(2)}%`;
+}
+
+async function readApiJsonResponse(response: Response): Promise<any> {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    const summary = text.replace(/\s+/g, ' ').trim().slice(0, 180);
+    throw new Error(`서버 응답 오류 (${response.status})${summary ? `: ${summary}` : ''}`);
+  }
+}
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function DiffCell({ current, previous, inverse = false }: { current: number; previous: number; inverse?: boolean }) {

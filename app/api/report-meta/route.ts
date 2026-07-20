@@ -11,6 +11,7 @@ const META_DATE_CHUNK_DAYS = 7;
 const META_ADSET_FILTER_CHUNK_SIZE = 50;
 const META_AD_CREATIVE_CHUNK_SIZE = 50;
 const META_CREATIVE_WRITE_CONCURRENCY = 6;
+const META_CREATIVE_REQUEST_BATCH_SIZE = 25;
 const MAX_META_IMAGE_DATA_LENGTH = 240_000;
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
 
@@ -441,13 +442,12 @@ function metaCreativeCandidates(insights: MetaInsightRow[]): MetaCreativeCandida
   return Array.from(candidates.values());
 }
 
-async function syncMetaCreativeAssets(
+async function syncMetaCreativeCandidates(
   brandId: string,
   tabId: string,
-  insights: MetaInsightRow[],
+  candidates: MetaCreativeCandidate[],
   idToken: string
 ): Promise<MetaCreativeSyncStats> {
-  const candidates = metaCreativeCandidates(insights);
   if (!candidates.length) return { total: 0, requested: 0, skippedExisting: 0, saved: 0, failed: 0 };
 
   const existingKeys = await listExistingCreativeKeys(brandId, tabId, idToken);
@@ -514,6 +514,31 @@ async function syncMetaCreativeAssets(
     saved,
     failed
   };
+}
+
+function normalizeMetaCreativeCandidatePayload(value: unknown): MetaCreativeCandidate[] {
+  if (!Array.isArray(value) || value.length > META_CREATIVE_REQUEST_BATCH_SIZE) return [];
+  const candidates = new Map<string, MetaCreativeCandidate>();
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Record<string, unknown>;
+    const adId = String(raw.adId || '').trim();
+    const campaignName = String(raw.campaignName || '').trim();
+    const adgroupName = String(raw.adgroupName || '').trim();
+    const adName = String(raw.adName || '').trim();
+    if (!/^\d+$/.test(adId) || !campaignName || !adgroupName || !adName) continue;
+    if ([campaignName, adgroupName, adName].some(name => name.length > 500)) continue;
+    const key = makeCreativeKey({ media: 'Meta', campaignName, adgroupName, adName });
+    candidates.set(key, {
+      adId,
+      key,
+      documentId: creativeAssetId(key),
+      campaignName,
+      adgroupName,
+      adName
+    });
+  }
+  return Array.from(candidates.values());
 }
 
 function creativeIdentityKey(key: string): string {
@@ -800,15 +825,31 @@ export async function POST(req: Request) {
     const auth = await requireAdmin(req);
     if (auth.error) return auth.error;
 
-    const { brandId, tabId, adAccountId, dateStart, dateEnd, adsetIds, exchangeRate } = await req.json() as {
+    const body = await req.json() as {
+      action?: string;
       brandId: string;
       tabId: string;
-      adAccountId: string;
-      dateStart: string;
-      dateEnd: string;
+      adAccountId?: string;
+      dateStart?: string;
+      dateEnd?: string;
       adsetIds?: string[];
       exchangeRate?: number;
+      creativeCandidates?: unknown;
     };
+    const { brandId, tabId } = body;
+    if (body.action === 'sync-creatives') {
+      const candidates = normalizeMetaCreativeCandidatePayload(body.creativeCandidates);
+      if (!brandId || !tabId || !candidates.length) {
+        return NextResponse.json({ error: '저장할 Meta 소재 이미지 정보가 없습니다.' }, { status: 400 });
+      }
+      const creativeImages = await syncMetaCreativeCandidates(brandId, tabId, candidates, auth.idToken);
+      return NextResponse.json({ ok: true, creativeImages });
+    }
+
+    const adAccountId = body.adAccountId || '';
+    const dateStart = body.dateStart || '';
+    const dateEnd = body.dateEnd || '';
+    const { adsetIds, exchangeRate } = body;
     const adAccountIds = parseAdAccountIds(adAccountId);
     if (!brandId || !tabId || !adAccountIds.length || !dateStart || !dateEnd) {
       return NextResponse.json({ error: '필수 파라미터가 누락되었습니다.' }, { status: 400 });
@@ -835,15 +876,12 @@ export async function POST(req: Request) {
       createdAt
     }, auth.idToken);
 
-    let creativeImages: MetaCreativeSyncStats;
-    let creativeImageError = '';
-    try {
-      creativeImages = await syncMetaCreativeAssets(brandId, tabId, insights, auth.idToken);
-    } catch (err) {
-      const total = metaCreativeCandidates(insights).length;
-      creativeImages = { total, requested: total, skippedExisting: 0, saved: 0, failed: total };
-      creativeImageError = err instanceof Error ? err.message : String(err);
-    }
+    const creativeCandidates = metaCreativeCandidates(insights).map(candidate => ({
+      adId: candidate.adId,
+      campaignName: candidate.campaignName,
+      adgroupName: candidate.adgroupName,
+      adName: candidate.adName
+    }));
 
     return NextResponse.json({
       ok: true,
@@ -852,8 +890,7 @@ export async function POST(req: Request) {
       rowCount: result.rows.length,
       dateStart: range.start,
       dateEnd: range.end,
-      creativeImages,
-      creativeImageError
+      creativeCandidates
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';
