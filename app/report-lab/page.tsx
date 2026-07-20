@@ -2021,6 +2021,7 @@ function SummaryTable({
   comparisonLabel?: string;
   creativeAssets?: Record<string, CreativeAssetDoc>;
 }) {
+  const [creativePreview, setCreativePreview] = useState<{ src: string; label: string } | null>(null);
   const previousByKey = new Map(previousRows.map(row => [row.key, row]));
   const displayRows = rows
     .filter(hasReportPerformance)
@@ -2059,7 +2060,13 @@ function SummaryTable({
                   <tr>
                     <td title={row.label}>
                       {creativeAssets
-                        ? <CreativeGroupCell row={row} asset={creativeAssets[row.key] || creativeAssets[creativeIdentityIndexKey(row.key)]} />
+                        ? (
+                          <CreativeGroupCell
+                            row={row}
+                            asset={creativeAssets[row.key] || creativeAssets[creativeIdentityIndexKey(row.key)]}
+                            onPreview={(src, label) => setCreativePreview({ src, label })}
+                          />
+                        )
                         : trim(row.label, 44)}
                     </td>
                     <td>{formatCurrency(row.spend)}</td>
@@ -2112,18 +2119,87 @@ function SummaryTable({
           </tbody>
         </table>
       </div>
+      {creativePreview && (
+        <CreativeImagePreview
+          src={creativePreview.src}
+          label={creativePreview.label}
+          onClose={() => setCreativePreview(null)}
+        />
+      )}
     </section>
   );
 }
 
-function CreativeGroupCell({ row, asset }: { row: ReportSummary; asset?: CreativeAssetDoc }) {
+function CreativeGroupCell({
+  row,
+  asset,
+  onPreview
+}: {
+  row: ReportSummary;
+  asset?: CreativeAssetDoc;
+  onPreview: (src: string, label: string) => void;
+}) {
   const src = asset?.imageData || asset?.sourceImageUrl || '';
   return (
     <div className="creative-performance-cell">
-      <div className={`creative-thumbnail-slot${src ? '' : ' empty'}`}>
-        {src && <img src={src} alt="" loading="lazy" />}
-      </div>
+      {src ? (
+        <button
+          type="button"
+          className="creative-thumbnail-button"
+          aria-label={`${row.label} 이미지 크게 보기`}
+          title="이미지 크게 보기"
+          onClick={() => onPreview(src, row.label)}
+        >
+          <span className="creative-thumbnail-slot">
+            <img src={src} alt="" loading="lazy" />
+          </span>
+        </button>
+      ) : <span className="creative-thumbnail-slot empty" />}
       <span>{trim(row.label, 44)}</span>
+    </div>
+  );
+}
+
+function CreativeImagePreview({ src, label, onClose }: { src: string; label: string; onClose: () => void }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="creative-preview-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${label} 이미지 미리보기`}
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="creative-preview-panel">
+        <button
+          type="button"
+          className="creative-preview-close"
+          aria-label="미리보기 닫기"
+          title="닫기"
+          autoFocus
+          onClick={onClose}
+        >
+          ×
+        </button>
+        <div className="creative-preview-image-wrap">
+          <img src={src} alt={label} />
+        </div>
+        <div className="creative-preview-caption" title={label}>{label}</div>
+      </div>
     </div>
   );
 }
