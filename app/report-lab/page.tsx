@@ -43,7 +43,7 @@ import type {
 } from '@/lib/report/reportTypes';
 
 type MarketplaceTab = 'qoo10' | 'owned';
-type PromotionSubTab = 'total' | 'always' | 'megawari' | 'megapo' | 'market' | 'hybrid';
+type PromotionSubTab = 'total' | 'always' | 'megawari' | 'megapo' | 'market' | 'live' | 'hybrid';
 type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
 type ReportSourceType = 'xlsx' | 'meta';
 
@@ -58,7 +58,8 @@ const marketplaceSubTabs: Record<MarketplaceTab, { id: PromotionSubTab; label: s
     { id: 'always', label: '상시' },
     { id: 'megawari', label: '메가와리' },
     { id: 'megapo', label: '메가포' },
-    { id: 'market', label: '마켓' }
+    { id: 'market', label: '마켓' },
+    { id: 'live', label: 'LIVE' }
   ],
   owned: [
     { id: 'total', label: '전체 성과' },
@@ -2584,10 +2585,12 @@ function matchesPromotionSubTab(row: NormalizedReportRow, marketplace: Marketpla
   const isMegawari = textIncludesAny(fullText, ['메가와리', 'megawari', 'mega wari']);
   const isMegapo = textIncludesAny(fullText, ['메가포', 'megapo', 'mega po']);
   const isMarket = text.includes('market');
-  if (tab === 'market') return isMarket;
-  if (tab === 'megawari') return !isMarket && isMegawari && !isMegapo;
-  if (tab === 'megapo') return !isMarket && isMegapo && !isMegawari;
-  if (tab === 'always') return !isMarket && !isMegawari && !isMegapo;
+  const isLive = text.includes('live');
+  if (tab === 'live') return isLive;
+  if (tab === 'market') return !isLive && isMarket;
+  if (tab === 'megawari') return !isLive && !isMarket && isMegawari && !isMegapo;
+  if (tab === 'megapo') return !isLive && !isMarket && isMegapo && !isMegawari;
+  if (tab === 'always') return !isLive && !isMarket && !isMegawari && !isMegapo;
   return false;
 }
 
