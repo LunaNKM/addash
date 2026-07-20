@@ -1,13 +1,16 @@
 {
   "manifest_version": 3,
   "name": "GFU DASH SingleONE Collector",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "description": "Collect SingleONE creative thumbnails and send them to GFU DASH.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://localhost:3000/*", "https://*/*"],
   "action": {
     "default_title": "GFU DASH Collector",
     "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
