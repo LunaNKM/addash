@@ -499,11 +499,11 @@ export default function ReportLabPage() {
   async function fetchReportFromMeta(adsetIds: string[], dateStart: string, dateEnd: string) {
     if (!brand || !dashboardTab || !user || !isAdmin) return;
     setMetaImportOpen(false);
-    setBusy('Meta API에서 데이터를 가져오는 중입니다...');
+    setBusy('Meta API에서 성과와 소재 이미지를 가져오는 중입니다...');
     setError('');
     setNotice('');
     try {
-      const token = await user.getIdToken();
+      const token = await user.getIdToken(true);
       const resp = await fetch('/api/report-meta', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -520,9 +520,13 @@ export default function ReportLabPage() {
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Meta API 가져오기에 실패했습니다.');
 
-      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
+      const [loadedReportFiles, loadedCreativeAssets] = await Promise.all([
+        listReportFiles(brand.id, dashboardTab.id),
+        listCreativeAssets(brand.id, dashboardTab.id)
+      ]);
       const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
       setReportFiles(loadedReportFiles);
+      setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
       setSelectedMetaReportFileId(saved?.id || '');
       setReportComment(null);
       setCommentDraft('');
@@ -534,7 +538,12 @@ export default function ReportLabPage() {
       }
       setActiveTab('total');
       setActiveSubTab('total');
-      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}`);
+      const imageStats = data.creativeImages || {};
+      const imageSummary = Number(imageStats.total || 0)
+        ? ` · 소재 이미지 ${Number(imageStats.saved || 0).toLocaleString()}개 저장 · 기존 ${Number(imageStats.skippedExisting || 0).toLocaleString()}개 건너뜀${Number(imageStats.failed || 0) ? ` · ${Number(imageStats.failed).toLocaleString()}개 실패` : ''}`
+        : '';
+      const imageError = data.creativeImageError ? ` · 이미지 오류: ${data.creativeImageError}` : '';
+      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}${imageSummary}${imageError}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2050,7 +2059,7 @@ function SummaryTable({
                   <tr>
                     <td title={row.label}>
                       {creativeAssets
-                        ? <CreativeGroupCell row={row} asset={creativeAssets[row.key]} />
+                        ? <CreativeGroupCell row={row} asset={creativeAssets[row.key] || creativeAssets[creativeIdentityIndexKey(row.key)]} />
                         : trim(row.label, 44)}
                     </td>
                     <td>{formatCurrency(row.spend)}</td>
@@ -2141,9 +2150,16 @@ function isMetaReportFile(file: ReportFileDoc): boolean {
 
 function indexCreativeAssets(assets: CreativeAssetDoc[]): Record<string, CreativeAssetDoc> {
   return assets.reduce<Record<string, CreativeAssetDoc>>((acc, asset) => {
-    if (asset.key) acc[asset.key] = asset;
+    if (asset.key) {
+      acc[asset.key] = asset;
+      acc[creativeIdentityIndexKey(asset.key)] ||= asset;
+    }
     return acc;
   }, {});
+}
+
+function creativeIdentityIndexKey(key: string): string {
+  return `identity|||${key.split('|||').slice(1).join('|||')}`;
 }
 
 function makeCollectorToken(): string {

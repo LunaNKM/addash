@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
+import { creativeAssetId, makeCreativeKey } from '@/lib/report/creativeKey';
 import { toGrossCostKrw } from '@/lib/report/schema';
 import type { NormalizedReportRow, ReportParseResult } from '@/lib/report/reportTypes';
 
@@ -7,6 +9,9 @@ const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
 const META_DATE_CHUNK_DAYS = 7;
 const META_ADSET_FILTER_CHUNK_SIZE = 50;
+const META_AD_CREATIVE_CHUNK_SIZE = 50;
+const META_CREATIVE_WRITE_CONCURRENCY = 6;
+const MAX_META_IMAGE_DATA_LENGTH = 240_000;
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
 
 type MetaAction = { action_type: string; value: string };
@@ -14,6 +19,7 @@ type MetaAction = { action_type: string; value: string };
 type MetaInsightRow = {
   date_start: string;
   date_stop: string;
+  ad_id?: string;
   campaign_name?: string;
   adset_name?: string;
   ad_name?: string;
@@ -27,6 +33,29 @@ type MetaInsightRow = {
 
 type MetaCampaign = { id: string; name: string };
 type MetaAdset = { id: string; name: string; campaignId: string; campaignName: string };
+type MetaCreativeCandidate = {
+  adId: string;
+  key: string;
+  documentId: string;
+  campaignName: string;
+  adgroupName: string;
+  adName: string;
+};
+type MetaAdCreative = {
+  id?: string;
+  creative?: {
+    id?: string;
+    thumbnail_url?: string;
+    image_url?: string;
+  };
+};
+type MetaCreativeSyncStats = {
+  total: number;
+  requested: number;
+  skippedExisting: number;
+  saved: number;
+  failed: number;
+};
 
 type MetaApiErrorBody = {
   error?: {
@@ -198,6 +227,7 @@ async function fetchAllInsightsWindow(adAccountId: string, dateStart: string, da
   const fields = [
     'date_start',
     'date_stop',
+    'ad_id',
     'campaign_name',
     'adset_name',
     'ad_name',
@@ -389,6 +419,204 @@ function textIncludesAny(value: string, keywords: string[]): boolean {
     const normalized = normalizeText(keyword);
     return text.includes(normalized) || compactText.includes(normalized.replace(/\s+/g, ''));
   });
+}
+
+function metaCreativeCandidates(insights: MetaInsightRow[]): MetaCreativeCandidate[] {
+  const candidates = new Map<string, MetaCreativeCandidate>();
+  for (const row of insights) {
+    if (!row.ad_id) continue;
+    const campaignName = row.campaign_name || 'Meta 캠페인';
+    const adgroupName = row.adset_name || 'Meta 광고세트';
+    const adName = row.ad_name || 'Meta 광고';
+    const key = makeCreativeKey({ media: 'Meta', campaignName, adgroupName, adName });
+    candidates.set(key, {
+      adId: row.ad_id,
+      key,
+      documentId: creativeAssetId(key),
+      campaignName,
+      adgroupName,
+      adName
+    });
+  }
+  return Array.from(candidates.values());
+}
+
+async function syncMetaCreativeAssets(
+  brandId: string,
+  tabId: string,
+  insights: MetaInsightRow[],
+  idToken: string
+): Promise<MetaCreativeSyncStats> {
+  const candidates = metaCreativeCandidates(insights);
+  if (!candidates.length) return { total: 0, requested: 0, skippedExisting: 0, saved: 0, failed: 0 };
+
+  const existingKeys = await listExistingCreativeKeys(brandId, tabId, idToken);
+  const existingIdentityKeys = new Set(Array.from(existingKeys, creativeIdentityKey));
+  const missing = candidates.filter(candidate => (
+    !existingKeys.has(candidate.key) && !existingIdentityKeys.has(creativeIdentityKey(candidate.key))
+  ));
+  if (!missing.length) {
+    return {
+      total: candidates.length,
+      requested: 0,
+      skippedExisting: candidates.length,
+      saved: 0,
+      failed: 0
+    };
+  }
+
+  const creativeByAdId = await fetchMetaAdCreatives(missing.map(candidate => candidate.adId));
+  const downloadedByAdId = new Map<string, Promise<DownloadedMetaImage>>();
+  let saved = 0;
+  let failed = 0;
+
+  await runWithConcurrency(missing, META_CREATIVE_WRITE_CONCURRENCY, async candidate => {
+    try {
+      const ad = creativeByAdId.get(candidate.adId);
+      const creative = ad?.creative;
+      if (!creative) throw new Error('creative 정보가 없습니다.');
+
+      let download = downloadedByAdId.get(candidate.adId);
+      if (!download) {
+        download = downloadMetaCreativeImage(creative.thumbnail_url, creative.image_url);
+        downloadedByAdId.set(candidate.adId, download);
+      }
+      const image = await download;
+      const now = Date.now();
+      const { projectId } = webConfig();
+      const path = `projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/creativeAssets/${candidate.documentId}`;
+      await writeFirestoreDocument(path, {
+        key: candidate.key,
+        source: 'meta',
+        media: 'Meta',
+        campaignName: candidate.campaignName,
+        adgroupName: candidate.adgroupName,
+        adName: candidate.adName,
+        imageData: image.imageData,
+        sourceImageUrl: image.sourceUrl,
+        mimeType: image.mimeType,
+        width: 0,
+        height: 0,
+        imageHash: image.imageHash,
+        capturedAt: now,
+        updatedAt: now
+      }, idToken);
+      saved += 1;
+    } catch {
+      failed += 1;
+    }
+  });
+
+  return {
+    total: candidates.length,
+    requested: missing.length,
+    skippedExisting: candidates.length - missing.length,
+    saved,
+    failed
+  };
+}
+
+function creativeIdentityKey(key: string): string {
+  return key.split('|||').slice(1).join('|||');
+}
+
+async function listExistingCreativeKeys(brandId: string, tabId: string, idToken: string): Promise<Set<string>> {
+  const { projectId } = webConfig();
+  const keys = new Set<string>();
+  let pageToken = '';
+
+  do {
+    const params = new URLSearchParams({ pageSize: '1000' });
+    params.append('mask.fieldPaths', 'key');
+    if (pageToken) params.set('pageToken', pageToken);
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/creativeAssets?${params}`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${idToken}` },
+      cache: 'no-store'
+    });
+    const data = await resp.json().catch(() => ({})) as {
+      documents?: Array<{ fields?: { key?: { stringValue?: string } } }>;
+      nextPageToken?: string;
+      error?: { message?: string };
+    };
+    if (!resp.ok) throw new Error(data.error?.message || `기존 소재 이미지 조회 실패 (${resp.status})`);
+    for (const document of data.documents || []) {
+      const key = document.fields?.key?.stringValue;
+      if (key) keys.add(key);
+    }
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+
+  return keys;
+}
+
+async function fetchMetaAdCreatives(adIds: string[]): Promise<Map<string, MetaAdCreative>> {
+  const result = new Map<string, MetaAdCreative>();
+  const uniqueIds = Array.from(new Set(adIds));
+  for (const ids of chunk(uniqueIds, META_AD_CREATIVE_CHUNK_SIZE)) {
+    const params = new URLSearchParams({
+      access_token: metaToken(),
+      ids: ids.join(','),
+      fields: 'id,creative{id,thumbnail_url,image_url}'
+    });
+    const data = await fetchMetaJson<Record<string, MetaAdCreative>>(`https://graph.facebook.com/${META_API_VERSION}/?${params}`);
+    for (const [adId, ad] of Object.entries(data)) {
+      if (ad && !('error' in ad)) result.set(adId, ad);
+    }
+  }
+  return result;
+}
+
+type DownloadedMetaImage = {
+  imageData: string;
+  sourceUrl: string;
+  mimeType: string;
+  imageHash: string;
+};
+
+async function downloadMetaCreativeImage(thumbnailUrl?: string, imageUrl?: string): Promise<DownloadedMetaImage> {
+  const urls = Array.from(new Set([thumbnailUrl, imageUrl].filter((value): value is string => Boolean(value))));
+  let lastError = '이미지 URL이 없습니다.';
+
+  for (const sourceUrl of urls) {
+    try {
+      const resp = await fetch(sourceUrl, { cache: 'no-store', redirect: 'follow' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const mimeType = (resp.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+      if (!mimeType.startsWith('image/')) throw new Error(`${mimeType} 응답`);
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      const imageData = `data:${mimeType};base64,${Buffer.from(bytes).toString('base64')}`;
+      if (imageData.length > MAX_META_IMAGE_DATA_LENGTH) {
+        throw new Error(`이미지 데이터가 너무 큽니다 (${imageData.length.toLocaleString()} bytes)`);
+      }
+      return {
+        imageData,
+        sourceUrl,
+        mimeType,
+        imageHash: await sha256Hex(bytes)
+      };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  throw new Error(lastError);
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex += 1;
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
 }
 
 async function saveReportFileToFirestore(brandId: string, tabId: string, fileDoc: {
@@ -607,13 +835,25 @@ export async function POST(req: Request) {
       createdAt
     }, auth.idToken);
 
+    let creativeImages: MetaCreativeSyncStats;
+    let creativeImageError = '';
+    try {
+      creativeImages = await syncMetaCreativeAssets(brandId, tabId, insights, auth.idToken);
+    } catch (err) {
+      const total = metaCreativeCandidates(insights).length;
+      creativeImages = { total, requested: total, skippedExisting: 0, saved: 0, failed: total };
+      creativeImageError = err instanceof Error ? err.message : String(err);
+    }
+
     return NextResponse.json({
       ok: true,
       fileId,
       filename,
       rowCount: result.rows.length,
       dateStart: range.start,
-      dateEnd: range.end
+      dateEnd: range.end,
+      creativeImages,
+      creativeImageError
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';

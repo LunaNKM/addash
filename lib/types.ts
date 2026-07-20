@@ -108,7 +108,7 @@ export type ReportCommentDoc = {
 export type CreativeAssetDoc = {
   id: string;
   key: string;
-  source: 'singleone';
+  source: 'singleone' | 'meta';
   media: string;
   campaignName: string;
   adgroupName: string;

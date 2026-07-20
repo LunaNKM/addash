@@ -505,7 +505,7 @@ function normalizeCreativeAsset(id: string, data: Record<string, unknown>): Crea
   const asset = {
     id,
     key: String(data.key || ''),
-    source: 'singleone' as const,
+    source: data.source === 'meta' ? 'meta' as const : 'singleone' as const,
     media: String(data.media || 's-meta'),
     campaignName: String(data.campaignName || ''),
     adgroupName: String(data.adgroupName || ''),
