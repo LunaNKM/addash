@@ -1214,6 +1214,7 @@ function CreativeReport({ view, kpi, creativeAssets }: { view: ReportView; kpi: 
         previousRows={view.previous.byCreative}
         limit={140}
         showComparisonRows
+        alwaysShowComparisonRows
         creativeAssets={creativeAssets}
       />
     </>
@@ -2033,6 +2034,28 @@ function hasReportPerformance(row: ReportSummary): boolean {
   ].some(value => Math.abs(Number(value) || 0) > 0);
 }
 
+const EMPTY_REPORT_SUMMARY: ReportSummary = {
+  key: '',
+  label: '',
+  rows: 0,
+  spend: 0,
+  grossSpend: 0,
+  impressions: 0,
+  clicks: 0,
+  conversions: 0,
+  sales: 0,
+  addToCart: 0,
+  registration: 0,
+  lead: 0,
+  order: 0,
+  ctr: 0,
+  cpc: 0,
+  cvr: 0,
+  cpa: 0,
+  cartCpa: 0,
+  roas: 0
+};
+
 function SummaryTable({
   title,
   rows,
@@ -2040,6 +2063,7 @@ function SummaryTable({
   limit,
   sortByLabel = false,
   showComparisonRows = false,
+  alwaysShowComparisonRows = false,
   comparisonLabel,
   creativeAssets
 }: {
@@ -2049,6 +2073,7 @@ function SummaryTable({
   limit: number;
   sortByLabel?: boolean;
   showComparisonRows?: boolean;
+  alwaysShowComparisonRows?: boolean;
   comparisonLabel?: string;
   creativeAssets?: Record<string, CreativeAssetDoc>;
 }) {
@@ -2084,8 +2109,9 @@ function SummaryTable({
           </thead>
           <tbody>
             {displayRows.slice(0, limit).map(row => {
-              const previous = previousByKey.get(row.key);
-              const showPrevious = showComparisonRows && previous;
+              const matchedPrevious = previousByKey.get(row.key);
+              const previous = matchedPrevious || EMPTY_REPORT_SUMMARY;
+              const showPrevious = showComparisonRows && (Boolean(matchedPrevious) || alwaysShowComparisonRows);
               return (
                 <React.Fragment key={row.key}>
                   <tr>
