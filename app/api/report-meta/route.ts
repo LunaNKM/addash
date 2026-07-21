@@ -34,6 +34,15 @@ type MetaInsightRow = {
 
 type MetaCampaign = { id: string; name: string };
 type MetaAdset = { id: string; name: string; campaignId: string; campaignName: string };
+type MetaAdOption = {
+  id: string;
+  adId: string;
+  name: string;
+  adsetId: string;
+  adsetName: string;
+  campaignId: string;
+  campaignName: string;
+};
 type MetaCreativeCandidate = {
   adId: string;
   key: string;
@@ -161,6 +170,142 @@ async function fetchCampaignsAndAdsetsForAccounts(adAccountIds: string[], dateSt
   });
 
   return { campaigns, adsets };
+}
+
+async function fetchCreativeOptionsForAccounts(
+  adAccountIds: string[],
+  dateStart: string,
+  dateEnd: string
+): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[]; ads: MetaAdOption[] }> {
+  const results = await Promise.all(adAccountIds.map(adAccountId => fetchCreativeOptions(adAccountId, dateStart, dateEnd)));
+  const campaigns: MetaCampaign[] = [];
+  const adsets: MetaAdset[] = [];
+  const ads: MetaAdOption[] = [];
+
+  results.forEach((result, index) => {
+    const adAccountId = adAccountIds[index];
+    for (const campaign of result.campaigns) {
+      campaigns.push({
+        id: accountScopedId(adAccountId, campaign.id),
+        name: adAccountIds.length > 1 ? `${campaign.name} · act_${adAccountId}` : campaign.name
+      });
+    }
+    for (const adset of result.adsets) {
+      adsets.push({
+        id: accountScopedId(adAccountId, adset.id),
+        name: adAccountIds.length > 1 ? `${adset.name} · act_${adAccountId}` : adset.name,
+        campaignId: accountScopedId(adAccountId, adset.campaignId),
+        campaignName: adAccountIds.length > 1 ? `${adset.campaignName} · act_${adAccountId}` : adset.campaignName
+      });
+    }
+    for (const ad of result.ads) {
+      ads.push({
+        id: accountScopedId(adAccountId, ad.adId),
+        adId: ad.adId,
+        name: ad.name,
+        adsetId: accountScopedId(adAccountId, ad.adsetId),
+        adsetName: ad.adsetName,
+        campaignId: accountScopedId(adAccountId, ad.campaignId),
+        campaignName: ad.campaignName
+      });
+    }
+  });
+
+  return { campaigns, adsets, ads };
+}
+
+async function fetchCreativeOptions(
+  adAccountId: string,
+  dateStart: string,
+  dateEnd: string
+): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[]; ads: MetaAdOption[] }> {
+  try {
+    return await fetchCreativeOptionsWindow(adAccountId, dateStart, dateEnd);
+  } catch (err) {
+    if (!isTemporaryMetaError(err)) throw err;
+    const parts = await Promise.all(dateChunks(dateStart, dateEnd, 30).map(range => (
+      fetchCreativeOptionsWindow(adAccountId, range.start, range.end)
+    )));
+    return mergeCreativeOptions(parts);
+  }
+}
+
+async function fetchCreativeOptionsWindow(
+  adAccountId: string,
+  dateStart: string,
+  dateEnd: string
+): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[]; ads: MetaAdOption[] }> {
+  type Row = {
+    campaign_id?: string;
+    campaign_name?: string;
+    adset_id?: string;
+    adset_name?: string;
+    ad_id?: string;
+    ad_name?: string;
+  };
+  const params = new URLSearchParams({
+    access_token: metaToken(),
+    level: 'ad',
+    time_range: JSON.stringify({ since: dateStart, until: dateEnd }),
+    fields: 'campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name',
+    limit: '500'
+  });
+  const rows: Row[] = [];
+  let url: string | null = `https://graph.facebook.com/${META_API_VERSION}/act_${normalizeAdAccountId(adAccountId)}/insights?${params}`;
+  while (url) {
+    const data = await fetchMetaJson<{ data?: Row[]; paging?: { next?: string } }>(url);
+    rows.push(...(data.data || []));
+    url = data.paging?.next || null;
+  }
+
+  const campaigns = new Map<string, string>();
+  const adsets = new Map<string, MetaAdset>();
+  const ads = new Map<string, MetaAdOption>();
+  for (const row of rows) {
+    if (!row.campaign_id || !row.adset_id || !row.ad_id) continue;
+    const campaignName = row.campaign_name || row.campaign_id;
+    const adsetName = row.adset_name || row.adset_id;
+    campaigns.set(row.campaign_id, campaignName);
+    adsets.set(row.adset_id, {
+      id: row.adset_id,
+      name: adsetName,
+      campaignId: row.campaign_id,
+      campaignName
+    });
+    ads.set(row.ad_id, {
+      id: row.ad_id,
+      adId: row.ad_id,
+      name: row.ad_name || row.ad_id,
+      adsetId: row.adset_id,
+      adsetName,
+      campaignId: row.campaign_id,
+      campaignName
+    });
+  }
+
+  return {
+    campaigns: Array.from(campaigns.entries()).map(([id, name]) => ({ id, name })),
+    adsets: Array.from(adsets.values()),
+    ads: Array.from(ads.values())
+  };
+}
+
+function mergeCreativeOptions(
+  parts: Array<{ campaigns: MetaCampaign[]; adsets: MetaAdset[]; ads: MetaAdOption[] }>
+): { campaigns: MetaCampaign[]; adsets: MetaAdset[]; ads: MetaAdOption[] } {
+  const campaigns = new Map<string, MetaCampaign>();
+  const adsets = new Map<string, MetaAdset>();
+  const ads = new Map<string, MetaAdOption>();
+  for (const part of parts) {
+    for (const campaign of part.campaigns) campaigns.set(campaign.id, campaign);
+    for (const adset of part.adsets) adsets.set(adset.id, adset);
+    for (const ad of part.ads) ads.set(ad.id, ad);
+  }
+  return {
+    campaigns: Array.from(campaigns.values()),
+    adsets: Array.from(adsets.values()),
+    ads: Array.from(ads.values())
+  };
 }
 
 async function fetchCampaignsAndAdsetsWindow(adAccountId: string, dateStart: string, dateEnd: string): Promise<{ campaigns: MetaCampaign[]; adsets: MetaAdset[] }> {
@@ -422,26 +567,6 @@ function textIncludesAny(value: string, keywords: string[]): boolean {
   });
 }
 
-function metaCreativeCandidates(insights: MetaInsightRow[]): MetaCreativeCandidate[] {
-  const candidates = new Map<string, MetaCreativeCandidate>();
-  for (const row of insights) {
-    if (!row.ad_id) continue;
-    const campaignName = row.campaign_name || 'Meta 캠페인';
-    const adgroupName = row.adset_name || 'Meta 광고세트';
-    const adName = row.ad_name || 'Meta 광고';
-    const key = makeCreativeKey({ media: 'Meta', campaignName, adgroupName, adName });
-    candidates.set(key, {
-      adId: row.ad_id,
-      key,
-      documentId: creativeAssetId(key),
-      campaignName,
-      adgroupName,
-      adName
-    });
-  }
-  return Array.from(candidates.values());
-}
-
 async function syncMetaCreativeCandidates(
   brandId: string,
   tabId: string,
@@ -450,11 +575,8 @@ async function syncMetaCreativeCandidates(
 ): Promise<MetaCreativeSyncStats> {
   if (!candidates.length) return { total: 0, requested: 0, skippedExisting: 0, saved: 0, failed: 0 };
 
-  const existingKeys = await listExistingCreativeKeys(brandId, tabId, idToken);
-  const existingIdentityKeys = new Set(Array.from(existingKeys, creativeIdentityKey));
-  const missing = candidates.filter(candidate => (
-    !existingKeys.has(candidate.key) && !existingIdentityKeys.has(creativeIdentityKey(candidate.key))
-  ));
+  const existingDocumentIds = await listExistingCreativeDocumentIds(brandId, tabId, candidates, idToken);
+  const missing = candidates.filter(candidate => !existingDocumentIds.has(candidate.documentId));
   if (!missing.length) {
     return {
       total: candidates.length,
@@ -541,38 +663,39 @@ function normalizeMetaCreativeCandidatePayload(value: unknown): MetaCreativeCand
   return Array.from(candidates.values());
 }
 
-function creativeIdentityKey(key: string): string {
-  return key.split('|||').slice(1).join('|||');
-}
-
-async function listExistingCreativeKeys(brandId: string, tabId: string, idToken: string): Promise<Set<string>> {
+async function listExistingCreativeDocumentIds(
+  brandId: string,
+  tabId: string,
+  candidates: MetaCreativeCandidate[],
+  idToken: string
+): Promise<Set<string>> {
   const { projectId } = webConfig();
-  const keys = new Set<string>();
-  let pageToken = '';
-
-  do {
-    const params = new URLSearchParams({ pageSize: '1000' });
-    params.append('mask.fieldPaths', 'key');
-    if (pageToken) params.set('pageToken', pageToken);
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/creativeAssets?${params}`;
-    const resp = await fetch(url, {
-      headers: { Authorization: `Bearer ${idToken}` },
+  const documentPrefix = `projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/creativeAssets`;
+  const resp = await fetch(
+    `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:batchGet`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        documents: candidates.map(candidate => `${documentPrefix}/${candidate.documentId}`),
+        mask: { fieldPaths: ['key'] }
+      }),
       cache: 'no-store'
-    });
-    const data = await resp.json().catch(() => ({})) as {
-      documents?: Array<{ fields?: { key?: { stringValue?: string } } }>;
-      nextPageToken?: string;
-      error?: { message?: string };
-    };
-    if (!resp.ok) throw new Error(data.error?.message || `기존 소재 이미지 조회 실패 (${resp.status})`);
-    for (const document of data.documents || []) {
-      const key = document.fields?.key?.stringValue;
-      if (key) keys.add(key);
     }
-    pageToken = data.nextPageToken || '';
-  } while (pageToken);
+  );
+  const data = await resp.json().catch(() => ({})) as Array<{ found?: { name?: string } }> | { error?: { message?: string } };
+  if (!resp.ok || !Array.isArray(data)) {
+    const message = !Array.isArray(data) ? data.error?.message : '';
+    throw new Error(`Firestore 기존 이미지 확인 실패: ${message || `HTTP ${resp.status}`}`);
+  }
 
-  return keys;
+  return new Set(data.flatMap(item => {
+    const name = item.found?.name || '';
+    return name ? [name.split('/').at(-1) || ''] : [];
+  }).filter(Boolean));
 }
 
 async function fetchMetaAdCreatives(adIds: string[]): Promise<Map<string, MetaAdCreative>> {
@@ -807,12 +930,15 @@ export async function GET(req: Request) {
     const adAccountId = url.searchParams.get('adAccountId') || '';
     const dateStart = url.searchParams.get('dateStart') || '';
     const dateEnd = url.searchParams.get('dateEnd') || '';
+    const mode = url.searchParams.get('mode') || 'performance';
     const adAccountIds = parseAdAccountIds(adAccountId);
     if (!adAccountIds.length || !dateStart || !dateEnd) {
       return NextResponse.json({ error: '필수 파라미터가 누락되었습니다.' }, { status: 400 });
     }
 
-    const result = await fetchCampaignsAndAdsetsForAccounts(adAccountIds, dateStart, dateEnd);
+    const result = mode === 'creative-options'
+      ? await fetchCreativeOptionsForAccounts(adAccountIds, dateStart, dateEnd)
+      : await fetchCampaignsAndAdsetsForAccounts(adAccountIds, dateStart, dateEnd);
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';
@@ -876,21 +1002,13 @@ export async function POST(req: Request) {
       createdAt
     }, auth.idToken);
 
-    const creativeCandidates = metaCreativeCandidates(insights).map(candidate => ({
-      adId: candidate.adId,
-      campaignName: candidate.campaignName,
-      adgroupName: candidate.adgroupName,
-      adName: candidate.adName
-    }));
-
     return NextResponse.json({
       ok: true,
       fileId,
       filename,
       rowCount: result.rows.length,
       dateStart: range.start,
-      dateEnd: range.end,
-      creativeCandidates
+      dateEnd: range.end
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';

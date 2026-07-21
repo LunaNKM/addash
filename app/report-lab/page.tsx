@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
 import { buildReportView, filterRowsByPeriod, previousMatchingPeriod } from '@/lib/report/aggregate';
-import { mergeRegistrationIntoReport, parseRegistrationFile, type RegistrationMergeStats } from '@/lib/report/registration';
+import { makeCreativeKey } from '@/lib/report/creativeKey';
 import { DEFAULT_EXCHANGE_RATE, toGrossCostKrw } from '@/lib/report/schema';
 import { loadReportFromXlsx } from '@/lib/report/sources';
 import {
@@ -25,13 +25,13 @@ import {
   saveSingleOneCollectorSettings,
   saveReportComment,
   saveReportFile,
-  updateReportFileResult,
   updateBrand
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
 import type { Brand, CreativeAssetDoc, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc, SingleOneCollectorSettings } from '@/lib/types';
 import { Empty } from '../components/Empty';
+import { MetaCreativeFilterModal, type MetaCreativeSelection } from '../components/MetaCreativeFilterModal';
 import { MetaFilterModal } from '../components/MetaFilterModal';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
 import type {
@@ -103,6 +103,7 @@ export default function ReportLabPage() {
   const [commentEditing, setCommentEditing] = useState(false);
   const [commentBusy, setCommentBusy] = useState('');
   const [metaImportOpen, setMetaImportOpen] = useState(false);
+  const [metaImageImportOpen, setMetaImageImportOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsMode>('none');
   const [collectorOpen, setCollectorOpen] = useState(false);
   const [collectorSettings, setCollectorSettings] = useState<SingleOneCollectorSettings | null>(null);
@@ -464,42 +465,10 @@ export default function ReportLabPage() {
     }
   }
 
-  async function handleRegistrationFile(file: File) {
-    if (!brand || !dashboardTab || !isAdmin) {
-      setError('회원가입수 적용을 위해서는 관리자 로그인과 브랜드 선택이 필요합니다.');
-      return;
-    }
-    if (!selectedXlsxReportFileId || !xlsxResult) {
-      setError('먼저 회원가입수를 적용할 XLSX RAW 파일을 선택해주세요.');
-      return;
-    }
-
-    setBusy('회원가입수 데이터를 읽는 중입니다...');
-    setError('');
-    setNotice('');
-    try {
-      const registration = await parseRegistrationFile(file);
-      const merged = mergeRegistrationIntoReport(xlsxResult, registration);
-      if (!merged.stats.matchedRows) {
-        throw new Error(`회원가입수 파일의 행이 현재 RAW와 매칭되지 않았습니다. 날짜와 캠페인/광고그룹/소재명이 같은 파일인지 확인해주세요. (${registration.sheet.sheetName})`);
-      }
-
-      await updateReportFileResult(brand.id, dashboardTab.id, selectedXlsxReportFileId, merged.result);
-      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
-      setReportFiles(loadedReportFiles);
-      applyReportResult(merged.result, undefined, 'xlsx', { activate: false, updatePeriod: false });
-      setNotice(formatRegistrationMergeNotice(merged.stats, registration.sheet.sheetName));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy('');
-    }
-  }
-
   async function fetchReportFromMeta(adsetIds: string[], dateStart: string, dateEnd: string) {
     if (!brand || !dashboardTab || !user || !isAdmin) return;
     setMetaImportOpen(false);
-    setBusy('Meta API에서 성과와 소재 이미지를 가져오는 중입니다...');
+    setBusy('Meta API에서 성과 데이터를 가져오는 중입니다...');
     setError('');
     setNotice('');
     try {
@@ -520,52 +489,9 @@ export default function ReportLabPage() {
       const data = await readApiJsonResponse(resp);
       if (!resp.ok) throw new Error(data.error || 'Meta API 가져오기에 실패했습니다.');
 
-      const creativeCandidates = Array.isArray(data.creativeCandidates) ? data.creativeCandidates : [];
-      const imageStats = {
-        total: creativeCandidates.length,
-        requested: 0,
-        skippedExisting: 0,
-        saved: 0,
-        failed: 0
-      };
-      let imageError = '';
-      const imageBatches = chunkItems(creativeCandidates, 25);
-      for (let index = 0; index < imageBatches.length; index += 1) {
-        const batch = imageBatches[index];
-        setBusy(`Meta 소재 이미지를 저장하는 중입니다... ${index + 1}/${imageBatches.length}`);
-        try {
-          const imageToken = await user.getIdToken();
-          const imageResp = await fetch('/api/report-meta', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${imageToken}` },
-            body: JSON.stringify({
-              action: 'sync-creatives',
-              brandId: brand.id,
-              tabId: dashboardTab.id,
-              creativeCandidates: batch
-            })
-          });
-          const imageData = await readApiJsonResponse(imageResp);
-          if (!imageResp.ok) throw new Error(imageData.error || 'Meta 소재 이미지 저장에 실패했습니다.');
-          const batchStats = imageData.creativeImages || {};
-          imageStats.requested += Number(batchStats.requested || 0);
-          imageStats.skippedExisting += Number(batchStats.skippedExisting || 0);
-          imageStats.saved += Number(batchStats.saved || 0);
-          imageStats.failed += Number(batchStats.failed || 0);
-        } catch (err) {
-          imageStats.requested += batch.length;
-          imageStats.failed += batch.length;
-          imageError = err instanceof Error ? err.message : String(err);
-        }
-      }
-
-      const [loadedReportFiles, loadedCreativeAssets] = await Promise.all([
-        listReportFiles(brand.id, dashboardTab.id),
-        listCreativeAssets(brand.id, dashboardTab.id)
-      ]);
+      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
       setReportFiles(loadedReportFiles);
-      setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
       setSelectedMetaReportFileId(saved?.id || '');
       setReportComment(null);
       setCommentDraft('');
@@ -577,11 +503,79 @@ export default function ReportLabPage() {
       }
       setActiveTab('total');
       setActiveSubTab('total');
-      const imageSummary = Number(imageStats.total || 0)
-        ? ` · 소재 이미지 ${Number(imageStats.saved || 0).toLocaleString()}개 저장 · 기존 ${Number(imageStats.skippedExisting || 0).toLocaleString()}개 건너뜀${Number(imageStats.failed || 0) ? ` · ${Number(imageStats.failed).toLocaleString()}개 실패` : ''}`
-        : '';
-      const imageErrorSummary = imageError ? ` · 이미지 오류: ${imageError}` : '';
-      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}${imageSummary}${imageErrorSummary}`);
+      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function fetchCreativeImagesFromMeta(ads: MetaCreativeSelection[], dateStart: string, dateEnd: string) {
+    if (!brand || !dashboardTab || !user || !isAdmin) return;
+    setMetaImageImportOpen(false);
+    setBusy('Meta 소재 이미지를 불러오는 중입니다...');
+    setError('');
+    setNotice('');
+
+    try {
+      const pendingAds = ads.filter(ad => {
+        const key = makeCreativeKey({
+          media: 'Meta',
+          campaignName: ad.campaignName,
+          adgroupName: ad.adgroupName,
+          adName: ad.adName
+        });
+        return !creativeAssets[key] && !creativeAssets[creativeIdentityIndexKey(key)];
+      });
+      const imageStats = {
+        total: ads.length,
+        skippedExisting: ads.length - pendingAds.length,
+        saved: 0,
+        failed: 0
+      };
+      let imageError = '';
+      const imageBatches = chunkItems(pendingAds, 25);
+
+      for (let index = 0; index < imageBatches.length; index += 1) {
+        const batch = imageBatches[index];
+        setBusy(`Meta 소재 이미지를 저장하는 중입니다... ${index + 1}/${imageBatches.length}`);
+        try {
+          const token = await user.getIdToken(index === 0);
+          const response = await fetch('/api/report-meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              action: 'sync-creatives',
+              brandId: brand.id,
+              tabId: dashboardTab.id,
+              creativeCandidates: batch
+            })
+          });
+          const data = await readApiJsonResponse(response);
+          if (!response.ok) throw new Error(data.error || 'Meta 소재 이미지 저장에 실패했습니다.');
+          const batchStats = data.creativeImages || {};
+          imageStats.skippedExisting += Number(batchStats.skippedExisting || 0);
+          imageStats.saved += Number(batchStats.saved || 0);
+          imageStats.failed += Number(batchStats.failed || 0);
+        } catch (err) {
+          imageStats.failed += batch.length;
+          imageError = err instanceof Error ? err.message : String(err);
+          if (/quota exceeded/i.test(imageError)) {
+            const remaining = pendingAds.length - ((index + 1) * 25);
+            imageStats.failed += Math.max(remaining, 0);
+            break;
+          }
+        }
+      }
+
+      const loadedCreativeAssets = await listCreativeAssets(brand.id, dashboardTab.id);
+      setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
+      const failureSummary = imageStats.failed ? ` · ${imageStats.failed.toLocaleString()}개 실패` : '';
+      const errorSummary = imageError ? ` · 이미지 오류: ${imageError}` : '';
+      setNotice(
+        `Meta 소재 이미지 적용 완료: ${dateStart} ~ ${dateEnd} · 선택 ${imageStats.total.toLocaleString()}개 · ${imageStats.saved.toLocaleString()}개 저장 · 기존 ${imageStats.skippedExisting.toLocaleString()}개 건너뜀${failureSummary}${errorSummary}`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -719,20 +713,10 @@ export default function ReportLabPage() {
                 Meta API 가져오기
               </button>
             )}
-            {brand && dashboardTab && xlsxResult && selectedXlsxReportFileId && (
-              <label className="btn outline">
-                회원가입수 업로드
-                <input
-                  hidden
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={event => {
-                    const file = event.target.files?.[0];
-                    if (file) handleRegistrationFile(file);
-                    event.currentTarget.value = '';
-                  }}
-                />
-              </label>
+            {brand && dashboardTab && user && (
+              <button className="btn outline" onClick={() => setMetaImageImportOpen(true)}>
+                이미지 불러오기
+              </button>
             )}
           </div>
         )}
@@ -970,6 +954,15 @@ export default function ReportLabPage() {
           apiPath="/api/report-meta"
           onClose={() => setMetaImportOpen(false)}
           onImport={fetchReportFromMeta}
+        />
+      )}
+      {metaImageImportOpen && brand && user && (
+        <MetaCreativeFilterModal
+          brand={brand}
+          user={user}
+          apiPath="/api/report-meta"
+          onClose={() => setMetaImageImportOpen(false)}
+          onImport={fetchCreativeImagesFromMeta}
         />
       )}
       {authError && (
@@ -2245,15 +2238,6 @@ function CreativeImagePreview({ src, label, onClose }: { src: string; label: str
 function PeriodBadge({ label }: { label: string }) {
   if (!label) return null;
   return <span className="report-period-badge">{label}</span>;
-}
-
-function formatRegistrationMergeNotice(stats: RegistrationMergeStats, sheetName: string): string {
-  return [
-    `회원가입수 적용 완료: ${formatInteger(stats.appliedTotal)}건`,
-    `매칭 행 ${stats.matchedRows.toLocaleString()}개`,
-    `미매칭 키 ${stats.unmatchedKeys.toLocaleString()}개`,
-    `시트 ${sheetName}`
-  ].join(' · ');
 }
 
 function isMetaReportFile(file: ReportFileDoc): boolean {
