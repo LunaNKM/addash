@@ -1647,25 +1647,24 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
         <span className="muted">선택 기간과 직전 동일 길이 기간을 비교합니다.</span>
       </div>
       <div className="table-wrap sticky-detail">
-        <table className="promotion-performance-table">
+        <table className="promotion-performance-table promotion-stacked-table">
           <thead>
             <tr>
-              <th rowSpan={2}>구분</th>
-              <th colSpan={7}>선택 기간</th>
-              <th colSpan={7}>이전 기간</th>
-              <th colSpan={7}>PoP Diff</th>
-            </tr>
-            <tr>
-              <PromotionCompactHeaders extended />
-              <PromotionCompactHeaders extended />
+              <th>구분</th>
               <PromotionCompactHeaders extended />
             </tr>
           </thead>
           <tbody>
-            <tr className="report-total-row">
-              <td>전체 성과</td>
+            <tr className="promotion-target-row">
+              <td>선택 기간</td>
               <PromotionCompactCells row={current} extended />
+            </tr>
+            <tr className="promotion-period-row">
+              <td>이전 기간</td>
               <PromotionCompactCells row={previous} extended />
+            </tr>
+            <tr className="promotion-pop-row">
+              <td>PoP Diff</td>
               <PromotionDiffCells current={current} previous={previous} />
             </tr>
           </tbody>
