@@ -3131,6 +3131,10 @@ td[title], .legend-row[title], .donut-legend div[title] {
   background: var(--c-bg);
 }
 
+.period-comparison-table tbody tr.promotion-target-row td {
+  background: var(--c-bg-elevated);
+}
+
 .promotion-stacked-table tbody tr.promotion-period-row td {
   background: var(--c-bg-muted);
   color: var(--c-ink-2);

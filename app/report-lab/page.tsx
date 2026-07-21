@@ -1647,7 +1647,7 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
         <span className="muted">선택 기간과 직전 동일 길이 기간을 비교합니다.</span>
       </div>
       <div className="table-wrap sticky-detail">
-        <table className="promotion-performance-table promotion-stacked-table">
+        <table className="promotion-performance-table promotion-stacked-table period-comparison-table">
           <thead>
             <tr>
               <th>구분</th>
