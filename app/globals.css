@@ -2277,6 +2277,134 @@ td[title], .legend-row[title], .donut-legend div[title] {
   max-width: min(360px, 100%);
 }
 
+.report-checkbox-filter {
+  position: relative;
+  width: 220px;
+  max-width: min(360px, 100%);
+}
+
+.report-checkbox-filter-trigger {
+  position: relative;
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-sm);
+  padding: 0 32px 0 12px;
+  background: var(--c-bg-elevated);
+  box-shadow: var(--sh-xs);
+  color: var(--c-ink);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report-checkbox-filter-trigger::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--c-ink-3);
+  border-bottom: 1.5px solid var(--c-ink-3);
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.report-checkbox-filter.open .report-checkbox-filter-trigger::after {
+  transform: translateY(-30%) rotate(225deg);
+}
+
+.report-checkbox-filter-trigger:hover,
+.report-checkbox-filter.open .report-checkbox-filter-trigger {
+  border-color: var(--brand);
+}
+
+.report-checkbox-filter-trigger:focus-visible {
+  outline: 0;
+  box-shadow: var(--sh-focus);
+}
+
+.report-checkbox-filter-trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.report-checkbox-filter-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-checkbox-filter-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 90;
+  width: max(100%, 320px);
+  max-width: min(460px, 86vw);
+  overflow: hidden;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-md);
+  background: var(--c-bg-elevated);
+  box-shadow: var(--sh-lg);
+}
+
+.report-checkbox-filter-options {
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px;
+}
+
+.report-checkbox-filter-option {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  color: var(--c-ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.report-checkbox-filter-option:hover {
+  background: var(--c-bg-muted);
+  color: var(--c-ink);
+}
+
+.report-checkbox-filter-option.is-all {
+  border-bottom: 1px solid var(--c-border);
+  border-radius: 0;
+  padding: 9px 12px;
+  color: var(--c-ink);
+  font-weight: 750;
+}
+
+.report-checkbox-filter-option input {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--brand);
+}
+
+.report-checkbox-filter-option span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-checkbox-filter-option small {
+  color: var(--c-ink-3);
+  font-size: 10.5px;
+}
+
 .report-dimension-controls .btn.compact {
   height: 30px;
   min-height: 30px;

@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
@@ -119,9 +119,9 @@ export default function ReportLabPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [campaignFilter, setCampaignFilter] = useState('');
-  const [adgroupFilter, setAdgroupFilter] = useState('');
-  const [adFilter, setAdFilter] = useState('');
+  const [campaignFilter, setCampaignFilter] = useState<string[]>([]);
+  const [adgroupFilter, setAdgroupFilter] = useState<string[]>([]);
+  const [adFilter, setAdFilter] = useState<string[]>([]);
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
@@ -142,9 +142,9 @@ export default function ReportLabPage() {
     setPeriodEnd('');
     setComparisonStart('');
     setComparisonEnd('');
-    setCampaignFilter('');
-    setAdgroupFilter('');
-    setAdFilter('');
+    setCampaignFilter([]);
+    setAdgroupFilter([]);
+    setAdFilter([]);
     setNotice('');
   }, []);
 
@@ -165,9 +165,9 @@ export default function ReportLabPage() {
     const activate = options.activate ?? true;
     const updatePeriod = options.updatePeriod ?? true;
     if (activate) setActiveTab('total');
-    setCampaignFilter('');
-    setAdgroupFilter('');
-    setAdFilter('');
+    setCampaignFilter([]);
+    setAdgroupFilter([]);
+    setAdFilter([]);
     if (!updatePeriod) return;
     if (!scopedResult) {
       setPeriodStart('');
@@ -356,40 +356,29 @@ export default function ReportLabPage() {
 
   const campaignOptions = useMemo(() => uniqueLabels(optionRows, row => row.campaignName), [optionRows]);
   const adgroupOptions = useMemo(() => {
-    return uniqueLabels(optionRows.filter(row => matchesValue(row.campaignName, campaignFilter)), row => row.adgroupName);
+    return uniqueLabels(optionRows.filter(row => matchesSelectedValues(row.campaignName, campaignFilter)), row => row.adgroupName);
   }, [campaignFilter, optionRows]);
   const adOptions = useMemo(() => {
     return uniqueLabels(
-      optionRows.filter(row => matchesValue(row.campaignName, campaignFilter) && matchesValue(row.adgroupName, adgroupFilter)),
+      optionRows.filter(row => matchesSelectedValues(row.campaignName, campaignFilter) && matchesSelectedValues(row.adgroupName, adgroupFilter)),
       row => row.adName
     );
   }, [adgroupFilter, campaignFilter, optionRows]);
 
   useEffect(() => {
-    if (campaignFilter && !campaignOptions.includes(campaignFilter)) {
-      setCampaignFilter('');
-      setAdgroupFilter('');
-      setAdFilter('');
-      return;
-    }
-    if (adgroupFilter && !adgroupOptions.includes(adgroupFilter)) {
-      setAdgroupFilter('');
-      setAdFilter('');
-      return;
-    }
-    if (adFilter && !adOptions.includes(adFilter)) {
-      setAdFilter('');
-    }
-  }, [adFilter, adOptions, adgroupFilter, adgroupOptions, campaignFilter, campaignOptions]);
+    setCampaignFilter(current => retainAvailableSelections(current, campaignOptions));
+    setAdgroupFilter(current => retainAvailableSelections(current, adgroupOptions));
+    setAdFilter(current => retainAvailableSelections(current, adOptions));
+  }, [adOptions, adgroupOptions, campaignOptions]);
 
   const filteredRows = useMemo(() => {
     if (!result) return [];
     return result.rows.filter(row => {
       if (isExcludedAmazonRow(row)) return false;
       if (activeMarketplace && (!matchesMarketplaceTab(row, activeMarketplace.id) || !matchesPromotionSubTab(row, activeMarketplace.id, activeSubTab))) return false;
-      if (!matchesValue(row.campaignName, campaignFilter)) return false;
-      if (!matchesValue(row.adgroupName, adgroupFilter)) return false;
-      if (!matchesValue(row.adName, adFilter)) return false;
+      if (!matchesSelectedValues(row.campaignName, campaignFilter)) return false;
+      if (!matchesSelectedValues(row.adgroupName, adgroupFilter)) return false;
+      if (!matchesSelectedValues(row.adName, adFilter)) return false;
       return true;
     });
   }, [activeMarketplace, activeSubTab, adFilter, adgroupFilter, campaignFilter, result]);
@@ -399,9 +388,9 @@ export default function ReportLabPage() {
     return result.rows.filter(row => {
       if (isExcludedAmazonRow(row)) return false;
       if (!matchesMarketplaceTab(row, activeMarketplace.id)) return false;
-      if (!matchesValue(row.campaignName, campaignFilter)) return false;
-      if (!matchesValue(row.adgroupName, adgroupFilter)) return false;
-      if (!matchesValue(row.adName, adFilter)) return false;
+      if (!matchesSelectedValues(row.campaignName, campaignFilter)) return false;
+      if (!matchesSelectedValues(row.adgroupName, adgroupFilter)) return false;
+      if (!matchesSelectedValues(row.adName, adFilter)) return false;
       return true;
     });
   }, [activeMarketplace, adFilter, adgroupFilter, campaignFilter, result]);
@@ -862,40 +851,33 @@ export default function ReportLabPage() {
           {result && (
             <div className="filter-bar report-dimension-controls">
               <span className="filter-label">캠페인</span>
-              <select
-                value={campaignFilter}
-                onChange={event => {
-                  setCampaignFilter(event.target.value);
-                  setAdgroupFilter('');
-                  setAdFilter('');
-                }}
-              >
-                <option value="">전체</option>
-                {campaignOptions.map(option => <option key={option} value={option}>{option}</option>)}
-              </select>
+              <CheckboxFilterDropdown
+                label="캠페인"
+                options={campaignOptions}
+                selected={campaignFilter}
+                onChange={setCampaignFilter}
+              />
               <span className="filter-label">광고세트</span>
-              <select
-                value={adgroupFilter}
-                onChange={event => {
-                  setAdgroupFilter(event.target.value);
-                  setAdFilter('');
-                }}
-              >
-                <option value="">전체</option>
-                {adgroupOptions.map(option => <option key={option} value={option}>{option}</option>)}
-              </select>
+              <CheckboxFilterDropdown
+                label="광고세트"
+                options={adgroupOptions}
+                selected={adgroupFilter}
+                onChange={setAdgroupFilter}
+              />
               <span className="filter-label">소재</span>
-              <select value={adFilter} onChange={event => setAdFilter(event.target.value)}>
-                <option value="">전체</option>
-                {adOptions.map(option => <option key={option} value={option}>{option}</option>)}
-              </select>
-              {(campaignFilter || adgroupFilter || adFilter) && (
+              <CheckboxFilterDropdown
+                label="소재"
+                options={adOptions}
+                selected={adFilter}
+                onChange={setAdFilter}
+              />
+              {(campaignFilter.length > 0 || adgroupFilter.length > 0 || adFilter.length > 0) && (
                 <button
                   className="btn ghost compact"
                   onClick={() => {
-                    setCampaignFilter('');
-                    setAdgroupFilter('');
-                    setAdFilter('');
+                    setCampaignFilter([]);
+                    setAdgroupFilter([]);
+                    setAdFilter([]);
                   }}
                 >
                   초기화
@@ -1098,6 +1080,88 @@ function CollectorSettingsModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CheckboxFilterDropdown({
+  label,
+  options,
+  selected,
+  onChange
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const triggerText = selected.length === 0
+    ? '전체'
+    : selected.length === 1
+      ? selected[0]
+      : `${selected.length.toLocaleString()}개 선택`;
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  function toggleOption(option: string) {
+    const next = selectedSet.has(option)
+      ? selected.filter(value => value !== option)
+      : [...selected, option];
+    onChange(next.length === options.length ? [] : next);
+  }
+
+  return (
+    <div className={`report-checkbox-filter${open ? ' open' : ''}`} ref={rootRef}>
+      <button
+        type="button"
+        className="report-checkbox-filter-trigger"
+        aria-label={`${label} 필터`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={selected.length ? selected.join('\n') : `${label} 전체`}
+        disabled={!options.length}
+        onClick={() => setOpen(value => !value)}
+      >
+        <span>{triggerText}</span>
+      </button>
+      {open && (
+        <div className="report-checkbox-filter-menu" role="listbox" aria-label={`${label} 복수 선택`} aria-multiselectable="true">
+          <label className="report-checkbox-filter-option is-all">
+            <input type="checkbox" checked={selected.length === 0} onChange={() => onChange([])} />
+            <span>전체</span>
+            <small>{options.length.toLocaleString()}</small>
+          </label>
+          <div className="report-checkbox-filter-options">
+            {options.map(option => (
+              <label className="report-checkbox-filter-option" key={option} title={option}>
+                <input
+                  type="checkbox"
+                  checked={selectedSet.has(option)}
+                  onChange={() => toggleOption(option)}
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2744,8 +2808,14 @@ function roundNumber(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-function matchesValue(value: string, selected: string): boolean {
-  return !selected || value === selected;
+function matchesSelectedValues(value: string, selected: string[]): boolean {
+  return selected.length === 0 || selected.includes(value);
+}
+
+function retainAvailableSelections(selected: string[], options: string[]): string[] {
+  const available = new Set(options);
+  const next = selected.filter(value => available.has(value));
+  return next.length === selected.length && next.every((value, index) => value === selected[index]) ? selected : next;
 }
 
 function uniqueLabels(rows: NormalizedReportRow[], pick: (row: NormalizedReportRow) => string): string[] {
