@@ -538,6 +538,7 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
     lead,
     order: conversions,
     ctr: ratio(clicks, impressions),
+    cpm: ratio(costKrw * 1000, impressions),
     cpc: ratio(costKrw, clicks),
     cvr: ratio(conversions, clicks),
     cpa: ratio(costKrw, conversions),

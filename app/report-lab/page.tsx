@@ -1273,6 +1273,7 @@ function PromotionKpiCards({ total, showRegistration = false }: { total: ReportS
     { label: '매출', value: formatCurrency(total.sales) },
     { label: 'ROAS', value: total.roas.toFixed(2) },
     { label: 'CTR', value: formatPercent(total.ctr) },
+    { label: 'CPM', value: formatCurrency(total.cpm) },
     { label: 'CVR', value: formatPercent(total.cvr) },
     { label: '전환CPA', value: formatCurrency(total.cpa) }
   ];
@@ -1296,11 +1297,12 @@ function PromotionKpiCards({ total, showRegistration = false }: { total: ReportS
 }
 
 function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
-  const cards = [
+  const cards: Array<{ label: string; value: string; current?: number; goal?: number; goalValue?: string; inverse?: boolean }> = [
     { label: '광고비', value: formatCurrency(total.spend), current: total.spend, goal: kpi.spendGoal, goalValue: formatCurrency(kpi.spendGoal) },
     { label: '매출', value: formatCurrency(total.sales), current: total.sales, goal: kpi.salesGoal, goalValue: formatCurrency(kpi.salesGoal) },
     { label: 'ROAS', value: total.roas.toFixed(2), current: total.roas, goal: kpi.roasGoal, goalValue: kpi.roasGoal.toLocaleString() },
     { label: 'CTR', value: formatPercent(total.ctr), current: total.ctr, goal: kpi.ctrGoal, goalValue: formatPercent(kpi.ctrGoal) },
+    { label: 'CPM', value: formatCurrency(total.cpm), current: total.cpm, goal: kpi.cpmGoal, goalValue: formatCurrency(kpi.cpmGoal), inverse: true },
     { label: 'CVR', value: formatPercent(total.cvr) },
     { label: '전환CPA', value: formatCurrency(total.cpa) }
   ];
@@ -1309,7 +1311,7 @@ function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
       {cards.map(card => {
         const goal = Number(card.goal || 0);
         const current = Number(card.current || 0);
-        const pct = goal > 0 ? (current / goal) * 100 : 0;
+        const pct = goal > 0 && current > 0 ? (card.inverse ? goal / current : current / goal) * 100 : 0;
         const cappedPct = Math.min(Math.max(pct, 0), 100);
         return (
         <div className="report-stat-card" key={card.label}>
@@ -1485,6 +1487,7 @@ function DailyToplineChart({
             <span>광고비 {formatCurrency(tooltip.row.spend)}</span>
             <span>매출 {formatCurrency(tooltip.row.sales)}</span>
             <span>클릭 {formatInteger(tooltip.row.clicks)} / 전환 {formatInteger(tooltip.row.conversions)}</span>
+            <span>CPM {formatCurrency(tooltip.row.cpm)}</span>
             <span>{lineLabel} {formatLineValue(tooltip.row[lineMetric])}</span>
           </div>
         )}
@@ -1562,6 +1565,7 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
     lead: 0,
     order: 0,
     ctr: metric('ctr')?.[prefix as 'current' | 'previous'] || 0,
+    cpm: metric('cpm')?.[prefix as 'current' | 'previous'] || 0,
     cpc: safeRatio(metric('spend')?.[prefix as 'current' | 'previous'] || 0, metric('clicks')?.[prefix as 'current' | 'previous'] || 0),
     cvr: metric('cvr')?.[prefix as 'current' | 'previous'] || 0,
     cpa: metric('cpa')?.[prefix as 'current' | 'previous'] || 0,
@@ -1583,9 +1587,9 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
           <thead>
             <tr>
               <th rowSpan={2}>구분</th>
-              <th colSpan={6}>선택 기간</th>
-              <th colSpan={6}>이전 기간</th>
-              <th colSpan={6}>PoP Diff</th>
+              <th colSpan={7}>선택 기간</th>
+              <th colSpan={7}>이전 기간</th>
+              <th colSpan={7}>PoP Diff</th>
             </tr>
             <tr>
               <PromotionCompactHeaders extended />
@@ -1622,12 +1626,19 @@ type YearDailyGroup = {
   days: ReportSummary[];
 };
 
+type YearDailyYearGroup = {
+  key: string;
+  label: string;
+  isLatestYear: boolean;
+  total: ReportSummary;
+  months: YearDailyGroup[];
+};
+
 type YearDailyData = {
-  year: number;
   startDate: string;
   latestDate: string;
   total: ReportSummary;
-  groups: YearDailyGroup[];
+  years: YearDailyYearGroup[];
 };
 
 type PromotionPerformanceCategory = {
@@ -1739,6 +1750,7 @@ function PromotionComparisonHeaders({ showRegistration = false }: { showRegistra
         </>
       )}
       <th>CTR</th>
+      <th>CPM</th>
       <th>CVR</th>
       <th>CPC</th>
       <th>CPA</th>
@@ -1763,6 +1775,7 @@ function PromotionComparisonCells({ row, showRegistration = false }: { row: Repo
         </>
       )}
       <td>{formatPercent(row.ctr)}</td>
+      <td>{formatCurrency(row.cpm)}</td>
       <td>{formatPercent(row.cvr)}</td>
       <td>{formatCurrency(row.cpc)}</td>
       <td>{formatCurrency(row.cpa)}</td>
@@ -1787,6 +1800,7 @@ function PromotionComparisonDiffCells({ current, previous, showRegistration = fa
         </>
       )}
       <PromotionDiffCell current={current.ctr} previous={previous.ctr} />
+      <PromotionDiffCell current={current.cpm} previous={previous.cpm} inverse />
       <PromotionDiffCell current={current.cvr} previous={previous.cvr} />
       <PromotionDiffCell current={current.cpc} previous={previous.cpc} />
       <PromotionDiffCell current={current.cpa} previous={previous.cpa} />
@@ -1805,6 +1819,7 @@ function PromotionCompactHeaders({ extended = false }: { extended?: boolean }) {
       {extended && (
         <>
           <th>CTR</th>
+          <th>CPM</th>
           <th>CPC</th>
         </>
       )}
@@ -1822,6 +1837,7 @@ function PromotionCompactCells({ row, extended = false }: { row: ReportSummary; 
       {extended && (
         <>
           <td>{formatPercent(row.ctr)}</td>
+          <td>{formatCurrency(row.cpm)}</td>
           <td>{formatCurrency(row.cpc)}</td>
         </>
       )}
@@ -1837,6 +1853,7 @@ function PromotionDiffCells({ current, previous }: { current: ReportSummary; pre
       <PromotionDiffCell current={current.conversions} previous={previous.conversions} />
       <PromotionDiffCell current={current.roas} previous={previous.roas} />
       <PromotionDiffCell current={current.ctr} previous={previous.ctr} />
+      <PromotionDiffCell current={current.cpm} previous={previous.cpm} inverse />
       <PromotionDiffCell current={current.cpc} previous={previous.cpc} />
     </>
   );
@@ -1900,18 +1917,38 @@ function YearDailyPerformanceTable({
   comparisonLabel?: string;
   showRegistration?: boolean;
 }) {
-  const visibleGroups = useMemo(() => data.groups
-    .map(group => ({
-      ...group,
-      days: group.days.filter(hasReportPerformance)
+  const visibleYears = useMemo(() => data.years
+    .map(year => ({
+      ...year,
+      months: year.months
+        .map(month => ({ ...month, days: month.days.filter(hasReportPerformance) }))
+        .filter(month => hasReportPerformance(month.total) || month.days.length > 0)
     }))
-    .filter(group => hasReportPerformance(group.total) || group.days.length > 0), [data.groups]);
-  const defaultOpen = useMemo(() => new Set(visibleGroups.filter(group => group.isCurrentMonth).map(group => group.key)), [visibleGroups]);
-  const [openMonths, setOpenMonths] = useState(defaultOpen);
+    .filter(year => hasReportPerformance(year.total) || year.months.length > 0), [data.years]);
+  const defaultOpenYears = useMemo(
+    () => new Set(visibleYears.filter(year => year.isLatestYear).map(year => year.key)),
+    [visibleYears]
+  );
+  const defaultOpenMonths = useMemo(
+    () => new Set(visibleYears.flatMap(year => year.months.filter(month => month.isCurrentMonth).map(month => month.key))),
+    [visibleYears]
+  );
+  const [openYears, setOpenYears] = useState(defaultOpenYears);
+  const [openMonths, setOpenMonths] = useState(defaultOpenMonths);
 
   useEffect(() => {
-    setOpenMonths(defaultOpen);
-  }, [defaultOpen]);
+    setOpenYears(defaultOpenYears);
+    setOpenMonths(defaultOpenMonths);
+  }, [defaultOpenMonths, defaultOpenYears]);
+
+  function toggleYear(key: string) {
+    setOpenYears(current => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function toggleMonth(key: string) {
     setOpenMonths(current => {
@@ -1939,28 +1976,44 @@ function YearDailyPerformanceTable({
           </thead>
           <tbody>
             <tr className="report-total-row">
-              <td>{data.year || '-'} TOTAL</td>
+              <td>TOTAL</td>
               <MetricCells row={data.total} showRegistration={showRegistration} />
             </tr>
-            {visibleGroups.map(group => {
-              const isOpen = openMonths.has(group.key);
+            {visibleYears.map(year => {
+              const isYearOpen = openYears.has(year.key);
               return (
-                <React.Fragment key={group.key}>
-                  <tr className="report-month-row">
+                <React.Fragment key={year.key}>
+                  <tr className="report-year-row">
                     <td>
-                      <button type="button" className="report-month-toggle" onClick={() => toggleMonth(group.key)}>
-                        <span>{isOpen ? '접기' : '펼치기'}</span>
-                        <b>{group.label} TOTAL</b>
+                      <button type="button" className="report-month-toggle" onClick={() => toggleYear(year.key)}>
+                        <span>{isYearOpen ? '접기' : '펼치기'}</span>
+                        <b>{year.label} TOTAL</b>
                       </button>
                     </td>
-                    <MetricCells row={group.total} showRegistration={showRegistration} />
+                    <MetricCells row={year.total} showRegistration={showRegistration} />
                   </tr>
-                  {isOpen && group.days.map(day => (
-                    <tr key={day.key}>
-                      <td>{day.label}</td>
-                      <MetricCells row={day} showRegistration={showRegistration} />
-                    </tr>
-                  ))}
+                  {isYearOpen && year.months.map(month => {
+                    const isMonthOpen = openMonths.has(month.key);
+                    return (
+                      <React.Fragment key={month.key}>
+                        <tr className="report-month-row">
+                          <td>
+                            <button type="button" className="report-month-toggle" onClick={() => toggleMonth(month.key)}>
+                              <span>{isMonthOpen ? '접기' : '펼치기'}</span>
+                              <b>{month.label} TOTAL</b>
+                            </button>
+                          </td>
+                          <MetricCells row={month.total} showRegistration={showRegistration} />
+                        </tr>
+                        {isMonthOpen && month.days.map(day => (
+                          <tr className="report-day-row" key={day.key}>
+                            <td>{day.label}</td>
+                            <MetricCells row={day} showRegistration={showRegistration} />
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
                 </React.Fragment>
               );
             })}
@@ -1987,6 +2040,7 @@ function MetricHeaders({ showRegistration = false }: { showRegistration?: boolea
         </>
       )}
       <th>CTR</th>
+      <th>CPM</th>
       <th>CVR</th>
       <th>CPC</th>
       <th>CPA</th>
@@ -2011,6 +2065,7 @@ function MetricCells({ row, showRegistration = false }: { row: ReportSummary; sh
         </>
       )}
       <td>{formatPercent(row.ctr)}</td>
+      <td>{formatCurrency(row.cpm)}</td>
       <td>{formatPercent(row.cvr)}</td>
       <td>{formatCurrency(row.cpc)}</td>
       <td>{formatCurrency(row.cpa)}</td>
@@ -2049,6 +2104,7 @@ const EMPTY_REPORT_SUMMARY: ReportSummary = {
   lead: 0,
   order: 0,
   ctr: 0,
+  cpm: 0,
   cpc: 0,
   cvr: 0,
   cpa: 0,
@@ -2101,6 +2157,7 @@ function SummaryTable({
               <th>전환</th>
               <th>장바구니</th>
               <th>CTR</th>
+              <th>CPM</th>
               <th>CVR</th>
               <th>CPC</th>
               <th>CPA</th>
@@ -2133,6 +2190,7 @@ function SummaryTable({
                     <td>{formatInteger(row.conversions)}</td>
                     <td>{formatInteger(row.addToCart)}</td>
                     <td>{formatPercent(row.ctr)}</td>
+                    <td>{formatCurrency(row.cpm)}</td>
                     <td>{formatPercent(row.cvr)}</td>
                     <td>{formatCurrency(row.cpc)}</td>
                     <td>{formatCurrency(row.cpa)}</td>
@@ -2148,6 +2206,7 @@ function SummaryTable({
                       <td>{formatInteger(previous.conversions)}</td>
                       <td>{formatInteger(previous.addToCart)}</td>
                       <td>{formatPercent(previous.ctr)}</td>
+                      <td>{formatCurrency(previous.cpm)}</td>
                       <td>{formatPercent(previous.cvr)}</td>
                       <td>{formatCurrency(previous.cpc)}</td>
                       <td>{formatCurrency(previous.cpa)}</td>
@@ -2164,6 +2223,7 @@ function SummaryTable({
                       <DiffCell current={row.conversions} previous={previous.conversions} />
                       <DiffCell current={row.addToCart} previous={previous.addToCart} />
                       <DiffCell current={row.ctr} previous={previous.ctr} />
+                      <DiffCell current={row.cpm} previous={previous.cpm} inverse />
                       <DiffCell current={row.cvr} previous={previous.cvr} />
                       <DiffCell current={row.cpc} previous={previous.cpc} inverse />
                       <DiffCell current={row.cpa} previous={previous.cpa} inverse />
@@ -2403,13 +2463,12 @@ function buildRecentWeeklySummaries(rows: NormalizedReportRow[], latestDate: str
 
 function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): YearDailyData {
   if (!latestDate) {
-    return { year: 0, startDate: '', latestDate: '', total: summarizeReportRows('TOTAL', 'TOTAL', []), groups: [] };
+    return { startDate: '', latestDate: '', total: summarizeReportRows('TOTAL', 'TOTAL', []), years: [] };
   }
   const sortedDates = rows.map(row => row.date).filter(Boolean).sort();
   const startDate = sortedDates[0] || latestDate;
   const first = parseIsoDate(startDate);
   const latest = parseIsoDate(latestDate);
-  const year = latest.getFullYear();
   const rowsInRange = rows.filter(row => row.date >= startDate && row.date <= latestDate);
   const rowsByDate = new Map<string, NormalizedReportRow[]>();
 
@@ -2419,7 +2478,7 @@ function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): 
     rowsByDate.set(row.date, list);
   }
 
-  const groups: YearDailyGroup[] = [];
+  const months: YearDailyGroup[] = [];
   for (const monthDate = new Date(first.getFullYear(), first.getMonth(), 1); monthDate <= latest; monthDate.setMonth(monthDate.getMonth() + 1)) {
     const monthYear = monthDate.getFullYear();
     const month = monthDate.getMonth();
@@ -2433,7 +2492,7 @@ function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): 
       days.push(summarizeReportRows(iso, iso, rowsByDate.get(iso) || []));
     }
 
-    groups.push({
+    months.push({
       key,
       label: `${monthYear}년 ${month + 1}월`,
       isCurrentMonth: monthYear === latest.getFullYear() && month === latest.getMonth(),
@@ -2442,12 +2501,21 @@ function buildYearDailyGroups(rows: NormalizedReportRow[], latestDate: string): 
     });
   }
 
+  const years = Array.from(new Set(months.map(month => month.key.slice(0, 4))))
+    .sort()
+    .map(year => ({
+      key: year,
+      label: year,
+      isLatestYear: Number(year) === latest.getFullYear(),
+      total: summarizeReportRows(`${year}-TOTAL`, `${year} TOTAL`, rowsInRange.filter(row => row.date.startsWith(`${year}-`))),
+      months: months.filter(month => month.key.startsWith(`${year}-`))
+    }));
+
   return {
-    year,
     startDate,
     latestDate,
     total: summarizeReportRows('ALL-DAYS-TOTAL', '전체 데이터 TOTAL', rowsInRange),
-    groups
+    years
   };
 }
 
@@ -2651,6 +2719,7 @@ function summarizeReportRows(key: string, label: string, rows: NormalizedReportR
     grossSpend: roundNumber(summary.grossSpend),
     sales: roundNumber(summary.sales),
     ctr: safeRatio(summary.clicks, summary.impressions),
+    cpm: safeRatio(summary.spend * 1000, summary.impressions),
     cpc: safeRatio(summary.spend, summary.clicks),
     cvr: safeRatio(summary.conversions, summary.clicks),
     cpa: safeRatio(summary.spend, summary.conversions),

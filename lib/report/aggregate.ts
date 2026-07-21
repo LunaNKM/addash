@@ -8,7 +8,7 @@ import type {
 } from './reportTypes';
 import { creativeLabelFromKey, makeCreativeKey } from './creativeKey';
 
-type Bucket = Omit<ReportSummary, 'ctr' | 'cpc' | 'cvr' | 'cpa' | 'cartCpa' | 'roas'>;
+type Bucket = Omit<ReportSummary, 'ctr' | 'cpm' | 'cpc' | 'cvr' | 'cpa' | 'cartCpa' | 'roas'>;
 
 export function buildReportAggregation(rows: NormalizedReportRow[]): ReportAggregation {
   return {
@@ -88,6 +88,7 @@ function buildComparison(current: ReportSummary, previous: ReportSummary): Repor
     { key: 'conversions', label: '전환' },
     { key: 'addToCart', label: '장바구니' },
     { key: 'ctr', label: 'CTR' },
+    { key: 'cpm', label: 'CPM' },
     { key: 'cvr', label: 'CVR' },
     { key: 'cpa', label: 'CPA' },
     { key: 'roas', label: 'ROAS' }
@@ -190,6 +191,7 @@ function summarize(key: string, label: string, rows: NormalizedReportRow[]): Rep
     grossSpend: round(bucket.grossSpend),
     sales: round(bucket.sales),
     ctr: ratio(bucket.clicks, bucket.impressions),
+    cpm: ratio(bucket.spend * 1000, bucket.impressions),
     cpc: ratio(bucket.spend, bucket.clicks),
     cvr: ratio(bucket.conversions, bucket.clicks),
     cpa: ratio(bucket.spend, bucket.conversions),

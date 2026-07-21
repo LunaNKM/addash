@@ -60,6 +60,7 @@ export type NormalizedReportRow = {
   lead: number;
   order: number;
   ctr: number;
+  cpm: number;
   cpc: number;
   cvr: number;
   cpa: number;
@@ -102,6 +103,7 @@ export type ReportSummary = {
   lead: number;
   order: number;
   ctr: number;
+  cpm: number;
   cpc: number;
   cvr: number;
   cpa: number;
@@ -127,7 +129,7 @@ export type ReportPeriod = {
 };
 
 export type ReportComparisonMetric = {
-  key: keyof Pick<ReportSummary, 'spend' | 'sales' | 'impressions' | 'clicks' | 'conversions' | 'addToCart' | 'ctr' | 'cvr' | 'cpa' | 'roas'>;
+  key: keyof Pick<ReportSummary, 'spend' | 'sales' | 'impressions' | 'clicks' | 'conversions' | 'addToCart' | 'ctr' | 'cpm' | 'cvr' | 'cpa' | 'roas'>;
   label: string;
   current: number;
   previous: number;

@@ -2893,9 +2893,23 @@ td[title], .legend-row[title], .donut-legend div[title] {
   letter-spacing: 0.02em;
 }
 
+.report-year-row td {
+  background: var(--c-bg-sunken);
+  border-top: 2px solid var(--c-border-strong);
+  font-weight: 850;
+}
+
 .report-month-row td {
   background: var(--c-bg-muted);
   font-weight: 800;
+}
+
+.report-month-row .report-month-toggle {
+  padding-left: 18px;
+}
+
+.report-day-row td:first-child {
+  padding-left: 72px;
 }
 
 .report-month-toggle {

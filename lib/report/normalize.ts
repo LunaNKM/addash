@@ -127,6 +127,7 @@ function normalizeRow(
     lead: parseNumber(value('lead')),
     order: parseNumber(value('order')),
     ctr: safeDivide(clicks, impressions),
+    cpm: safeDivide(costKrw * 1000, impressions),
     cpc: safeDivide(costKrw, clicks),
     cvr: safeDivide(conversions, clicks),
     cpa: safeDivide(costKrw, conversions),
