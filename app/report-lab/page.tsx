@@ -2747,7 +2747,7 @@ function monthWeekLabel(value: string): { key: string; label: string } {
 function summarizeReportRows(key: string, label: string, rows: NormalizedReportRow[]): ReportSummary {
   const summary = rows.reduce(
     (acc, row) => {
-      acc.spend += row.costKrw;
+      acc.spend += row.grossCostKrw;
       acc.grossSpend += row.grossCostKrw;
       acc.impressions += row.impressions;
       acc.clicks += row.clicks;
