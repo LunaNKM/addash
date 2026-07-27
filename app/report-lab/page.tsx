@@ -46,6 +46,7 @@ type MarketplaceTab = 'qoo10' | 'owned';
 type PromotionSubTab = 'total' | 'always' | 'megawari' | 'megapo' | 'market' | 'live' | 'hybrid';
 type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
 type ReportSourceType = 'xlsx' | 'meta';
+type SpendBasis = 'gross' | 'net';
 
 const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
   { id: 'qoo10', label: 'Qoo10' },
@@ -111,6 +112,7 @@ export default function ReportLabPage() {
   const [metaResult, setMetaResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
   const [activeSubTab, setActiveSubTab] = useState<PromotionSubTab>('always');
+  const [spendBasis, setSpendBasis] = useState<SpendBasis>('gross');
   const [exchangeRate, setExchangeRate] = useState(DEFAULT_EXCHANGE_RATE);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
@@ -326,7 +328,12 @@ export default function ReportLabPage() {
     return () => unsub?.();
   }, [loadBrandContext]);
 
-  const result = useMemo(() => combineReportResults(xlsxResult, metaResult), [metaResult, xlsxResult]);
+  const combinedResult = useMemo(() => combineReportResults(xlsxResult, metaResult), [metaResult, xlsxResult]);
+  const result = useMemo(() => {
+    if (!combinedResult || spendBasis === 'gross') return combinedResult;
+    const rows = combinedResult.rows.map(row => ({ ...row, grossCostKrw: row.costKrw }));
+    return { ...combinedResult, rows, preview: rows.slice(0, 12) };
+  }, [combinedResult, spendBasis]);
   const selectedReportFileId = selectedXlsxReportFileId || selectedMetaReportFileId;
 
   const dates = useMemo(() => {
@@ -796,6 +803,15 @@ export default function ReportLabPage() {
 
         <div className="content">
           <div className="filter-bar report-lab-controls">
+            <button
+              type="button"
+              className={`report-spend-basis-toggle ${spendBasis === 'net' ? 'is-net' : ''}`}
+              onClick={() => setSpendBasis(current => current === 'gross' ? 'net' : 'gross')}
+              aria-pressed={spendBasis === 'net'}
+              title="광고비 표시 기준 전환"
+            >
+              {spendBasis === 'gross' ? '그로스' : '넷'}
+            </button>
             <span className="filter-label">환율</span>
             <input
               type="number"

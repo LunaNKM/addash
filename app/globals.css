@@ -2268,6 +2268,32 @@ td[title], .legend-row[title], .donut-legend div[title] {
   font-variant-numeric: tabular-nums;
 }
 
+.report-spend-basis-toggle {
+  min-width: 58px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.report-spend-basis-toggle:hover,
+.report-spend-basis-toggle:focus-visible {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.report-spend-basis-toggle.is-net {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface));
+  color: var(--brand);
+}
+
 .report-dimension-controls {
   margin-top: 10px;
 }
