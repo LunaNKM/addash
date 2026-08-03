@@ -1857,9 +1857,47 @@ tbody tr:last-child td { border-bottom: 0; }
   color: var(--c-ink-3);
   margin-bottom: 6px;
 }
-.brand-editor input[type="text"] {
+.brand-editor input[type="text"],
+.brand-editor input[type="number"] {
   width: 100%;
   height: 38px;
+}
+
+.brand-tab-visibility {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.brand-editor .brand-tab-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-bg-elevated);
+  color: var(--c-ink-2);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.brand-editor .brand-tab-option:hover {
+  border-color: var(--brand-400);
+  color: var(--brand-700);
+}
+
+.brand-tab-option input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--brand);
 }
 
 .color-input-group {
@@ -2446,6 +2484,70 @@ td[title], .legend-row[title], .donut-legend div[title] {
   line-height: 1.35;
 }
 
+.creative-summary-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 340px;
+}
+
+.creative-summary-cell .creative-performance-cell {
+  min-width: 0;
+  flex: 1;
+}
+
+.creative-daily-toggle,
+.creative-daily-all-toggle {
+  white-space: nowrap;
+}
+
+.creative-daily-toggle {
+  flex: 0 0 auto;
+  min-width: 68px;
+  height: 26px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  padding: 0 9px;
+  background: var(--c-bg-muted);
+  color: var(--c-ink-2);
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.creative-daily-toggle:hover,
+.creative-daily-toggle.active {
+  border-color: var(--brand-400);
+  background: var(--brand-tint);
+  color: var(--brand-700);
+}
+
+.creative-daily-all-toggle {
+  height: 30px;
+  min-height: 30px;
+  margin-left: auto;
+  padding: 0 11px;
+}
+
+.creative-daily-row td {
+  background: color-mix(in srgb, var(--brand) 4%, var(--c-bg-elevated));
+  color: var(--c-ink-2);
+  border-bottom-style: dashed;
+}
+
+.creative-daily-row td:first-child {
+  padding-left: 34px;
+  color: var(--brand-700);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.creative-daily-row td:first-child span {
+  margin-right: 8px;
+  color: var(--brand-400);
+}
+
 .creative-performance-cell span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2495,6 +2597,32 @@ td[title], .legend-row[title], .donut-legend div[title] {
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+.creative-hover-preview {
+  position: fixed;
+  z-index: 310;
+  width: 176px;
+  height: 176px;
+  overflow: hidden;
+  pointer-events: none;
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  border-radius: 10px;
+  background: var(--c-bg-elevated);
+  box-shadow: 0 18px 48px rgba(10, 12, 16, 0.32), 0 0 0 1px rgba(10, 12, 16, 0.12);
+  animation: creativeHoverIn 120ms var(--ease-out);
+}
+
+.creative-hover-preview img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+@keyframes creativeHoverIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .creative-preview-modal {

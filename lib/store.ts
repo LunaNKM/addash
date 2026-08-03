@@ -13,9 +13,10 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import type { Brand, CreativeAssetDoc, DashboardTab, FileDoc, InsightDoc, Kpi, ReportCommentDoc, ReportFileDoc, SingleOneCollectorSettings } from './types';
+import { DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
+import { DEFAULT_COMMISSION_PERCENT } from './report/schema';
 
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
 const REPORT_FILE_CHUNKS_PER_COMMIT = 8;
@@ -79,7 +80,16 @@ export async function createBrand(name: string, color = '#1AB7B0'): Promise<Bran
   const existing = await getDocs(query(collection(db, 'brands'), where('name', '==', trimmed), limit(1)));
   if (!existing.empty) throw new Error('이미 존재하는 브랜드명입니다.');
   const brandRef = doc(collection(db, 'brands'));
-  const brand: Brand = { id: brandRef.id, name: trimmed, color, shareToken: makeShareToken(), metaAdAccountId: '', createdAt: Date.now() };
+  const brand: Brand = {
+    id: brandRef.id,
+    name: trimmed,
+    color,
+    shareToken: makeShareToken(),
+    metaAdAccountId: '',
+    commissionPercent: DEFAULT_COMMISSION_PERCENT,
+    visibleReportTabs: [...DEFAULT_VISIBLE_REPORT_TABS],
+    createdAt: Date.now()
+  };
   const tabRef = doc(collection(db, 'brands', brand.id, 'tabs'));
   const tab: DashboardTab = { id: tabRef.id, brandId: brand.id, name: '기본', sortOrder: 0, createdAt: Date.now() };
   const batch = writeBatch(db);
@@ -96,7 +106,7 @@ export async function deleteBrand(brandId: string) {
   await deleteDoc(doc(db, 'brands', brandId));
 }
 
-export async function updateBrand(brandId: string, patch: { name?: string; color?: string; metaAdAccountId?: string }) {
+export async function updateBrand(brandId: string, patch: BrandPatch) {
   const update: Record<string, unknown> = {};
   if (patch.name !== undefined) {
     const trimmed = patch.name.trim();
@@ -112,6 +122,18 @@ export async function updateBrand(brandId: string, patch: { name?: string; color
   }
   if (patch.metaAdAccountId !== undefined) {
     update.metaAdAccountId = normalizeMetaAdAccountIds(patch.metaAdAccountId);
+  }
+  if (patch.commissionPercent !== undefined) {
+    const commissionPercent = Number(patch.commissionPercent);
+    if (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
+      throw new Error('수수료율은 0~100 사이의 숫자로 입력해주세요.');
+    }
+    update.commissionPercent = Math.round(commissionPercent * 100) / 100;
+  }
+  if (patch.visibleReportTabs !== undefined) {
+    const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => patch.visibleReportTabs?.includes(tab));
+    if (!visibleReportTabs.length) throw new Error('최소 1개의 보고서 탭은 표시해야 합니다.');
+    update.visibleReportTabs = visibleReportTabs;
   }
   if (Object.keys(update).length === 0) return;
   await updateDoc(doc(db, 'brands', brandId), update);
@@ -358,12 +380,19 @@ function cleanFirestoreData<T>(value: T): T {
 }
 
 function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
+  const storedCommission = Number(data.commissionPercent);
+  const storedVisibleTabs = Array.isArray(data.visibleReportTabs) ? data.visibleReportTabs.map(String) : [];
+  const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => storedVisibleTabs.includes(tab));
   return {
     id,
     name: String(data.name || ''),
     color: String(data.color || '#1AB7B0'),
     shareToken: String(data.shareToken || ''),
     metaAdAccountId: String(data.metaAdAccountId || ''),
+    commissionPercent: Number.isFinite(storedCommission) && storedCommission >= 0 && storedCommission <= 100
+      ? storedCommission
+      : DEFAULT_COMMISSION_PERCENT,
+    visibleReportTabs: visibleReportTabs.length ? visibleReportTabs : [...DEFAULT_VISIBLE_REPORT_TABS],
     createdAt: Number(data.createdAt || 0)
   };
 }

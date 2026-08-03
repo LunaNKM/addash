@@ -12,7 +12,7 @@ import {
 import { parseMetaFile, type ParseReport } from '@/lib/parser';
 import { buildFileStats, mergeStats, totalStat } from '@/lib/aggregation';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
-import type { Brand, DashboardTab, FileDoc, InsightDoc, Kpi, MetricKey } from '@/lib/types';
+import type { Brand, BrandPatch, DashboardTab, FileDoc, InsightDoc, Kpi, MetricKey } from '@/lib/types';
 import {
   applyFilters, countUnique, errorMessage, toggleSet, topBy,
   type DashboardBundle, type SortOrder
@@ -314,7 +314,7 @@ export default function Page() {
     setSettings('none');
   }
 
-  async function updateBrandFlow(brandId: string, patch: { name?: string; color?: string; metaAdAccountId?: string }) {
+  async function updateBrandFlow(brandId: string, patch: BrandPatch) {
     try {
       await updateBrand(brandId, patch);
       const list = await listBrandsForAdmin();

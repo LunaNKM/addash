@@ -1,5 +1,8 @@
 import type { ReportParseResult } from './report/reportTypes';
 
+export const DEFAULT_VISIBLE_REPORT_TABS = ['total', 'campaigns', 'creatives', 'qoo10', 'owned'] as const;
+export type ReportTabKey = typeof DEFAULT_VISIBLE_REPORT_TABS[number];
+
 export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'cpm' | 'cpc' | 'roas';
 
 export type Brand = {
@@ -8,7 +11,17 @@ export type Brand = {
   color: string;
   shareToken: string;
   metaAdAccountId: string;
+  commissionPercent: number;
+  visibleReportTabs: ReportTabKey[];
   createdAt: number;
+};
+
+export type BrandPatch = {
+  name?: string;
+  color?: string;
+  metaAdAccountId?: string;
+  commissionPercent?: number;
+  visibleReportTabs?: ReportTabKey[];
 };
 
 export type DashboardTab = {

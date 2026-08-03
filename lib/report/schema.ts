@@ -1,6 +1,7 @@
 import type { ReportColumnKey, SheetDetection } from './reportTypes';
 
 export const DEFAULT_EXCHANGE_RATE = 9.28;
+export const DEFAULT_COMMISSION_PERCENT = 15;
 export const DEFAULT_GROSS_RATE = 1.15;
 export const PRE_JULY_2026_GROSS_RATE = 1.1;
 export const GROSS_RATE_CHANGE_DATE = '2026-07-14';
@@ -9,8 +10,11 @@ export function grossRateForDate(date: string): number {
   return date && date < GROSS_RATE_CHANGE_DATE ? PRE_JULY_2026_GROSS_RATE : DEFAULT_GROSS_RATE;
 }
 
-export function toGrossCostKrw(netCostKrw: number, date: string): number {
-  return netCostKrw ? netCostKrw * grossRateForDate(date) : 0;
+export function toGrossCostKrw(netCostKrw: number, date: string, commissionPercent?: number): number {
+  const grossRate = Number.isFinite(commissionPercent)
+    ? 1 + Math.max(0, Number(commissionPercent)) / 100
+    : grossRateForDate(date);
+  return netCostKrw ? netCostKrw * grossRate : 0;
 }
 
 export const requiredColumns: ReportColumnKey[] = ['date', 'impressions', 'clicks'];

@@ -3,28 +3,47 @@
 import { useEffect, useState } from 'react';
 import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
-import type { Brand, DashboardTab, FileDoc, Kpi, ReportFileDoc } from '@/lib/types';
+import { DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportTabKey } from '@/lib/types';
 import { darken, kpiLabel } from '@/lib/dashUtils';
 
 export type SettingsMode = 'none' | 'brand' | 'tab' | 'kpi' | 'admin' | 'file';
+
+const REPORT_TAB_LABELS: Record<ReportTabKey, string> = {
+  total: '전체 성과',
+  campaigns: '캠페인별',
+  creatives: '소재별',
+  qoo10: 'Qoo10',
+  owned: '자사몰'
+};
 
 function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   brand: Brand;
   onCopyShare: () => void;
   onDelete: () => Promise<void>;
-  onUpdate: (patch: { name?: string; color?: string; metaAdAccountId?: string }) => Promise<void>;
+  onUpdate: (patch: BrandPatch) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(brand.name);
   const [color, setColor] = useState(brand.color);
   const [adAccountId, setAdAccountId] = useState(brand.metaAdAccountId || '');
+  const [commissionPercent, setCommissionPercent] = useState(brand.commissionPercent);
+  const [visibleReportTabs, setVisibleReportTabs] = useState<ReportTabKey[]>(brand.visibleReportTabs);
   useEffect(() => {
     setName(brand.name);
     setColor(brand.color);
     setAdAccountId(brand.metaAdAccountId || '');
-  }, [brand.name, brand.color, brand.metaAdAccountId]);
+    setCommissionPercent(brand.commissionPercent);
+    setVisibleReportTabs(brand.visibleReportTabs);
+  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.visibleReportTabs]);
 
-  const dirty = name !== brand.name || color.toLowerCase() !== brand.color.toLowerCase() || adAccountId !== (brand.metaAdAccountId || '');
+  const visibleTabsDirty = DEFAULT_VISIBLE_REPORT_TABS.some(tab => visibleReportTabs.includes(tab) !== brand.visibleReportTabs.includes(tab));
+  const dirty = name !== brand.name
+    || color.toLowerCase() !== brand.color.toLowerCase()
+    || adAccountId !== (brand.metaAdAccountId || '')
+    || commissionPercent !== brand.commissionPercent
+    || visibleTabsDirty;
+  const validCommission = Number.isFinite(commissionPercent) && commissionPercent >= 0 && commissionPercent <= 100;
+  const validTabSelection = visibleReportTabs.length > 0;
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -59,6 +78,41 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
                 <input type="text" className="color-input-hex" value={color} onChange={event => setColor(event.target.value)} placeholder="#RRGGBB" />
               </div>
             </div>
+            <div>
+              <label>수수료율 (%)</label>
+              <small className="muted">그로스 광고비 = 넷 광고비 × (1 + 수수료율)</small>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={commissionPercent}
+                onChange={event => setCommissionPercent(Number(event.target.value))}
+              />
+            </div>
+            {!validCommission && <small className="warn">수수료율은 0~100 사이로 입력해주세요.</small>}
+          </div>
+
+          <div>
+            <label>보고서 표시 탭</label>
+            <div className="brand-tab-visibility">
+              {DEFAULT_VISIBLE_REPORT_TABS.map(tab => (
+                <label className="brand-tab-option" key={tab}>
+                  <input
+                    type="checkbox"
+                    checked={visibleReportTabs.includes(tab)}
+                    onChange={event => {
+                      setVisibleReportTabs(current => event.target.checked
+                        ? DEFAULT_VISIBLE_REPORT_TABS.filter(item => item === tab || current.includes(item))
+                        : current.filter(item => item !== tab));
+                    }}
+                  />
+                  <span>{REPORT_TAB_LABELS[tab]}</span>
+                </label>
+              ))}
+            </div>
+            <small className="muted">체크를 해제한 탭은 관리자와 공유 화면 모두에서 숨겨집니다.</small>
+            {!validTabSelection && <small className="warn">최소 1개의 탭은 표시해야 합니다.</small>}
           </div>
 
           <div>
@@ -85,15 +139,23 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button className="btn outline" onClick={() => { setName(brand.name); setColor(brand.color); }}>되돌리기</button>
+            <button className="btn outline" onClick={() => {
+              setName(brand.name);
+              setColor(brand.color);
+              setAdAccountId(brand.metaAdAccountId || '');
+              setCommissionPercent(brand.commissionPercent);
+              setVisibleReportTabs(brand.visibleReportTabs);
+            }}>되돌리기</button>
             <button
               className="btn brand"
-              disabled={!dirty}
+              disabled={!dirty || !validCommission || !validTabSelection}
               onClick={async () => {
                 await onUpdate({
                   ...(name !== brand.name ? { name } : {}),
                   ...(color.toLowerCase() !== brand.color.toLowerCase() ? { color } : {}),
-                  ...(adAccountId !== (brand.metaAdAccountId || '') ? { metaAdAccountId: adAccountId } : {})
+                  ...(adAccountId !== (brand.metaAdAccountId || '') ? { metaAdAccountId: adAccountId } : {}),
+                  ...(commissionPercent !== brand.commissionPercent ? { commissionPercent } : {}),
+                  ...(visibleTabsDirty ? { visibleReportTabs } : {})
                 });
                 setExpanded(false);
               }}
@@ -162,7 +224,7 @@ function FileSettings({ brand, tab, reload }: { brand: Brand; tab: DashboardTab;
   );
 }
 
-export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, saveKpi: onSaveKpi, reload, addBrand, refreshBrands, onUpdateBrand, sharePath = '' }: {
+export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, saveKpi: onSaveKpi, reload, addBrand, refreshBrands, onUpdateBrand, sharePath = '', getShareUrl }: {
   mode: SettingsMode;
   setMode: (v: SettingsMode) => void;
   brand: Brand;
@@ -174,8 +236,9 @@ export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, sa
   reload: () => Promise<void>;
   addBrand: () => Promise<void>;
   refreshBrands: () => Promise<void>;
-  onUpdateBrand: (brandId: string, patch: { name?: string; color?: string; metaAdAccountId?: string }) => Promise<void>;
+  onUpdateBrand: (brandId: string, patch: BrandPatch) => Promise<void>;
   sharePath?: string;
+  getShareUrl?: (brand: Brand) => string;
 }) {
   const [draft, setDraft] = useState<Kpi>(kpi);
   const [admins, setAdmins] = useState<Array<{ email: string; primary?: boolean }>>([]);
@@ -202,7 +265,10 @@ export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, sa
               <BrandEditorRow
                 key={item.id}
                 brand={item}
-                onCopyShare={() => navigator.clipboard.writeText(`${location.origin}${sharePath}?share=${item.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}
+                onCopyShare={() => {
+                  const url = getShareUrl?.(item) || `${location.origin}${sharePath}?share=${item.shareToken}`;
+                  navigator.clipboard.writeText(url).then(() => alert('공유 링크를 복사했습니다.'));
+                }}
                 onDelete={async () => {
                   if (prompt(`삭제하려면 ${item.name} 입력`) === item.name) {
                     await deleteBrand(item.id);

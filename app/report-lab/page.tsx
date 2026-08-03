@@ -29,7 +29,7 @@ import {
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import type { Brand, CreativeAssetDoc, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc, SingleOneCollectorSettings } from '@/lib/types';
+import type { Brand, BrandPatch, CreativeAssetDoc, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc, ReportTabKey, SingleOneCollectorSettings } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import { MetaCreativeFilterModal, type MetaCreativeSelection } from '../components/MetaCreativeFilterModal';
 import { MetaFilterModal } from '../components/MetaFilterModal';
@@ -44,7 +44,7 @@ import type {
 
 type MarketplaceTab = 'qoo10' | 'owned';
 type PromotionSubTab = 'total' | 'always' | 'megawari' | 'megapo' | 'market' | 'live' | 'hybrid';
-type ReportTab = 'total' | 'campaigns' | 'creatives' | MarketplaceTab;
+type ReportTab = ReportTabKey;
 type ReportSourceType = 'xlsx' | 'meta';
 type SpendBasis = 'gross' | 'net';
 
@@ -126,6 +126,11 @@ export default function ReportLabPage() {
   const [adFilter, setAdFilter] = useState<string[]>([]);
   const [authError, setAuthError] = useState('');
 
+  const copyShareLink = useCallback((targetBrand: Brand) => {
+    const url = buildReportShareUrl(location.origin, targetBrand, spendBasis, exchangeRate);
+    navigator.clipboard.writeText(url).then(() => alert('공유 링크를 복사했습니다.'));
+  }, [exchangeRate, spendBasis]);
+
   useEffect(() => {
     applyBrandColor(brand?.color || null);
   }, [brand?.color]);
@@ -156,10 +161,9 @@ export default function ReportLabPage() {
     source: ReportSourceType,
     options: { activate?: boolean; updatePeriod?: boolean } = {}
   ) => {
-    const grossResult = nextResult ? applyGrossSpendRule(nextResult) : null;
-    const scopedResult = source === 'xlsx' && grossResult
-      ? filterReportResultRows(grossResult, isSingleOneUploadRow, 'SingleOne Upload')
-      : grossResult;
+    const scopedResult = source === 'xlsx' && nextResult
+      ? filterReportResultRows(nextResult, isSingleOneUploadRow, 'SingleOne Upload')
+      : nextResult;
 
     if (source === 'meta') setMetaResult(scopedResult);
     else setXlsxResult(scopedResult);
@@ -304,12 +308,20 @@ export default function ReportLabPage() {
           setUser(current);
           const admin = current ? await isAdminEmail(current.email) : false;
           setIsAdmin(admin);
-          const shareToken = new URL(window.location.href).searchParams.get('share');
+          const shareUrl = new URL(window.location.href);
+          const shareToken = shareUrl.searchParams.get('share');
+          const sharedBasis = parseSharedSpendBasis(shareUrl.searchParams.get('basis'));
+          const sharedExchangeRate = parseSharedExchangeRate(shareUrl.searchParams.get('rate'));
+          if (sharedBasis) setSpendBasis(sharedBasis);
+          if (sharedExchangeRate) setExchangeRate(sharedExchangeRate);
 
           if (admin) {
             const list = await listBrandsForAdmin();
             setBrands(list);
-            await loadBrandContext(list[0] || null);
+            const sharedBrand = shareToken
+              ? list.find(item => item.shareToken === shareToken) || await findBrandByShareToken(shareToken)
+              : null;
+            await loadBrandContext(sharedBrand || list[0] || null);
           } else if (shareToken) {
             const found = await findBrandByShareToken(shareToken);
             setBrands(found ? [found] : []);
@@ -328,12 +340,25 @@ export default function ReportLabPage() {
     return () => unsub?.();
   }, [loadBrandContext]);
 
-  const combinedResult = useMemo(() => combineReportResults(xlsxResult, metaResult), [metaResult, xlsxResult]);
+  const adjustedXlsxResult = useMemo(
+    () => applyExchangeRate(xlsxResult, exchangeRate, false),
+    [exchangeRate, xlsxResult]
+  );
+  const adjustedMetaResult = useMemo(
+    () => applyExchangeRate(metaResult, exchangeRate, true),
+    [exchangeRate, metaResult]
+  );
+  const combinedResult = useMemo(
+    () => combineReportResults(adjustedXlsxResult, adjustedMetaResult),
+    [adjustedMetaResult, adjustedXlsxResult]
+  );
   const result = useMemo(() => {
-    if (!combinedResult || spendBasis === 'gross') return combinedResult;
-    const rows = combinedResult.rows.map(row => ({ ...row, grossCostKrw: row.costKrw }));
-    return { ...combinedResult, rows, preview: rows.slice(0, 12) };
-  }, [combinedResult, spendBasis]);
+    if (!combinedResult) return combinedResult;
+    const grossResult = applyGrossSpendRule(combinedResult, brand?.commissionPercent);
+    if (spendBasis === 'gross') return grossResult;
+    const rows = grossResult.rows.map(row => ({ ...row, grossCostKrw: row.costKrw }));
+    return { ...grossResult, rows, preview: rows.slice(0, 12) };
+  }, [brand?.commissionPercent, combinedResult, spendBasis]);
   const selectedReportFileId = selectedXlsxReportFileId || selectedMetaReportFileId;
 
   const dates = useMemo(() => {
@@ -342,6 +367,10 @@ export default function ReportLabPage() {
   }, [result]);
 
   const activeMarketplace = useMemo(() => marketplaceTabs.find(tab => tab.id === activeTab), [activeTab]);
+  const visibleTabs = useMemo(
+    () => tabs.filter(tab => brand?.visibleReportTabs.includes(tab.id) ?? true),
+    [brand?.visibleReportTabs]
+  );
   const activeSubTabs = activeMarketplace ? marketplaceSubTabs[activeMarketplace.id] : [];
   const activeSubTabLabel = activeSubTabs.find(tab => tab.id === activeSubTab)?.label || '';
   const activeMarketplaceTitle = activeMarketplace ? `${activeMarketplace.label} ${activeSubTabLabel}`.trim() : '';
@@ -350,6 +379,11 @@ export default function ReportLabPage() {
     if (!activeMarketplace || activeSubTabs.some(tab => tab.id === activeSubTab)) return;
     setActiveSubTab(activeSubTabs[0]?.id || 'total');
   }, [activeMarketplace, activeSubTab, activeSubTabs]);
+
+  useEffect(() => {
+    if (visibleTabs.some(tab => tab.id === activeTab)) return;
+    if (visibleTabs[0]) setActiveTab(visibleTabs[0].id);
+  }, [activeTab, visibleTabs]);
 
   const periodRows = useMemo(() => {
     if (!result) return [];
@@ -599,7 +633,7 @@ export default function ReportLabPage() {
     }
   }
 
-  async function updateBrandFlow(brandId: string, patch: { name?: string; color?: string; metaAdAccountId?: string }) {
+  async function updateBrandFlow(brandId: string, patch: BrandPatch) {
     try {
       await updateBrand(brandId, patch);
       const list = await listBrandsForAdmin();
@@ -697,7 +731,7 @@ export default function ReportLabPage() {
             <Link className="btn ghost" href="/">대시보드</Link>
             {brand && <button className="btn ghost" onClick={() => setSettings('brand')}>설정</button>}
             {brand && dashboardTab && <button className="btn ghost" onClick={openCollectorSettings}>싱글원 수집기</button>}
-            {brand && <button className="btn ghost" onClick={() => navigator.clipboard.writeText(`${location.origin}/report-lab?share=${brand.shareToken}`).then(() => alert('공유 링크를 복사했습니다.'))}>공유</button>}
+            {brand && <button className="btn ghost" onClick={() => copyShareLink(brand)}>공유</button>}
             {brand && dashboardTab && (
               <label className="btn brand">
                 RAW 업로드
@@ -771,7 +805,7 @@ export default function ReportLabPage() {
         </div>
 
         <div className="tabbar">
-          {tabs.map(tab => (
+          {visibleTabs.map(tab => (
             <button
               key={tab.id}
               className={activeTab === tab.id ? 'active' : ''}
@@ -989,6 +1023,7 @@ export default function ReportLabPage() {
           refreshBrands={async () => setBrands(await listBrandsForAdmin())}
           onUpdateBrand={updateBrandFlow}
           sharePath="/report-lab"
+          getShareUrl={item => buildReportShareUrl(location.origin, item, spendBasis, exchangeRate)}
         />
       )}
       {collectorOpen && brand && dashboardTab && (
@@ -1285,6 +1320,7 @@ function CampaignReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
 
 function CreativeReport({ view, kpi, creativeAssets }: { view: ReportView; kpi: Kpi; creativeAssets: Record<string, CreativeAssetDoc> }) {
   const creativeRows = view.current.byCreative.filter(hasReportPerformance);
+  const dailyRowsByCreative = useMemo(() => buildCreativeDailyRows(view.currentRows), [view.currentRows]);
   return (
     <>
       <SummaryCards total={view.current.total} kpi={kpi} />
@@ -1296,6 +1332,7 @@ function CreativeReport({ view, kpi, creativeAssets }: { view: ReportView; kpi: 
         showComparisonRows
         alwaysShowComparisonRows
         creativeAssets={creativeAssets}
+        dailyRowsByKey={dailyRowsByCreative}
       />
     </>
   );
@@ -2200,7 +2237,8 @@ function SummaryTable({
   showComparisonRows = false,
   alwaysShowComparisonRows = false,
   comparisonLabel,
-  creativeAssets
+  creativeAssets,
+  dailyRowsByKey
 }: {
   title: string;
   rows: ReportSummary[];
@@ -2211,18 +2249,48 @@ function SummaryTable({
   alwaysShowComparisonRows?: boolean;
   comparisonLabel?: string;
   creativeAssets?: Record<string, CreativeAssetDoc>;
+  dailyRowsByKey?: Record<string, ReportSummary[]>;
 }) {
   const [creativePreview, setCreativePreview] = useState<{ src: string; label: string } | null>(null);
+  const [creativeHover, setCreativeHover] = useState<{ src: string; label: string; left: number; top: number } | null>(null);
+  const [expandedDailyKeys, setExpandedDailyKeys] = useState<Set<string>>(() => new Set());
   const previousByKey = new Map(previousRows.map(row => [row.key, row]));
   const displayRows = rows
     .filter(hasReportPerformance)
     .sort((a, b) => sortByLabel ? a.key.localeCompare(b.key) : b.spend - a.spend || a.label.localeCompare(b.label));
+  const visibleRows = displayRows.slice(0, limit);
+  const expandableKeys = visibleRows.filter(row => dailyRowsByKey?.[row.key]?.length).map(row => row.key);
+  const allDailyExpanded = expandableKeys.length > 0 && expandableKeys.every(key => expandedDailyKeys.has(key));
+
+  function toggleDailyRows(key: string) {
+    setExpandedDailyKeys(current => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAllDailyRows() {
+    setExpandedDailyKeys(current => {
+      const next = new Set(current);
+      if (allDailyExpanded) expandableKeys.forEach(key => next.delete(key));
+      else expandableKeys.forEach(key => next.add(key));
+      return next;
+    });
+  }
+
   return (
     <section className="section">
       <div className="section-head">
         <PeriodBadge label={comparisonLabel || ''} />
         <b>{title}</b>
         <span className="muted">총 {displayRows.length.toLocaleString()}개 그룹 중 {Math.min(displayRows.length, limit).toLocaleString()}개 표시</span>
+        {expandableKeys.length > 0 && (
+          <button type="button" className="btn outline compact creative-daily-all-toggle" onClick={toggleAllDailyRows}>
+            {allDailyExpanded ? '일별 전체 접기' : '일별 전체 펼치기'}
+          </button>
+        )}
       </div>
       <div className="table-wrap sticky-detail">
         <table>
@@ -2244,21 +2312,51 @@ function SummaryTable({
             </tr>
           </thead>
           <tbody>
-            {displayRows.slice(0, limit).map(row => {
+            {visibleRows.map(row => {
               const matchedPrevious = previousByKey.get(row.key);
               const previous = matchedPrevious || EMPTY_REPORT_SUMMARY;
               const showPrevious = showComparisonRows && (Boolean(matchedPrevious) || alwaysShowComparisonRows);
+              const dailyRows = dailyRowsByKey?.[row.key] || [];
+              const dailyExpanded = expandedDailyKeys.has(row.key);
               return (
                 <React.Fragment key={row.key}>
                   <tr>
                     <td title={row.label}>
                       {creativeAssets
                         ? (
-                          <CreativeGroupCell
-                            row={row}
-                            asset={creativeAssets[row.key] || creativeAssets[creativeIdentityIndexKey(row.key)]}
-                            onPreview={(src, label) => setCreativePreview({ src, label })}
-                          />
+                          <div className="creative-summary-cell">
+                            <CreativeGroupCell
+                              row={row}
+                              asset={creativeAssets[row.key] || creativeAssets[creativeIdentityIndexKey(row.key)]}
+                              onPreview={(src, label) => {
+                                setCreativeHover(null);
+                                setCreativePreview({ src, label });
+                              }}
+                              onHover={(src, label, rect) => {
+                                const previewSize = 176;
+                                const gap = 12;
+                                const left = rect.right + gap + previewSize <= window.innerWidth
+                                  ? rect.right + gap
+                                  : Math.max(gap, rect.left - gap - previewSize);
+                                const top = Math.min(
+                                  Math.max(gap, rect.top + rect.height / 2 - previewSize / 2),
+                                  window.innerHeight - previewSize - gap
+                                );
+                                setCreativeHover({ src, label, left, top });
+                              }}
+                              onHoverEnd={() => setCreativeHover(null)}
+                            />
+                            {dailyRows.length > 0 && (
+                              <button
+                                type="button"
+                                className={`creative-daily-toggle ${dailyExpanded ? 'active' : ''}`}
+                                aria-expanded={dailyExpanded}
+                                onClick={() => toggleDailyRows(row.key)}
+                              >
+                                {dailyExpanded ? '일별 접기' : `일별 ${dailyRows.length.toLocaleString()}일`}
+                              </button>
+                            )}
+                          </div>
                         )
                         : trim(row.label, 44)}
                     </td>
@@ -2309,12 +2407,28 @@ function SummaryTable({
                       <DiffCell current={row.roas} previous={previous.roas} />
                     </tr>
                   )}
+                  {dailyExpanded && dailyRows.map(day => (
+                    <tr className="creative-daily-row" key={day.key}>
+                      <td><span aria-hidden="true">↳</span>{day.label}</td>
+                      <MetricCells row={day} />
+                    </tr>
+                  ))}
                 </React.Fragment>
               );
             })}
           </tbody>
         </table>
       </div>
+      {creativeHover && (
+        <div
+          className="creative-hover-preview"
+          style={{ left: creativeHover.left, top: creativeHover.top }}
+          role="img"
+          aria-label={`${creativeHover.label} 이미지 확대 미리보기`}
+        >
+          <img src={creativeHover.src} alt="" />
+        </div>
+      )}
       {creativePreview && (
         <CreativeImagePreview
           src={creativePreview.src}
@@ -2329,11 +2443,15 @@ function SummaryTable({
 function CreativeGroupCell({
   row,
   asset,
-  onPreview
+  onPreview,
+  onHover,
+  onHoverEnd
 }: {
   row: ReportSummary;
   asset?: CreativeAssetDoc;
   onPreview: (src: string, label: string) => void;
+  onHover: (src: string, label: string, rect: DOMRect) => void;
+  onHoverEnd: () => void;
 }) {
   const src = asset?.imageData || asset?.sourceImageUrl || '';
   return (
@@ -2345,6 +2463,8 @@ function CreativeGroupCell({
           aria-label={`${row.label} 이미지 크게 보기`}
           title="이미지 크게 보기"
           onClick={() => onPreview(src, row.label)}
+          onMouseEnter={event => onHover(src, row.label, event.currentTarget.getBoundingClientRect())}
+          onMouseLeave={onHoverEnd}
         >
           <span className="creative-thumbnail-slot">
             <img src={src} alt="" loading="lazy" />
@@ -2449,16 +2569,68 @@ function filterReportResultRows(
   };
 }
 
-function applyGrossSpendRule(result: ReportParseResult): ReportParseResult {
+function applyExchangeRate(result: ReportParseResult | null, exchangeRate: number, forceJpy: boolean): ReportParseResult | null {
+  if (!result) return null;
+  const safeRate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : DEFAULT_EXCHANGE_RATE;
+  const revalueCost = forceJpy || Boolean(result.sheet.columns.costJpy && !result.sheet.columns.costKrw);
+  const revalueSales = forceJpy || Boolean(result.sheet.columns.salesJpy && !result.sheet.columns.salesKrw);
+  const rows = result.rows.map(row => {
+    const costKrw = revalueCost ? row.costJpy * safeRate : row.costKrw;
+    const salesKrw = revalueSales ? row.salesJpy * safeRate : row.salesKrw;
+    return {
+      ...row,
+      costKrw,
+      grossCostKrw: costKrw,
+      salesKrw,
+      ctr: reportRatio(row.clicks, row.impressions),
+      cpm: reportRatio(costKrw * 1000, row.impressions),
+      cpc: reportRatio(costKrw, row.clicks),
+      cvr: reportRatio(row.conversions, row.clicks),
+      cpa: reportRatio(costKrw, row.conversions),
+      cartCpa: reportRatio(costKrw, row.addToCart),
+      roas: reportRatio(salesKrw, costKrw)
+    };
+  });
+  return {
+    ...result,
+    rows,
+    preview: rows.slice(0, 12),
+    exchangeRate: safeRate
+  };
+}
+
+function applyGrossSpendRule(result: ReportParseResult, commissionPercent?: number): ReportParseResult {
   const rows = result.rows.map(row => ({
     ...row,
-    grossCostKrw: row.costKrw ? toGrossCostKrw(row.costKrw, row.date) : row.grossCostKrw
+    grossCostKrw: row.costKrw ? toGrossCostKrw(row.costKrw, row.date, commissionPercent) : row.grossCostKrw
   }));
   return {
     ...result,
     rows,
     preview: rows.slice(0, 12)
   };
+}
+
+function reportRatio(numerator: number, denominator: number): number {
+  return denominator ? numerator / denominator : 0;
+}
+
+function buildReportShareUrl(origin: string, brand: Brand, spendBasis: SpendBasis, exchangeRate: number): string {
+  const url = new URL('/report-lab', origin);
+  url.searchParams.set('share', brand.shareToken);
+  url.searchParams.set('basis', spendBasis);
+  url.searchParams.set('rate', String(Math.round(exchangeRate * 10000) / 10000));
+  return url.toString();
+}
+
+function parseSharedSpendBasis(value: string | null): SpendBasis | null {
+  return value === 'gross' || value === 'net' ? value : null;
+}
+
+function parseSharedExchangeRate(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function combineReportResults(singleOneResult: ReportParseResult | null, metaResult: ReportParseResult | null): ReportParseResult | null {
@@ -2758,6 +2930,29 @@ function monthWeekLabel(value: string): { key: string; label: string } {
     key: `${date.getFullYear()}-${String(month).padStart(2, '0')}-W${String(week).padStart(2, '0')}`,
     label: `${month}월 ${week}주차`
   };
+}
+
+function buildCreativeDailyRows(rows: NormalizedReportRow[]): Record<string, ReportSummary[]> {
+  const grouped = new Map<string, Map<string, NormalizedReportRow[]>>();
+  for (const row of rows) {
+    if (!row.date) continue;
+    const creativeKey = makeCreativeKey(row);
+    const byDate = grouped.get(creativeKey) || new Map<string, NormalizedReportRow[]>();
+    const dateRows = byDate.get(row.date) || [];
+    dateRows.push(row);
+    byDate.set(row.date, dateRows);
+    grouped.set(creativeKey, byDate);
+  }
+
+  return Object.fromEntries(
+    [...grouped.entries()].map(([creativeKey, byDate]) => [
+      creativeKey,
+      [...byDate.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([date, dateRows]) => summarizeReportRows(`${creativeKey}|||${date}`, date, dateRows))
+        .filter(hasReportPerformance)
+    ])
+  );
 }
 
 function summarizeReportRows(key: string, label: string, rows: NormalizedReportRow[]): ReportSummary {
