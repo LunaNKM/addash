@@ -1852,7 +1852,8 @@ tbody tr:last-child td { border-bottom: 0; }
   border-bottom: 0;
 }
 
-.creative-upload-item > img {
+.creative-upload-item > img,
+.creative-upload-item > video {
   width: 56px;
   height: 56px;
   object-fit: cover;
@@ -1934,7 +1935,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .creative-upload-item {
     grid-template-columns: 48px minmax(0, 1fr) 30px;
   }
-  .creative-upload-item > img { width: 48px; height: 48px; }
+  .creative-upload-item > img,
+  .creative-upload-item > video { width: 48px; height: 48px; }
   .creative-upload-item label { grid-column: 1 / -1; }
 }
 
