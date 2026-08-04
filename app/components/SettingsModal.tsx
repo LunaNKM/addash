@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
-import { DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportTabKey } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportTabKey } from '@/lib/types';
 import { darken, kpiLabel } from '@/lib/dashUtils';
 
 export type SettingsMode = 'none' | 'brand' | 'tab' | 'kpi' | 'admin' | 'file';
@@ -28,22 +28,27 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   const [adAccountId, setAdAccountId] = useState(brand.metaAdAccountId || '');
   const [commissionPercent, setCommissionPercent] = useState(brand.commissionPercent);
   const [visibleReportTabs, setVisibleReportTabs] = useState<ReportTabKey[]>(brand.visibleReportTabs);
+  const [dailyToplineMetrics, setDailyToplineMetrics] = useState<DailyToplineMetric[]>(brand.dailyToplineMetrics);
   useEffect(() => {
     setName(brand.name);
     setColor(brand.color);
     setAdAccountId(brand.metaAdAccountId || '');
     setCommissionPercent(brand.commissionPercent);
     setVisibleReportTabs(brand.visibleReportTabs);
-  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.visibleReportTabs]);
+    setDailyToplineMetrics(brand.dailyToplineMetrics);
+  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.visibleReportTabs, brand.dailyToplineMetrics]);
 
   const visibleTabsDirty = DEFAULT_VISIBLE_REPORT_TABS.some(tab => visibleReportTabs.includes(tab) !== brand.visibleReportTabs.includes(tab));
+  const dailyToplineMetricsDirty = DAILY_TOPLINE_METRIC_KEYS.some(metric => dailyToplineMetrics.includes(metric) !== brand.dailyToplineMetrics.includes(metric));
   const dirty = name !== brand.name
     || color.toLowerCase() !== brand.color.toLowerCase()
     || adAccountId !== (brand.metaAdAccountId || '')
     || commissionPercent !== brand.commissionPercent
-    || visibleTabsDirty;
+    || visibleTabsDirty
+    || dailyToplineMetricsDirty;
   const validCommission = Number.isFinite(commissionPercent) && commissionPercent >= 0 && commissionPercent <= 100;
   const validTabSelection = visibleReportTabs.length > 0;
+  const validDailyToplineSelection = dailyToplineMetrics.length > 0;
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -116,6 +121,28 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
           </div>
 
           <div>
+            <label>Daily Topline 표시 지표</label>
+            <div className="brand-tab-visibility brand-metric-visibility">
+              {DAILY_TOPLINE_METRIC_KEYS.map(metric => (
+                <label className="brand-tab-option" key={metric}>
+                  <input
+                    type="checkbox"
+                    checked={dailyToplineMetrics.includes(metric)}
+                    onChange={event => {
+                      setDailyToplineMetrics(current => event.target.checked
+                        ? DAILY_TOPLINE_METRIC_KEYS.filter(item => item === metric || current.includes(item))
+                        : current.filter(item => item !== metric));
+                    }}
+                  />
+                  <span>{DAILY_TOPLINE_METRIC_LABELS[metric]}</span>
+                </label>
+              ))}
+            </div>
+            <small className="muted">선택한 지표마다 독립된 일별 추이 그래프가 표시됩니다.</small>
+            {!validDailyToplineSelection && <small className="warn">최소 1개의 지표를 선택해야 합니다.</small>}
+          </div>
+
+          <div>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--c-ink-3)', marginBottom: 8 }}>
               프리셋
             </label>
@@ -145,17 +172,19 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
               setAdAccountId(brand.metaAdAccountId || '');
               setCommissionPercent(brand.commissionPercent);
               setVisibleReportTabs(brand.visibleReportTabs);
+              setDailyToplineMetrics(brand.dailyToplineMetrics);
             }}>되돌리기</button>
             <button
               className="btn brand"
-              disabled={!dirty || !validCommission || !validTabSelection}
+              disabled={!dirty || !validCommission || !validTabSelection || !validDailyToplineSelection}
               onClick={async () => {
                 await onUpdate({
                   ...(name !== brand.name ? { name } : {}),
                   ...(color.toLowerCase() !== brand.color.toLowerCase() ? { color } : {}),
                   ...(adAccountId !== (brand.metaAdAccountId || '') ? { metaAdAccountId: adAccountId } : {}),
                   ...(commissionPercent !== brand.commissionPercent ? { commissionPercent } : {}),
-                  ...(visibleTabsDirty ? { visibleReportTabs } : {})
+                  ...(visibleTabsDirty ? { visibleReportTabs } : {}),
+                  ...(dailyToplineMetricsDirty ? { dailyToplineMetrics } : {})
                 });
                 setExpanded(false);
               }}

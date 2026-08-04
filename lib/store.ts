@@ -13,7 +13,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import { DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings } from './types';
+import { DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
 import { DEFAULT_COMMISSION_PERCENT } from './report/schema';
@@ -88,6 +88,7 @@ export async function createBrand(name: string, color = '#1AB7B0'): Promise<Bran
     metaAdAccountId: '',
     commissionPercent: DEFAULT_COMMISSION_PERCENT,
     visibleReportTabs: [...DEFAULT_VISIBLE_REPORT_TABS],
+    dailyToplineMetrics: [...DEFAULT_DAILY_TOPLINE_METRICS],
     createdAt: Date.now()
   };
   const tabRef = doc(collection(db, 'brands', brand.id, 'tabs'));
@@ -134,6 +135,11 @@ export async function updateBrand(brandId: string, patch: BrandPatch) {
     const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => patch.visibleReportTabs?.includes(tab));
     if (!visibleReportTabs.length) throw new Error('최소 1개의 보고서 탭은 표시해야 합니다.');
     update.visibleReportTabs = visibleReportTabs;
+  }
+  if (patch.dailyToplineMetrics !== undefined) {
+    const dailyToplineMetrics = DAILY_TOPLINE_METRIC_KEYS.filter(metric => patch.dailyToplineMetrics?.includes(metric));
+    if (!dailyToplineMetrics.length) throw new Error('Daily Topline 지표를 최소 1개 선택해주세요.');
+    update.dailyToplineMetrics = dailyToplineMetrics;
   }
   if (Object.keys(update).length === 0) return;
   await updateDoc(doc(db, 'brands', brandId), update);
@@ -383,6 +389,8 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
   const storedCommission = Number(data.commissionPercent);
   const storedVisibleTabs = Array.isArray(data.visibleReportTabs) ? data.visibleReportTabs.map(String) : [];
   const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => storedVisibleTabs.includes(tab));
+  const storedDailyToplineMetrics = Array.isArray(data.dailyToplineMetrics) ? data.dailyToplineMetrics.map(String) : [];
+  const dailyToplineMetrics = DAILY_TOPLINE_METRIC_KEYS.filter(metric => storedDailyToplineMetrics.includes(metric));
   return {
     id,
     name: String(data.name || ''),
@@ -393,6 +401,7 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
       ? storedCommission
       : DEFAULT_COMMISSION_PERCENT,
     visibleReportTabs: visibleReportTabs.length ? visibleReportTabs : [...DEFAULT_VISIBLE_REPORT_TABS],
+    dailyToplineMetrics: dailyToplineMetrics.length ? dailyToplineMetrics : [...DEFAULT_DAILY_TOPLINE_METRICS],
     createdAt: Number(data.createdAt || 0)
   };
 }

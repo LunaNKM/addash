@@ -3052,6 +3052,78 @@ td[title], .legend-row[title], .donut-legend div[title] {
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
+.report-band-title small {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.report-topline-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-topline-metric-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-bg-elevated);
+  box-shadow: var(--sh-xs);
+}
+
+.report-topline-metric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.report-topline-metric-head b {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+}
+
+.report-topline-metric-head b::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--metric-color);
+}
+
+.report-topline-metric-head span {
+  color: var(--c-ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-topline-metric-chart {
+  position: relative;
+}
+
+.report-topline-metric-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 210px;
+}
+
+@media (max-width: 900px) {
+  .report-topline-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .report-chart-wrap {
   position: relative;
   min-height: 300px;

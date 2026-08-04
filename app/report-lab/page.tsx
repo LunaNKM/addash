@@ -29,7 +29,7 @@ import {
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import type { Brand, BrandPatch, CreativeAssetDoc, DashboardTab, Kpi, ReportCommentDoc, ReportFileDoc, ReportTabKey, SingleOneCollectorSettings } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import { MetaCreativeFilterModal, type MetaCreativeSelection } from '../components/MetaCreativeFilterModal';
 import { MetaFilterModal } from '../components/MetaFilterModal';
@@ -958,9 +958,10 @@ export default function ReportLabPage() {
                   busy={commentBusy}
                   onGenerate={generateReportComment}
                   onSave={saveReportCommentFlow}
+                  dailyToplineMetrics={brand.dailyToplineMetrics}
                 />
               )}
-              {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} />}
+              {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} dailyToplineMetrics={brand.dailyToplineMetrics} />}
               {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} creativeAssets={creativeAssets} />}
               {activeMarketplace && (
                 <PromotionDetailReport
@@ -970,6 +971,7 @@ export default function ReportLabPage() {
                   marketplace={activeMarketplace.id}
                   marketplaceRows={marketplaceRows}
                   activeSubTab={activeSubTab}
+                  dailyToplineMetrics={brand.dailyToplineMetrics}
                 />
               )}
             </>
@@ -1254,7 +1256,8 @@ function TotalPerformance({
   isAdmin,
   busy,
   onGenerate,
-  onSave
+  onSave,
+  dailyToplineMetrics
 }: {
   view: ReportView;
   allRows: NormalizedReportRow[];
@@ -1268,6 +1271,7 @@ function TotalPerformance({
   busy: string;
   onGenerate: () => void;
   onSave: (text: string) => void;
+  dailyToplineMetrics: DailyToplineMetric[];
 }) {
   const comparisonLabel = formatComparisonLabel(view);
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
@@ -1288,7 +1292,7 @@ function TotalPerformance({
         onGenerate={onGenerate}
         onSave={onSave}
       />
-      <DailyToplineChart rows={view.current.byDaily} comparisonLabel={comparisonLabel} />
+      <DailyToplineChart rows={view.current.byDaily} metrics={dailyToplineMetrics} comparisonLabel={comparisonLabel} />
       <ComparisonTable rows={view.comparison} comparisonLabel={comparisonLabel} />
       <SummaryTable title="프로모션별 성과" rows={view.current.byPromotion} previousRows={view.previous.byPromotion} limit={30} showComparisonRows comparisonLabel={comparisonLabel} />
       <RecentWeeklyPerformanceTable data={weekly} />
@@ -1297,22 +1301,22 @@ function TotalPerformance({
   );
 }
 
-function DailyPerformanceDetails({ view }: { view: ReportView }) {
+function DailyPerformanceDetails({ view, dailyToplineMetrics }: { view: ReportView; dailyToplineMetrics: DailyToplineMetric[] }) {
   return (
     <>
-      <DailyToplineChart rows={view.current.byDaily} />
+      <DailyToplineChart rows={view.current.byDaily} metrics={dailyToplineMetrics} />
       <SummaryTable title="일자별 핵심 성과" rows={view.current.byDaily} previousRows={view.previous.byDaily} limit={120} sortByLabel />
       <SummaryTable title="일자별 캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={80} />
     </>
   );
 }
 
-function CampaignReport({ view, kpi }: { view: ReportView; kpi: Kpi }) {
+function CampaignReport({ view, kpi, dailyToplineMetrics }: { view: ReportView; kpi: Kpi; dailyToplineMetrics: DailyToplineMetric[] }) {
   return (
     <>
       <SummaryCards total={view.current.total} kpi={kpi} />
       <SummaryTable title="캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} showComparisonRows />
-      <DailyPerformanceDetails view={view} />
+      <DailyPerformanceDetails view={view} dailyToplineMetrics={dailyToplineMetrics} />
       <SummaryTable title="광고그룹 성과" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} showComparisonRows />
     </>
   );
@@ -1344,7 +1348,8 @@ function PromotionDetailReport({
   allRows,
   marketplace,
   marketplaceRows,
-  activeSubTab
+  activeSubTab,
+  dailyToplineMetrics
 }: {
   title: string;
   view: ReportView;
@@ -1352,6 +1357,7 @@ function PromotionDetailReport({
   marketplace: MarketplaceTab;
   marketplaceRows: NormalizedReportRow[];
   activeSubTab: PromotionSubTab;
+  dailyToplineMetrics: DailyToplineMetric[];
 }) {
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const dailyData = buildYearDailyGroups(allRows, latestDate);
@@ -1374,7 +1380,7 @@ function PromotionDetailReport({
         </div>
         <PromotionKpiCards total={view.current.total} showRegistration={marketplace === 'owned'} />
       </section>
-      <DailyToplineChart rows={view.current.byDaily} lineMetric={marketplace === 'owned' ? 'registration' : 'roas'} />
+      <DailyToplineChart rows={view.current.byDaily} metrics={dailyToplineMetrics} />
       {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} showRegistration={marketplace === 'owned'} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} showRegistration={marketplace === 'owned'} />
@@ -1544,19 +1550,27 @@ function ReportCommentContent({ text }: { text: string }) {
   );
 }
 
+const DAILY_TOPLINE_COLORS = [
+  'var(--chart-1)',
+  'var(--chart-3)',
+  'var(--chart-5)',
+  'var(--chart-2)',
+  'var(--chart-4)',
+  'var(--chart-6)',
+  'var(--chart-7)',
+  'var(--chart-8)'
+];
+
 function DailyToplineChart({
   rows,
-  comparisonLabel,
-  lineMetric = 'roas'
+  metrics,
+  comparisonLabel
 }: {
   rows: ReportSummary[];
+  metrics: DailyToplineMetric[];
   comparisonLabel?: string;
-  lineMetric?: 'roas' | 'registration';
 }) {
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; row: ReportSummary } | null>(null);
   const sorted = [...rows].filter(row => row.key !== '날짜 없음').sort((a, b) => a.label.localeCompare(b.label));
-  const lineLabel = lineMetric === 'registration' ? '회원가입수' : 'ROAS';
-  const formatLineValue = (value: number) => lineMetric === 'registration' ? formatInteger(value) : formatPercent(value);
   if (!sorted.length) {
     return (
       <section className="section report-chart-section">
@@ -1566,83 +1580,85 @@ function DailyToplineChart({
     );
   }
 
-  const width = 1120;
-  const height = 340;
-  const left = 70;
-  const right = 72;
-  const top = 34;
-  const bottom = 62;
-  const chartWidth = width - left - right;
-  const chartHeight = height - top - bottom;
-  const moneyMax = Math.max(1, ...sorted.flatMap(row => [row.spend, row.sales]));
-  const lineValues = sorted
-    .map(row => row[lineMetric])
-    .filter(value => Number.isFinite(value) && value > 0)
-    .sort((a, b) => a - b);
-  const rawLineMax = Math.max(1, ...lineValues);
-  const p90Line = percentile(lineValues, 0.9);
-  const p75Line = percentile(lineValues, 0.75);
-  const robustLineMax = Math.max(1, p90Line * 1.35, p75Line * 2);
-  const lineMax = rawLineMax > robustLineMax * 1.5 ? robustLineMax : rawLineMax;
-  const slot = chartWidth / Math.max(sorted.length, 1);
-  const barWidth = Math.min(22, Math.max(7, slot * 0.36));
-  const yMoney = (value: number) => top + chartHeight - (value / moneyMax) * chartHeight;
-  const yLine = (value: number) => top + chartHeight - (Math.min(value, lineMax) / lineMax) * chartHeight;
-  const xCenter = (index: number) => left + slot * index + slot / 2;
-  const linePath = sorted
-    .map((row, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yLine(row[lineMetric])}`)
-    .join(' ');
-  const dateTickEvery = Math.max(1, Math.ceil(sorted.length / 14));
-
   return (
     <section className="section report-chart-section">
-      <div className="report-band-title"><span>Daily Topline</span><PeriodBadge label={comparisonLabel || ''} /></div>
-      <div className="report-chart-wrap" onMouseLeave={() => setTooltip(null)}>
+      <div className="report-band-title">
+        <span>Daily Topline</span>
+        <PeriodBadge label={comparisonLabel || ''} />
+        <small>{metrics.length.toLocaleString()}개 지표</small>
+      </div>
+      <div className="report-topline-metric-grid">
+        {metrics.map((metric, index) => (
+          <DailyToplineMetricChart
+            key={metric}
+            rows={sorted}
+            metric={metric}
+            color={DAILY_TOPLINE_COLORS[index % DAILY_TOPLINE_COLORS.length]}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DailyToplineMetricChart({ rows, metric, color }: { rows: ReportSummary[]; metric: DailyToplineMetric; color: string }) {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; row: ReportSummary } | null>(null);
+  const width = 540;
+  const height = 230;
+  const left = 66;
+  const right = 18;
+  const top = 18;
+  const bottom = 42;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const values = rows.map(row => dailyToplineMetricValue(row, metric));
+  const positiveValues = values.filter(value => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  const rawMax = Math.max(1, ...positiveValues);
+  const p90 = percentile(positiveValues, 0.9);
+  const p75 = percentile(positiveValues, 0.75);
+  const robustMax = Math.max(1, p90 * 1.35, p75 * 2);
+  const valueMax = rawMax > robustMax * 1.5 ? robustMax : rawMax;
+  const slot = chartWidth / Math.max(rows.length, 1);
+  const xCenter = (index: number) => left + slot * index + slot / 2;
+  const yValue = (value: number) => top + chartHeight - (Math.min(Math.max(0, value), valueMax) / valueMax) * chartHeight;
+  const linePath = values.map((value, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yValue(value)}`).join(' ');
+  const dateTickEvery = Math.max(1, Math.ceil(rows.length / 8));
+  const latestValue = values[values.length - 1] || 0;
+  const label = DAILY_TOPLINE_METRIC_LABELS[metric];
+
+  return (
+    <div className="report-topline-metric-card" style={{ '--metric-color': color } as React.CSSProperties}>
+      <div className="report-topline-metric-head">
+        <b>{label}</b>
+        <span>{formatDailyToplineMetric(metric, latestValue)}</span>
+      </div>
+      <div className="report-topline-metric-chart" onMouseLeave={() => setTooltip(null)}>
         {tooltip && (
           <div className="report-chart-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
             <b>{tooltip.row.label}</b>
-            <span>광고비 {formatCurrency(tooltip.row.spend)}</span>
-            <span>매출 {formatCurrency(tooltip.row.sales)}</span>
-            <span>클릭 {formatInteger(tooltip.row.clicks)} / 전환 {formatInteger(tooltip.row.conversions)}</span>
-            <span>CPM {formatCurrency(tooltip.row.cpm)}</span>
-            <span>{lineLabel} {formatLineValue(tooltip.row[lineMetric])}</span>
+            <span>{label} {formatDailyToplineMetric(metric, dailyToplineMetricValue(tooltip.row, metric))}</span>
           </div>
         )}
-        <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`일자별 광고비, 매출, ${lineLabel} 추이`}>
-          {[0, 0.25, 0.5, 0.75, 1].map(rate => {
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`일자별 ${label} 추이`}>
+          {[0, 0.5, 1].map(rate => {
             const y = top + chartHeight - chartHeight * rate;
-            const money = moneyMax * rate;
-            const lineValue = lineMax * rate;
+            const tickValue = valueMax * rate;
             return (
               <g key={rate}>
                 <line x1={left} x2={width - right} y1={y} y2={y} stroke="var(--chart-grid-strong)" strokeWidth="1" />
-                <text x={left - 8} y={y + 4} textAnchor="end" className="report-chart-axis">{compactCurrency(money)}</text>
-                <text x={width - right + 8} y={y + 4} textAnchor="start" className="report-chart-axis">{rate === 1 && rawLineMax > lineMax ? `>${formatLineValue(lineValue)}` : formatLineValue(lineValue)}</text>
+                <text x={left - 8} y={y + 4} textAnchor="end" className="report-chart-axis">
+                  {rate === 1 && rawMax > valueMax ? `>${compactDailyToplineMetric(metric, tickValue)}` : compactDailyToplineMetric(metric, tickValue)}
+                </text>
               </g>
             );
           })}
-
-          {sorted.map((row, index) => {
-            const x = xCenter(index);
-            const spendHeight = top + chartHeight - yMoney(row.spend);
-            const salesHeight = top + chartHeight - yMoney(row.sales);
-            return (
-              <g key={row.key}>
-                <rect x={x - barWidth} y={yMoney(row.spend)} width={barWidth} height={Math.max(0, spendHeight)} rx="2" fill="var(--chart-1)" />
-                <rect x={x} y={yMoney(row.sales)} width={barWidth} height={Math.max(0, salesHeight)} rx="2" fill="var(--chart-3)" />
-                {index % dateTickEvery === 0 && (
-                  <text x={x} y={height - 18} textAnchor="middle" className="report-chart-date">
-                    {row.label}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-
-          <path d={linePath} fill="none" stroke="var(--c-danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          {sorted.map((row, index) => (
-            <g key={`${row.key}-points`}>
-              <circle cx={xCenter(index)} cy={yLine(row[lineMetric])} r="3" fill="var(--c-danger)" />
+          <path d={linePath} fill="none" stroke="var(--metric-color)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          {rows.map((row, index) => (
+            <g key={row.key}>
+              <circle cx={xCenter(index)} cy={yValue(values[index])} r="2.8" fill="var(--metric-color)" />
+              {index % dateTickEvery === 0 && (
+                <text x={xCenter(index)} y={height - 14} textAnchor="middle" className="report-chart-date">{row.label}</text>
+              )}
               <rect
                 x={left + slot * index}
                 y={top}
@@ -1655,14 +1671,27 @@ function DailyToplineChart({
             </g>
           ))}
         </svg>
-        <div className="report-chart-legend">
-          <span><i style={{ background: 'var(--chart-1)' }} />광고비</span>
-          <span><i style={{ background: 'var(--chart-3)' }} />매출</span>
-          <span><i className="line" style={{ background: 'var(--c-danger)' }} />{lineLabel}</span>
-        </div>
       </div>
-    </section>
+    </div>
   );
+}
+
+function dailyToplineMetricValue(row: ReportSummary, metric: DailyToplineMetric): number {
+  if (metric === 'registrationCpa') return safeRatio(row.spend, row.registration);
+  return Number(row[metric] || 0);
+}
+
+function formatDailyToplineMetric(metric: DailyToplineMetric, value: number): string {
+  if (['spend', 'sales', 'registrationCpa', 'cpm', 'cpc', 'cpa'].includes(metric)) return formatCurrency(value);
+  if (metric === 'ctr' || metric === 'cvr') return formatPercent(value);
+  if (metric === 'roas') return (Number(value) || 0).toFixed(2);
+  return formatInteger(value);
+}
+
+function compactDailyToplineMetric(metric: DailyToplineMetric, value: number): string {
+  if (metric === 'ctr' || metric === 'cvr') return formatPercent(value);
+  if (metric === 'roas') return (Number(value) || 0).toFixed(1);
+  return compactCurrency(value);
 }
 
 function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetric[]; comparisonLabel?: string }) {

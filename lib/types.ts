@@ -3,6 +3,41 @@ import type { ReportParseResult } from './report/reportTypes';
 export const DEFAULT_VISIBLE_REPORT_TABS = ['total', 'campaigns', 'creatives', 'qoo10', 'owned'] as const;
 export type ReportTabKey = typeof DEFAULT_VISIBLE_REPORT_TABS[number];
 
+export const DAILY_TOPLINE_METRIC_KEYS = [
+  'spend',
+  'sales',
+  'impressions',
+  'clicks',
+  'conversions',
+  'addToCart',
+  'registration',
+  'registrationCpa',
+  'ctr',
+  'cpm',
+  'cvr',
+  'cpc',
+  'cpa',
+  'roas'
+] as const;
+export type DailyToplineMetric = typeof DAILY_TOPLINE_METRIC_KEYS[number];
+export const DEFAULT_DAILY_TOPLINE_METRICS: DailyToplineMetric[] = ['spend', 'sales', 'roas'];
+export const DAILY_TOPLINE_METRIC_LABELS: Record<DailyToplineMetric, string> = {
+  spend: '광고비',
+  sales: '매출',
+  impressions: '노출',
+  clicks: '클릭',
+  conversions: '전환',
+  addToCart: '장바구니',
+  registration: '회원가입수',
+  registrationCpa: '회원가입 CPA',
+  ctr: 'CTR',
+  cpm: 'CPM',
+  cvr: 'CVR',
+  cpc: 'CPC',
+  cpa: 'CPA',
+  roas: 'ROAS'
+};
+
 export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'cpm' | 'cpc' | 'roas';
 
 export type Brand = {
@@ -13,6 +48,7 @@ export type Brand = {
   metaAdAccountId: string;
   commissionPercent: number;
   visibleReportTabs: ReportTabKey[];
+  dailyToplineMetrics: DailyToplineMetric[];
   createdAt: number;
 };
 
@@ -22,6 +58,7 @@ export type BrandPatch = {
   metaAdAccountId?: string;
   commissionPercent?: number;
   visibleReportTabs?: ReportTabKey[];
+  dailyToplineMetrics?: DailyToplineMetric[];
 };
 
 export type DashboardTab = {
