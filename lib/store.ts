@@ -16,7 +16,7 @@ import { db, primaryAdminEmail } from './firebase';
 import { DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
-import { DEFAULT_COMMISSION_PERCENT } from './report/schema';
+import { DEFAULT_COMMISSION_PERCENT, DEFAULT_EXCHANGE_RATE } from './report/schema';
 
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
 const REPORT_FILE_CHUNKS_PER_COMMIT = 8;
@@ -87,6 +87,8 @@ export async function createBrand(name: string, color = '#1AB7B0'): Promise<Bran
     shareToken: makeShareToken(),
     metaAdAccountId: '',
     commissionPercent: DEFAULT_COMMISSION_PERCENT,
+    spendBasis: 'gross',
+    exchangeRate: DEFAULT_EXCHANGE_RATE,
     visibleReportTabs: [...DEFAULT_VISIBLE_REPORT_TABS],
     dailyToplineMetrics: [...DEFAULT_DAILY_TOPLINE_METRICS],
     createdAt: Date.now()
@@ -130,6 +132,19 @@ export async function updateBrand(brandId: string, patch: BrandPatch) {
       throw new Error('수수료율은 0~100 사이의 숫자로 입력해주세요.');
     }
     update.commissionPercent = Math.round(commissionPercent * 100) / 100;
+  }
+  if (patch.spendBasis !== undefined) {
+    if (patch.spendBasis !== 'gross' && patch.spendBasis !== 'net') {
+      throw new Error('광고비 기준은 그로스 또는 넷이어야 합니다.');
+    }
+    update.spendBasis = patch.spendBasis;
+  }
+  if (patch.exchangeRate !== undefined) {
+    const exchangeRate = Number(patch.exchangeRate);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0 || exchangeRate > 1000) {
+      throw new Error('환율은 0보다 크고 1,000 이하인 숫자로 입력해주세요.');
+    }
+    update.exchangeRate = Math.round(exchangeRate * 10000) / 10000;
   }
   if (patch.visibleReportTabs !== undefined) {
     const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => patch.visibleReportTabs?.includes(tab));
@@ -390,6 +405,7 @@ function cleanFirestoreData<T>(value: T): T {
 
 function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
   const storedCommission = Number(data.commissionPercent);
+  const storedExchangeRate = Number(data.exchangeRate);
   const storedVisibleTabs = Array.isArray(data.visibleReportTabs) ? data.visibleReportTabs.map(String) : [];
   const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => storedVisibleTabs.includes(tab));
   const allowedDailyToplineMetrics = new Set<string>(DAILY_TOPLINE_METRIC_KEYS);
@@ -408,6 +424,10 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
     commissionPercent: Number.isFinite(storedCommission) && storedCommission >= 0 && storedCommission <= 100
       ? storedCommission
       : DEFAULT_COMMISSION_PERCENT,
+    spendBasis: data.spendBasis === 'net' ? 'net' : 'gross',
+    exchangeRate: Number.isFinite(storedExchangeRate) && storedExchangeRate > 0 && storedExchangeRate <= 1000
+      ? storedExchangeRate
+      : DEFAULT_EXCHANGE_RATE,
     visibleReportTabs: visibleReportTabs.length ? visibleReportTabs : [...DEFAULT_VISIBLE_REPORT_TABS],
     dailyToplineMetrics,
     createdAt: Number(data.createdAt || 0)

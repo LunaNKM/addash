@@ -39,6 +39,7 @@ export const DAILY_TOPLINE_METRIC_LABELS: Record<DailyToplineMetric, string> = {
 };
 
 export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'cpm' | 'cpc' | 'roas';
+export type SpendBasis = 'gross' | 'net';
 
 export type Brand = {
   id: string;
@@ -47,6 +48,8 @@ export type Brand = {
   shareToken: string;
   metaAdAccountId: string;
   commissionPercent: number;
+  spendBasis: SpendBasis;
+  exchangeRate: number;
   visibleReportTabs: ReportTabKey[];
   dailyToplineMetrics: DailyToplineMetric[];
   createdAt: number;
@@ -57,6 +60,8 @@ export type BrandPatch = {
   color?: string;
   metaAdAccountId?: string;
   commissionPercent?: number;
+  spendBasis?: SpendBasis;
+  exchangeRate?: number;
   visibleReportTabs?: ReportTabKey[];
   dailyToplineMetrics?: DailyToplineMetric[];
 };

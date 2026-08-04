@@ -30,7 +30,7 @@ import {
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import {
   DirectCreativeUploadModal,
@@ -53,7 +53,6 @@ type MarketplaceTab = 'qoo10' | 'owned';
 type PromotionSubTab = 'total' | 'always' | 'megawari' | 'megapo' | 'market' | 'live' | 'hybrid';
 type ReportTab = ReportTabKey;
 type ReportSourceType = 'xlsx' | 'meta';
-type SpendBasis = 'gross' | 'net';
 
 const marketplaceTabs: { id: MarketplaceTab; label: string }[] = [
   { id: 'qoo10', label: 'Qoo10' },
@@ -134,6 +133,7 @@ export default function ReportLabPage() {
   const [adgroupFilter, setAdgroupFilter] = useState<string[]>([]);
   const [adFilter, setAdFilter] = useState<string[]>([]);
   const [authError, setAuthError] = useState('');
+  const preferenceSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const copyShareLink = useCallback((targetBrand: Brand) => {
     const url = buildReportShareUrl(location.origin, targetBrand, spendBasis, exchangeRate);
@@ -194,15 +194,23 @@ export default function ReportLabPage() {
     setPeriodEnd(range.end);
   }, []);
 
-  const loadBrandContext = useCallback(async (target: Brand | null) => {
+  const loadBrandContext = useCallback(async (
+    target: Brand | null,
+    preferences: Partial<Pick<Brand, 'spendBasis' | 'exchangeRate'>> = {}
+  ) => {
     setBrand(target);
     if (!target) {
+      setSpendBasis('gross');
+      setExchangeRate(DEFAULT_EXCHANGE_RATE);
       setDashboardTabs([]);
       setDashboardTab(null);
       setKpi(emptyKpi);
       resetReportState();
       return;
     }
+
+    setSpendBasis(preferences.spendBasis ?? target.spendBasis);
+    setExchangeRate(preferences.exchangeRate ?? target.exchangeRate);
 
     const loadedTabs = await listTabs(target.id);
     const nextTab = loadedTabs[0] || null;
@@ -321,8 +329,10 @@ export default function ReportLabPage() {
           const shareToken = shareUrl.searchParams.get('share');
           const sharedBasis = parseSharedSpendBasis(shareUrl.searchParams.get('basis'));
           const sharedExchangeRate = parseSharedExchangeRate(shareUrl.searchParams.get('rate'));
-          if (sharedBasis) setSpendBasis(sharedBasis);
-          if (sharedExchangeRate) setExchangeRate(sharedExchangeRate);
+          const sharedPreferences = {
+            ...(sharedBasis ? { spendBasis: sharedBasis } : {}),
+            ...(sharedExchangeRate ? { exchangeRate: sharedExchangeRate } : {})
+          };
 
           if (admin) {
             const list = await listBrandsForAdmin();
@@ -330,11 +340,11 @@ export default function ReportLabPage() {
             const sharedBrand = shareToken
               ? list.find(item => item.shareToken === shareToken) || await findBrandByShareToken(shareToken)
               : null;
-            await loadBrandContext(sharedBrand || list[0] || null);
+            await loadBrandContext(sharedBrand || list[0] || null, sharedPreferences);
           } else if (shareToken) {
             const found = await findBrandByShareToken(shareToken);
             setBrands(found ? [found] : []);
-            await loadBrandContext(found);
+            await loadBrandContext(found, sharedPreferences);
           } else {
             await loadBrandContext(null);
           }
@@ -712,7 +722,11 @@ export default function ReportLabPage() {
       const list = await listBrandsForAdmin();
       setBrands(list);
       const updated = list.find(item => item.id === brandId);
-      if (updated && brand?.id === brandId) setBrand(updated);
+      if (updated && brand?.id === brandId) {
+        setBrand(updated);
+        if (patch.spendBasis !== undefined) setSpendBasis(updated.spendBasis);
+        if (patch.exchangeRate !== undefined) setExchangeRate(updated.exchangeRate);
+      }
     } catch (err) {
       alert(errorMessage(err));
     }
@@ -755,6 +769,42 @@ export default function ReportLabPage() {
       setCommentBusy('');
     }
   }
+
+  const saveBrandReportPreferences = useCallback(async (
+    patch: Pick<BrandPatch, 'spendBasis' | 'exchangeRate'>
+  ) => {
+    if (!brand || !isAdmin) return;
+    const nextPatch: Pick<BrandPatch, 'spendBasis' | 'exchangeRate'> = {};
+    if (patch.spendBasis !== undefined) nextPatch.spendBasis = patch.spendBasis;
+    if (patch.exchangeRate !== undefined) {
+      nextPatch.exchangeRate = Number.isFinite(patch.exchangeRate) && patch.exchangeRate > 0
+        ? Math.round(patch.exchangeRate * 10000) / 10000
+        : brand.exchangeRate;
+    }
+    try {
+      await updateBrand(brand.id, nextPatch);
+      setBrand(current => current?.id === brand.id
+        ? { ...current, ...nextPatch }
+        : current);
+      setBrands(current => current.map(item => item.id === brand.id
+        ? { ...item, ...nextPatch }
+        : item));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }, [brand, isAdmin]);
+
+  const scheduleExchangeRateSave = useCallback((nextExchangeRate: number) => {
+    if (preferenceSaveTimerRef.current) clearTimeout(preferenceSaveTimerRef.current);
+    preferenceSaveTimerRef.current = setTimeout(() => {
+      preferenceSaveTimerRef.current = null;
+      void saveBrandReportPreferences({ exchangeRate: nextExchangeRate });
+    }, 500);
+  }, [saveBrandReportPreferences]);
+
+  useEffect(() => () => {
+    if (preferenceSaveTimerRef.current) clearTimeout(preferenceSaveTimerRef.current);
+  }, []);
 
   async function openCollectorSettings() {
     if (!brand || !dashboardTab) return;
@@ -913,7 +963,15 @@ export default function ReportLabPage() {
             <button
               type="button"
               className={`report-spend-basis-toggle ${spendBasis === 'net' ? 'is-net' : ''}`}
-              onClick={() => setSpendBasis(current => current === 'gross' ? 'net' : 'gross')}
+              onClick={() => {
+                const nextBasis = spendBasis === 'gross' ? 'net' : 'gross';
+                if (preferenceSaveTimerRef.current) {
+                  clearTimeout(preferenceSaveTimerRef.current);
+                  preferenceSaveTimerRef.current = null;
+                }
+                setSpendBasis(nextBasis);
+                void saveBrandReportPreferences({ spendBasis: nextBasis });
+              }}
               aria-pressed={spendBasis === 'net'}
               title="광고비 표시 기준 전환"
             >
@@ -924,10 +982,23 @@ export default function ReportLabPage() {
               type="number"
               step="0.01"
               min="0"
+              max="1000"
               value={exchangeRate}
-              onChange={event => setExchangeRate(Number(event.target.value) || DEFAULT_EXCHANGE_RATE)}
+              onChange={event => {
+                const nextRate = Number(event.target.value);
+                if (!Number.isFinite(nextRate) || nextRate <= 0) return;
+                setExchangeRate(nextRate);
+                scheduleExchangeRateSave(nextRate);
+              }}
+              onBlur={() => {
+                if (preferenceSaveTimerRef.current) {
+                  clearTimeout(preferenceSaveTimerRef.current);
+                  preferenceSaveTimerRef.current = null;
+                }
+                void saveBrandReportPreferences({ exchangeRate });
+              }}
             />
-            <span className="muted">JPY → KRW. 변경한 환율은 다시 업로드하면 적용됩니다.</span>
+            <span className="muted">JPY → KRW · 관리자 변경값은 브랜드별로 자동 저장됩니다.</span>
             {result && (
               <>
                 <span className="filter-label">시트</span>
@@ -1118,7 +1189,7 @@ export default function ReportLabPage() {
           refreshBrands={async () => setBrands(await listBrandsForAdmin())}
           onUpdateBrand={updateBrandFlow}
           sharePath="/report-lab"
-          getShareUrl={item => buildReportShareUrl(location.origin, item, spendBasis, exchangeRate)}
+          getShareUrl={item => buildReportShareUrl(location.origin, item, item.spendBasis, item.exchangeRate)}
         />
       )}
       {collectorOpen && brand && dashboardTab && (
