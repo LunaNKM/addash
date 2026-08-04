@@ -1550,17 +1550,6 @@ function ReportCommentContent({ text }: { text: string }) {
   );
 }
 
-const DAILY_TOPLINE_COLORS = [
-  'var(--chart-1)',
-  'var(--chart-3)',
-  'var(--chart-5)',
-  'var(--chart-2)',
-  'var(--chart-4)',
-  'var(--chart-6)',
-  'var(--chart-7)',
-  'var(--chart-8)'
-];
-
 function DailyToplineChart({
   rows,
   metrics,
@@ -1570,6 +1559,11 @@ function DailyToplineChart({
   metrics: DailyToplineMetric[];
   comparisonLabel?: string;
 }) {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; row: ReportSummary } | null>(null);
+  const [barMetricOne = 'spend', barMetricTwo = 'sales', lineMetric = 'roas'] = metrics;
+  const barOneLabel = DAILY_TOPLINE_METRIC_LABELS[barMetricOne];
+  const barTwoLabel = DAILY_TOPLINE_METRIC_LABELS[barMetricTwo];
+  const lineLabel = DAILY_TOPLINE_METRIC_LABELS[lineMetric];
   const sorted = [...rows].filter(row => row.key !== '날짜 없음').sort((a, b) => a.label.localeCompare(b.label));
   if (!sorted.length) {
     return (
@@ -1580,82 +1574,84 @@ function DailyToplineChart({
     );
   }
 
+  const width = 1120;
+  const height = 340;
+  const left = 70;
+  const right = 72;
+  const top = 34;
+  const bottom = 62;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const barOneValues = sorted.map(row => dailyToplineMetricValue(row, barMetricOne));
+  const barTwoValues = sorted.map(row => dailyToplineMetricValue(row, barMetricTwo));
+  const lineValues = sorted.map(row => dailyToplineMetricValue(row, lineMetric));
+  const barOneMax = Math.max(1, ...barOneValues.filter(Number.isFinite));
+  const barTwoMax = Math.max(1, ...barTwoValues.filter(Number.isFinite));
+  const positiveLineValues = lineValues.filter(value => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  const rawLineMax = Math.max(1, ...positiveLineValues);
+  const p90 = percentile(positiveLineValues, 0.9);
+  const p75 = percentile(positiveLineValues, 0.75);
+  const robustMax = Math.max(1, p90 * 1.35, p75 * 2);
+  const lineMax = rawLineMax > robustMax * 1.5 ? robustMax : rawLineMax;
+  const slot = chartWidth / Math.max(sorted.length, 1);
+  const barWidth = Math.max(3, Math.min(18, slot * 0.3));
+  const xCenter = (index: number) => left + slot * index + slot / 2;
+  const yBarOne = (value: number) => top + chartHeight - (Math.min(Math.max(0, value), barOneMax) / barOneMax) * chartHeight;
+  const yBarTwo = (value: number) => top + chartHeight - (Math.min(Math.max(0, value), barTwoMax) / barTwoMax) * chartHeight;
+  const yLine = (value: number) => top + chartHeight - (Math.min(Math.max(0, value), lineMax) / lineMax) * chartHeight;
+  const linePath = lineValues.map((value, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yLine(value)}`).join(' ');
+  const dateTickEvery = Math.max(1, Math.ceil(sorted.length / 12));
+
   return (
     <section className="section report-chart-section">
       <div className="report-band-title">
         <span>Daily Topline</span>
         <PeriodBadge label={comparisonLabel || ''} />
-        <small>{metrics.length.toLocaleString()}개 지표</small>
       </div>
-      <div className="report-topline-metric-grid">
-        {metrics.map((metric, index) => (
-          <DailyToplineMetricChart
-            key={metric}
-            rows={sorted}
-            metric={metric}
-            color={DAILY_TOPLINE_COLORS[index % DAILY_TOPLINE_COLORS.length]}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function DailyToplineMetricChart({ rows, metric, color }: { rows: ReportSummary[]; metric: DailyToplineMetric; color: string }) {
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; row: ReportSummary } | null>(null);
-  const width = 540;
-  const height = 230;
-  const left = 66;
-  const right = 18;
-  const top = 18;
-  const bottom = 42;
-  const chartWidth = width - left - right;
-  const chartHeight = height - top - bottom;
-  const values = rows.map(row => dailyToplineMetricValue(row, metric));
-  const positiveValues = values.filter(value => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
-  const rawMax = Math.max(1, ...positiveValues);
-  const p90 = percentile(positiveValues, 0.9);
-  const p75 = percentile(positiveValues, 0.75);
-  const robustMax = Math.max(1, p90 * 1.35, p75 * 2);
-  const valueMax = rawMax > robustMax * 1.5 ? robustMax : rawMax;
-  const slot = chartWidth / Math.max(rows.length, 1);
-  const xCenter = (index: number) => left + slot * index + slot / 2;
-  const yValue = (value: number) => top + chartHeight - (Math.min(Math.max(0, value), valueMax) / valueMax) * chartHeight;
-  const linePath = values.map((value, index) => `${index === 0 ? 'M' : 'L'} ${xCenter(index)} ${yValue(value)}`).join(' ');
-  const dateTickEvery = Math.max(1, Math.ceil(rows.length / 8));
-  const latestValue = values[values.length - 1] || 0;
-  const label = DAILY_TOPLINE_METRIC_LABELS[metric];
-
-  return (
-    <div className="report-topline-metric-card" style={{ '--metric-color': color } as React.CSSProperties}>
-      <div className="report-topline-metric-head">
-        <b>{label}</b>
-        <span>{formatDailyToplineMetric(metric, latestValue)}</span>
-      </div>
-      <div className="report-topline-metric-chart" onMouseLeave={() => setTooltip(null)}>
+      <div className="report-chart-wrap" onMouseLeave={() => setTooltip(null)}>
         {tooltip && (
           <div className="report-chart-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
             <b>{tooltip.row.label}</b>
-            <span>{label} {formatDailyToplineMetric(metric, dailyToplineMetricValue(tooltip.row, metric))}</span>
+            <span>{barOneLabel} {formatDailyToplineMetric(barMetricOne, dailyToplineMetricValue(tooltip.row, barMetricOne))}</span>
+            <span>{barTwoLabel} {formatDailyToplineMetric(barMetricTwo, dailyToplineMetricValue(tooltip.row, barMetricTwo))}</span>
+            <span>{lineLabel} {formatDailyToplineMetric(lineMetric, dailyToplineMetricValue(tooltip.row, lineMetric))}</span>
           </div>
         )}
-        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`일자별 ${label} 추이`}>
-          {[0, 0.5, 1].map(rate => {
+        <div className="report-chart-legend">
+          <span><i style={{ background: 'var(--chart-1)' }} />{barOneLabel}</span>
+          <span><i style={{ background: 'var(--chart-3)' }} />{barTwoLabel}</span>
+          <span><i className="line" style={{ background: 'var(--c-danger)' }} />{lineLabel}</span>
+        </div>
+        <svg className="report-topline-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`일자별 ${barOneLabel}, ${barTwoLabel}, ${lineLabel} 추이`}>
+          {[0, 0.25, 0.5, 0.75, 1].map(rate => {
             const y = top + chartHeight - chartHeight * rate;
-            const tickValue = valueMax * rate;
             return (
               <g key={rate}>
                 <line x1={left} x2={width - right} y1={y} y2={y} stroke="var(--chart-grid-strong)" strokeWidth="1" />
                 <text x={left - 8} y={y + 4} textAnchor="end" className="report-chart-axis">
-                  {rate === 1 && rawMax > valueMax ? `>${compactDailyToplineMetric(metric, tickValue)}` : compactDailyToplineMetric(metric, tickValue)}
+                  {compactDailyToplineMetric(barMetricOne, barOneMax * rate)}
+                </text>
+                <text x={width - right + 8} y={y + 4} textAnchor="start" className="report-chart-axis">
+                  {rate === 1 && rawLineMax > lineMax ? `>${compactDailyToplineMetric(lineMetric, lineMax * rate)}` : compactDailyToplineMetric(lineMetric, lineMax * rate)}
                 </text>
               </g>
             );
           })}
-          <path d={linePath} fill="none" stroke="var(--metric-color)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          {rows.map((row, index) => (
+          {sorted.map((row, index) => {
+            const center = xCenter(index);
+            const barOneY = yBarOne(barOneValues[index]);
+            const barTwoY = yBarTwo(barTwoValues[index]);
+            return (
+              <g key={`bars-${row.key}`}>
+                <rect x={center - barWidth} y={barOneY} width={barWidth} height={top + chartHeight - barOneY} rx="2" fill="var(--chart-1)" />
+                <rect x={center} y={barTwoY} width={barWidth} height={top + chartHeight - barTwoY} rx="2" fill="var(--chart-3)" />
+              </g>
+            );
+          })}
+          <path d={linePath} fill="none" stroke="var(--c-danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          {sorted.map((row, index) => (
             <g key={row.key}>
-              <circle cx={xCenter(index)} cy={yValue(values[index])} r="2.8" fill="var(--metric-color)" />
+              <circle cx={xCenter(index)} cy={yLine(lineValues[index])} r="3" fill="var(--c-danger)" />
               {index % dateTickEvery === 0 && (
                 <text x={xCenter(index)} y={height - 14} textAnchor="middle" className="report-chart-date">{row.label}</text>
               )}
@@ -1672,7 +1668,7 @@ function DailyToplineMetricChart({ rows, metric, color }: { rows: ReportSummary[
           ))}
         </svg>
       </div>
-    </div>
+    </section>
   );
 }
 

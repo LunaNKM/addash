@@ -137,8 +137,11 @@ export async function updateBrand(brandId: string, patch: BrandPatch) {
     update.visibleReportTabs = visibleReportTabs;
   }
   if (patch.dailyToplineMetrics !== undefined) {
-    const dailyToplineMetrics = DAILY_TOPLINE_METRIC_KEYS.filter(metric => patch.dailyToplineMetrics?.includes(metric));
-    if (!dailyToplineMetrics.length) throw new Error('Daily Topline 지표를 최소 1개 선택해주세요.');
+    const allowed = new Set<string>(DAILY_TOPLINE_METRIC_KEYS);
+    const dailyToplineMetrics = patch.dailyToplineMetrics.filter(metric => allowed.has(metric));
+    if (dailyToplineMetrics.length !== 3 || new Set(dailyToplineMetrics).size !== 3) {
+      throw new Error('Daily Topline의 막대 2개와 선 1개에 서로 다른 지표를 선택해주세요.');
+    }
     update.dailyToplineMetrics = dailyToplineMetrics;
   }
   if (Object.keys(update).length === 0) return;
@@ -389,8 +392,13 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
   const storedCommission = Number(data.commissionPercent);
   const storedVisibleTabs = Array.isArray(data.visibleReportTabs) ? data.visibleReportTabs.map(String) : [];
   const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => storedVisibleTabs.includes(tab));
-  const storedDailyToplineMetrics = Array.isArray(data.dailyToplineMetrics) ? data.dailyToplineMetrics.map(String) : [];
-  const dailyToplineMetrics = DAILY_TOPLINE_METRIC_KEYS.filter(metric => storedDailyToplineMetrics.includes(metric));
+  const allowedDailyToplineMetrics = new Set<string>(DAILY_TOPLINE_METRIC_KEYS);
+  const storedDailyToplineMetrics = Array.isArray(data.dailyToplineMetrics)
+    ? data.dailyToplineMetrics.map(String).filter(metric => allowedDailyToplineMetrics.has(metric))
+    : [];
+  const dailyToplineMetrics = storedDailyToplineMetrics.length === 3 && new Set(storedDailyToplineMetrics).size === 3
+    ? storedDailyToplineMetrics as Brand['dailyToplineMetrics']
+    : [...DEFAULT_DAILY_TOPLINE_METRICS];
   return {
     id,
     name: String(data.name || ''),
@@ -401,7 +409,7 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
       ? storedCommission
       : DEFAULT_COMMISSION_PERCENT,
     visibleReportTabs: visibleReportTabs.length ? visibleReportTabs : [...DEFAULT_VISIBLE_REPORT_TABS],
-    dailyToplineMetrics: dailyToplineMetrics.length ? dailyToplineMetrics : [...DEFAULT_DAILY_TOPLINE_METRICS],
+    dailyToplineMetrics,
     createdAt: Number(data.createdAt || 0)
   };
 }

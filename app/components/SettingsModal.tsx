@@ -39,7 +39,8 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.visibleReportTabs, brand.dailyToplineMetrics]);
 
   const visibleTabsDirty = DEFAULT_VISIBLE_REPORT_TABS.some(tab => visibleReportTabs.includes(tab) !== brand.visibleReportTabs.includes(tab));
-  const dailyToplineMetricsDirty = DAILY_TOPLINE_METRIC_KEYS.some(metric => dailyToplineMetrics.includes(metric) !== brand.dailyToplineMetrics.includes(metric));
+  const dailyToplineMetricsDirty = dailyToplineMetrics.length !== brand.dailyToplineMetrics.length
+    || dailyToplineMetrics.some((metric, index) => metric !== brand.dailyToplineMetrics[index]);
   const dirty = name !== brand.name
     || color.toLowerCase() !== brand.color.toLowerCase()
     || adAccountId !== (brand.metaAdAccountId || '')
@@ -48,7 +49,7 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
     || dailyToplineMetricsDirty;
   const validCommission = Number.isFinite(commissionPercent) && commissionPercent >= 0 && commissionPercent <= 100;
   const validTabSelection = visibleReportTabs.length > 0;
-  const validDailyToplineSelection = dailyToplineMetrics.length > 0;
+  const validDailyToplineSelection = dailyToplineMetrics.length === 3 && new Set(dailyToplineMetrics).size === 3;
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -122,24 +123,32 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
 
           <div>
             <label>Daily Topline 표시 지표</label>
-            <div className="brand-tab-visibility brand-metric-visibility">
-              {DAILY_TOPLINE_METRIC_KEYS.map(metric => (
-                <label className="brand-tab-option" key={metric}>
-                  <input
-                    type="checkbox"
-                    checked={dailyToplineMetrics.includes(metric)}
+            <div className="brand-topline-slots">
+              {(['막대 그래프 1', '막대 그래프 2', '선 그래프'] as const).map((slotLabel, index) => (
+                <label key={slotLabel}>
+                  <span>{slotLabel}</span>
+                  <select
+                    value={dailyToplineMetrics[index]}
                     onChange={event => {
-                      setDailyToplineMetrics(current => event.target.checked
-                        ? DAILY_TOPLINE_METRIC_KEYS.filter(item => item === metric || current.includes(item))
-                        : current.filter(item => item !== metric));
+                      const metric = event.target.value as DailyToplineMetric;
+                      setDailyToplineMetrics(current => current.map((item, itemIndex) => itemIndex === index ? metric : item));
                     }}
-                  />
-                  <span>{DAILY_TOPLINE_METRIC_LABELS[metric]}</span>
+                  >
+                    {DAILY_TOPLINE_METRIC_KEYS.map(metric => (
+                      <option
+                        key={metric}
+                        value={metric}
+                        disabled={dailyToplineMetrics.some((selected, selectedIndex) => selectedIndex !== index && selected === metric)}
+                      >
+                        {DAILY_TOPLINE_METRIC_LABELS[metric]}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               ))}
             </div>
-            <small className="muted">선택한 지표마다 독립된 일별 추이 그래프가 표시됩니다.</small>
-            {!validDailyToplineSelection && <small className="warn">최소 1개의 지표를 선택해야 합니다.</small>}
+            <small className="muted">기존 막대 2개와 선 1개의 그래프 형태는 유지되고 선택한 지표만 변경됩니다.</small>
+            {!validDailyToplineSelection && <small className="warn">세 그래프에 서로 다른 지표를 선택해주세요.</small>}
           </div>
 
           <div>
