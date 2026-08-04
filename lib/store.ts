@@ -513,10 +513,11 @@ function normalizeReportComment(id: string, data: Record<string, unknown>): Repo
 }
 
 function normalizeCreativeAsset(id: string, data: Record<string, unknown>): CreativeAssetDoc {
+  const source: CreativeAssetDoc['source'] = data.source === 'meta' || data.source === 'upload' ? data.source : 'singleone';
   const asset = {
     id,
     key: String(data.key || ''),
-    source: data.source === 'meta' ? 'meta' as const : 'singleone' as const,
+    source,
     media: String(data.media || 's-meta'),
     campaignName: String(data.campaignName || ''),
     adgroupName: String(data.adgroupName || ''),

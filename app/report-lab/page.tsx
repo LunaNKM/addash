@@ -25,12 +25,19 @@ import {
   saveSingleOneCollectorSettings,
   saveReportComment,
   saveReportFile,
+  upsertCreativeAssets,
   updateBrand
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
 import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings } from '@/lib/types';
 import { Empty } from '../components/Empty';
+import {
+  DirectCreativeUploadModal,
+  ImageImportSourceModal,
+  type CreativeUploadTarget,
+  type PreparedCreativeUpload
+} from '../components/CreativeImageImportModal';
 import { MetaCreativeFilterModal, type MetaCreativeSelection } from '../components/MetaCreativeFilterModal';
 import { MetaFilterModal } from '../components/MetaFilterModal';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
@@ -104,7 +111,9 @@ export default function ReportLabPage() {
   const [commentEditing, setCommentEditing] = useState(false);
   const [commentBusy, setCommentBusy] = useState('');
   const [metaImportOpen, setMetaImportOpen] = useState(false);
+  const [imageImportSourceOpen, setImageImportSourceOpen] = useState(false);
   const [metaImageImportOpen, setMetaImageImportOpen] = useState(false);
+  const [directImageImportOpen, setDirectImageImportOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsMode>('none');
   const [collectorOpen, setCollectorOpen] = useState(false);
   const [collectorSettings, setCollectorSettings] = useState<SingleOneCollectorSettings | null>(null);
@@ -452,6 +461,24 @@ export default function ReportLabPage() {
     );
   }, [comparisonEnd, comparisonStart, dates.max, dates.min, filteredRows, periodEnd, periodStart, result]);
 
+  const creativeUploadTargets = useMemo<CreativeUploadTarget[]>(() => {
+    const targets = new Map<string, CreativeUploadTarget>();
+    for (const row of reportView?.currentRows || []) {
+      if (!row.adName.trim()) continue;
+      const key = makeCreativeKey(row);
+      if (targets.has(key)) continue;
+      targets.set(key, {
+        key,
+        label: row.adName,
+        campaignName: row.campaignName,
+        adgroupName: row.adgroupName,
+        adName: row.adName,
+        media: row.media
+      });
+    }
+    return Array.from(targets.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [reportView?.currentRows]);
+
   async function handleFile(file: File) {
     if (!brand || !dashboardTab || !isAdmin) {
       setError('파일 저장을 위해서는 관리자 로그인과 브랜드 선택이 필요합니다.');
@@ -613,6 +640,52 @@ export default function ReportLabPage() {
     }
   }
 
+  async function uploadCreativeImagesDirectly(uploads: PreparedCreativeUpload[]) {
+    if (!brand || !dashboardTab || !user || !isAdmin) {
+      throw new Error('이미지 업로드를 위해서는 관리자 로그인과 브랜드 선택이 필요합니다.');
+    }
+    if (!uploads.length || uploads.length > 20) {
+      throw new Error('이미지는 한 번에 1개 이상 20개 이하로 업로드해주세요.');
+    }
+
+    setBusy(`직접 업로드 이미지를 저장하는 중입니다... 0/${uploads.length}`);
+    setError('');
+    setNotice('');
+    try {
+      const now = Date.now();
+      const uploadBatches = chunkItems(uploads, 5);
+      for (let index = 0; index < uploadBatches.length; index += 1) {
+        const batch = uploadBatches[index];
+        setBusy(`직접 업로드 이미지를 저장하는 중입니다... ${Math.min((index + 1) * 5, uploads.length)}/${uploads.length}`);
+        await upsertCreativeAssets(brand.id, dashboardTab.id, batch.map(upload => ({
+          key: upload.key,
+          source: 'upload',
+          media: upload.media,
+          campaignName: upload.campaignName,
+          adgroupName: upload.adgroupName,
+          adName: upload.adName,
+          imageData: upload.imageData,
+          sourceImageUrl: '',
+          mimeType: upload.mimeType,
+          width: upload.width,
+          height: upload.height,
+          imageHash: upload.imageHash,
+          capturedAt: now
+        })));
+      }
+      const loadedCreativeAssets = await listCreativeAssets(brand.id, dashboardTab.id);
+      setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
+      setDirectImageImportOpen(false);
+      setNotice(`직접 업로드 이미지 적용 완료: ${uploads.length.toLocaleString()}개 소재`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function saveKpiFlow(next: Kpi) {
     if (!brand || !dashboardTab) return;
     await saveKpi(brand.id, dashboardTab.id, next);
@@ -744,7 +817,7 @@ export default function ReportLabPage() {
               </button>
             )}
             {brand && dashboardTab && user && (
-              <button className="btn outline" onClick={() => setMetaImageImportOpen(true)}>
+              <button className="btn outline" onClick={() => setImageImportSourceOpen(true)}>
                 이미지 불러오기
               </button>
             )}
@@ -990,6 +1063,19 @@ export default function ReportLabPage() {
           onImport={fetchReportFromMeta}
         />
       )}
+      {imageImportSourceOpen && brand && dashboardTab && user && (
+        <ImageImportSourceModal
+          onClose={() => setImageImportSourceOpen(false)}
+          onSelectMeta={() => {
+            setImageImportSourceOpen(false);
+            setMetaImageImportOpen(true);
+          }}
+          onSelectUpload={() => {
+            setImageImportSourceOpen(false);
+            setDirectImageImportOpen(true);
+          }}
+        />
+      )}
       {metaImageImportOpen && brand && user && (
         <MetaCreativeFilterModal
           brand={brand}
@@ -997,6 +1083,13 @@ export default function ReportLabPage() {
           apiPath="/api/report-meta"
           onClose={() => setMetaImageImportOpen(false)}
           onImport={fetchCreativeImagesFromMeta}
+        />
+      )}
+      {directImageImportOpen && brand && dashboardTab && user && (
+        <DirectCreativeUploadModal
+          targets={creativeUploadTargets}
+          onClose={() => setDirectImageImportOpen(false)}
+          onUpload={uploadCreativeImagesDirectly}
         />
       )}
       {authError && (
