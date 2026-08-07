@@ -3053,17 +3053,33 @@ function buildCampaignPerformanceRows(
     groups.set(label, list);
   }
 
-  const sorted = [...groups.entries()].sort(([, aRows], [, bRows]) => {
+  const targetGroups = new Map<string, NormalizedReportRow[]>();
+  for (const row of targetRows) {
+    const label = campaignNameLabel(row);
+    const list = targetGroups.get(label) || [];
+    list.push(row);
+    targetGroups.set(label, list);
+  }
+
+  const active = [...groups.entries()].filter(([label]) => {
+    const target = summarizeReportRows('target', label, targetGroups.get(label) || []);
+    return (
+      target.spend !== 0 ||
+      target.sales !== 0 ||
+      target.impressions !== 0 ||
+      target.clicks !== 0 ||
+      target.conversions !== 0 ||
+      target.addToCart !== 0
+    );
+  });
+
+  const sorted = active.sort(([, aRows], [, bRows]) => {
     const a = summarizeReportRows('a', 'a', aRows);
     const b = summarizeReportRows('b', 'b', bRows);
     return b.spend - a.spend || b.rows - a.rows;
   });
 
-  const top = sorted.slice(0, 12);
-  const rest = sorted.slice(12).flatMap(([, list]) => list);
-  if (rest.length) top.push(['기타', rest]);
-
-  return top.map(([label, list]) => buildPromotionPerformanceRow(label, list, targetRows, previousRows, targetStart, targetEnd, previousStart, previousEnd));
+  return sorted.map(([label, list]) => buildPromotionPerformanceRow(label, list, targetRows, previousRows, targetStart, targetEnd, previousStart, previousEnd));
 }
 
 function buildPromotionPerformanceRow(
