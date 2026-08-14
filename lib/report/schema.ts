@@ -10,10 +10,52 @@ export function grossRateForDate(date: string): number {
   return date && date < GROSS_RATE_CHANGE_DATE ? PRE_JULY_2026_GROSS_RATE : DEFAULT_GROSS_RATE;
 }
 
-export function toGrossCostKrw(netCostKrw: number, date: string, commissionPercent?: number): number {
-  const grossRate = Number.isFinite(commissionPercent)
-    ? 1 + Math.max(0, Number(commissionPercent)) / 100
-    : grossRateForDate(date);
+/** 특정 날짜부터 적용되는 브랜드별 수수료율 (startDate 포함). */
+export type CommissionRule = {
+  startDate: string;
+  percent: number;
+};
+
+/**
+ * 브랜드별 수수료 설정.
+ * - commissionRules: 구간별 수수료율. 행 날짜 이하의 startDate 중 가장 늦은 구간이 적용된다.
+ * - commissionPercent: 어떤 구간에도 속하지 않는 날짜(첫 구간 시작 이전)에 적용되는 기본 수수료율.
+ */
+export type CommissionSetting = {
+  commissionPercent?: number;
+  commissionRules?: CommissionRule[];
+};
+
+export function isValidCommissionPercent(value: unknown): boolean {
+  const percent = Number(value);
+  return Number.isFinite(percent) && percent >= 0 && percent <= 100;
+}
+
+export function isValidCommissionStartDate(value: unknown): boolean {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+export function sortCommissionRules(rules: CommissionRule[]): CommissionRule[] {
+  return [...rules].sort((a, b) => a.startDate.localeCompare(b.startDate));
+}
+
+/** 해당 날짜에 적용할 수수료율(%). 설정이 없으면 null. */
+export function commissionPercentForDate(date: string, setting?: number | CommissionSetting): number | null {
+  if (typeof setting === 'number') return isValidCommissionPercent(setting) ? setting : null;
+  if (!setting) return null;
+  const rules = sortCommissionRules((setting.commissionRules || []).filter(
+    rule => isValidCommissionStartDate(rule?.startDate) && isValidCommissionPercent(rule?.percent)
+  ));
+  if (date) {
+    const matched = rules.filter(rule => rule.startDate <= date).pop();
+    if (matched) return Number(matched.percent);
+  }
+  return isValidCommissionPercent(setting.commissionPercent) ? Number(setting.commissionPercent) : null;
+}
+
+export function toGrossCostKrw(netCostKrw: number, date: string, setting?: number | CommissionSetting): number {
+  const percent = commissionPercentForDate(date, setting);
+  const grossRate = percent === null ? grossRateForDate(date) : 1 + Math.max(0, percent) / 100;
   return netCostKrw ? netCostKrw * grossRate : 0;
 }
 

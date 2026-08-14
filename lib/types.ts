@@ -1,4 +1,8 @@
+import type { CommissionRule } from './report/schema';
 import type { ReportParseResult } from './report/reportTypes';
+
+export type { CommissionRule };
+export const MAX_COMMISSION_RULES = 12;
 
 export const DEFAULT_VISIBLE_REPORT_TABS = ['total', 'campaigns', 'creatives', 'qoo10', 'owned'] as const;
 export type ReportTabKey = typeof DEFAULT_VISIBLE_REPORT_TABS[number];
@@ -48,6 +52,7 @@ export type Brand = {
   shareToken: string;
   metaAdAccountId: string;
   commissionPercent: number;
+  commissionRules: CommissionRule[];
   spendBasis: SpendBasis;
   exchangeRate: number;
   visibleReportTabs: ReportTabKey[];
@@ -60,6 +65,7 @@ export type BrandPatch = {
   color?: string;
   metaAdAccountId?: string;
   commissionPercent?: number;
+  commissionRules?: CommissionRule[];
   spendBasis?: SpendBasis;
   exchangeRate?: number;
   visibleReportTabs?: ReportTabKey[];

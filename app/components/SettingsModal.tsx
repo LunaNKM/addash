@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
-import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportTabKey } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type Brand, type BrandPatch, type CommissionRule, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportTabKey } from '@/lib/types';
+import { isValidCommissionPercent, isValidCommissionStartDate, sortCommissionRules } from '@/lib/report/schema';
 import { darken, kpiLabel } from '@/lib/dashUtils';
 
 export type SettingsMode = 'none' | 'brand' | 'tab' | 'kpi' | 'admin' | 'file';
@@ -16,6 +17,18 @@ const REPORT_TAB_LABELS: Record<ReportTabKey, string> = {
   owned: '자사몰'
 };
 
+function serializeCommissionRules(rules: CommissionRule[]): string {
+  return sortCommissionRules(rules).map(rule => `${rule.startDate}:${rule.percent}`).join('|');
+}
+
+function nextRuleStartDate(rules: CommissionRule[]): string {
+  const last = sortCommissionRules(rules).pop();
+  if (!last || !isValidCommissionStartDate(last.startDate)) return new Date().toISOString().slice(0, 10);
+  const next = new Date(`${last.startDate}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
 function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   brand: Brand;
   onCopyShare: () => void;
@@ -27,6 +40,7 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   const [color, setColor] = useState(brand.color);
   const [adAccountId, setAdAccountId] = useState(brand.metaAdAccountId || '');
   const [commissionPercent, setCommissionPercent] = useState(brand.commissionPercent);
+  const [commissionRules, setCommissionRules] = useState<CommissionRule[]>(brand.commissionRules);
   const [visibleReportTabs, setVisibleReportTabs] = useState<ReportTabKey[]>(brand.visibleReportTabs);
   const [dailyToplineMetrics, setDailyToplineMetrics] = useState<DailyToplineMetric[]>(brand.dailyToplineMetrics);
   useEffect(() => {
@@ -34,20 +48,26 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
     setColor(brand.color);
     setAdAccountId(brand.metaAdAccountId || '');
     setCommissionPercent(brand.commissionPercent);
+    setCommissionRules(brand.commissionRules);
     setVisibleReportTabs(brand.visibleReportTabs);
     setDailyToplineMetrics(brand.dailyToplineMetrics);
-  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.visibleReportTabs, brand.dailyToplineMetrics]);
+  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.commissionRules, brand.visibleReportTabs, brand.dailyToplineMetrics]);
 
   const visibleTabsDirty = DEFAULT_VISIBLE_REPORT_TABS.some(tab => visibleReportTabs.includes(tab) !== brand.visibleReportTabs.includes(tab));
   const dailyToplineMetricsDirty = dailyToplineMetrics.length !== brand.dailyToplineMetrics.length
     || dailyToplineMetrics.some((metric, index) => metric !== brand.dailyToplineMetrics[index]);
+  const commissionRulesDirty = serializeCommissionRules(commissionRules) !== serializeCommissionRules(brand.commissionRules);
   const dirty = name !== brand.name
     || color.toLowerCase() !== brand.color.toLowerCase()
     || adAccountId !== (brand.metaAdAccountId || '')
     || commissionPercent !== brand.commissionPercent
+    || commissionRulesDirty
     || visibleTabsDirty
     || dailyToplineMetricsDirty;
   const validCommission = Number.isFinite(commissionPercent) && commissionPercent >= 0 && commissionPercent <= 100;
+  const duplicatedRuleDate = new Set(commissionRules.map(rule => rule.startDate)).size !== commissionRules.length;
+  const validCommissionRules = !duplicatedRuleDate
+    && commissionRules.every(rule => isValidCommissionStartDate(rule.startDate) && isValidCommissionPercent(rule.percent));
   const validTabSelection = visibleReportTabs.length > 0;
   const validDailyToplineSelection = dailyToplineMetrics.length === 3 && new Set(dailyToplineMetrics).size === 3;
 
@@ -97,6 +117,57 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
               />
             </div>
             {!validCommission && <small className="warn">수수료율은 0~100 사이로 입력해주세요.</small>}
+          </div>
+
+          <div>
+            <label>기간별 수수료율 (특수 설정)</label>
+            <small className="muted">
+              적용 시작일부터 다음 구간 전날까지 해당 수수료율이 적용됩니다. 첫 구간 시작일 이전 날짜에는 위의 기본 수수료율이 적용됩니다.
+            </small>
+            <div className="commission-rules">
+              {sortCommissionRules(commissionRules).map((rule, index) => (
+                <div className="commission-rule-row" key={`${rule.startDate}-${index}`}>
+                  <input
+                    type="date"
+                    value={rule.startDate}
+                    onChange={event => {
+                      const startDate = event.target.value;
+                      setCommissionRules(current => current.map(item => item === rule ? { ...item, startDate } : item));
+                    }}
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={rule.percent}
+                    onChange={event => {
+                      const percent = Number(event.target.value);
+                      setCommissionRules(current => current.map(item => item === rule ? { ...item, percent } : item));
+                    }}
+                  />
+                  <span className="muted">%</span>
+                  <button
+                    type="button"
+                    onClick={() => setCommissionRules(current => current.filter(item => item !== rule))}
+                  >
+                    삭제
+                  </button>
+                </div>
+              ))}
+              {!commissionRules.length && <small className="muted">등록된 구간이 없습니다. 모든 날짜에 기본 수수료율이 적용됩니다.</small>}
+            </div>
+            <button
+              type="button"
+              className="btn outline"
+              style={{ marginTop: 8 }}
+              disabled={commissionRules.length >= MAX_COMMISSION_RULES}
+              onClick={() => setCommissionRules(current => [...current, { startDate: nextRuleStartDate(current), percent: commissionPercent }])}
+            >
+              구간 추가
+            </button>
+            {duplicatedRuleDate && <small className="warn">같은 적용 시작일을 가진 구간이 두 개 이상입니다.</small>}
+            {!duplicatedRuleDate && !validCommissionRules && <small className="warn">적용 시작일과 0~100 사이의 수수료율을 입력해주세요.</small>}
           </div>
 
           <div>
@@ -180,18 +251,20 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
               setColor(brand.color);
               setAdAccountId(brand.metaAdAccountId || '');
               setCommissionPercent(brand.commissionPercent);
+              setCommissionRules(brand.commissionRules);
               setVisibleReportTabs(brand.visibleReportTabs);
               setDailyToplineMetrics(brand.dailyToplineMetrics);
             }}>되돌리기</button>
             <button
               className="btn brand"
-              disabled={!dirty || !validCommission || !validTabSelection || !validDailyToplineSelection}
+              disabled={!dirty || !validCommission || !validCommissionRules || !validTabSelection || !validDailyToplineSelection}
               onClick={async () => {
                 await onUpdate({
                   ...(name !== brand.name ? { name } : {}),
                   ...(color.toLowerCase() !== brand.color.toLowerCase() ? { color } : {}),
                   ...(adAccountId !== (brand.metaAdAccountId || '') ? { metaAdAccountId: adAccountId } : {}),
                   ...(commissionPercent !== brand.commissionPercent ? { commissionPercent } : {}),
+                  ...(commissionRulesDirty ? { commissionRules: sortCommissionRules(commissionRules) } : {}),
                   ...(visibleTabsDirty ? { visibleReportTabs } : {}),
                   ...(dailyToplineMetricsDirty ? { dailyToplineMetrics } : {})
                 });

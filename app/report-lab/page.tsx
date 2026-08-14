@@ -6,7 +6,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
 import { buildReportView, filterRowsByPeriod, previousMatchingPeriod } from '@/lib/report/aggregate';
 import { makeCreativeKey } from '@/lib/report/creativeKey';
-import { DEFAULT_EXCHANGE_RATE, toGrossCostKrw } from '@/lib/report/schema';
+import { DEFAULT_EXCHANGE_RATE, toGrossCostKrw, type CommissionSetting } from '@/lib/report/schema';
 import { loadReportFromXlsx } from '@/lib/report/sources';
 import {
   createBrand,
@@ -371,13 +371,17 @@ export default function ReportLabPage() {
     () => combineReportResults(adjustedXlsxResult, adjustedMetaResult),
     [adjustedMetaResult, adjustedXlsxResult]
   );
+  const commissionSetting = useMemo<CommissionSetting | undefined>(
+    () => brand ? { commissionPercent: brand.commissionPercent, commissionRules: brand.commissionRules } : undefined,
+    [brand?.commissionPercent, brand?.commissionRules]
+  );
   const result = useMemo(() => {
     if (!combinedResult) return combinedResult;
-    const grossResult = applyGrossSpendRule(combinedResult, brand?.commissionPercent);
+    const grossResult = applyGrossSpendRule(combinedResult, commissionSetting);
     if (spendBasis === 'gross') return grossResult;
     const rows = grossResult.rows.map(row => ({ ...row, grossCostKrw: row.costKrw }));
     return { ...grossResult, rows, preview: rows.slice(0, 12) };
-  }, [brand?.commissionPercent, combinedResult, spendBasis]);
+  }, [combinedResult, commissionSetting, spendBasis]);
   const selectedReportFileId = selectedXlsxReportFileId || selectedMetaReportFileId;
 
   const dates = useMemo(() => {
@@ -2788,10 +2792,10 @@ function applyExchangeRate(result: ReportParseResult | null, exchangeRate: numbe
   };
 }
 
-function applyGrossSpendRule(result: ReportParseResult, commissionPercent?: number): ReportParseResult {
+function applyGrossSpendRule(result: ReportParseResult, commissionSetting?: CommissionSetting): ReportParseResult {
   const rows = result.rows.map(row => ({
     ...row,
-    grossCostKrw: row.costKrw ? toGrossCostKrw(row.costKrw, row.date, commissionPercent) : row.grossCostKrw
+    grossCostKrw: row.costKrw ? toGrossCostKrw(row.costKrw, row.date, commissionSetting) : row.grossCostKrw
   }));
   return {
     ...result,

@@ -13,10 +13,16 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import { DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, type Brand, type BrandPatch, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings } from './types';
+import { DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
-import { DEFAULT_COMMISSION_PERCENT, DEFAULT_EXCHANGE_RATE } from './report/schema';
+import {
+  DEFAULT_COMMISSION_PERCENT,
+  DEFAULT_EXCHANGE_RATE,
+  isValidCommissionPercent,
+  isValidCommissionStartDate,
+  sortCommissionRules
+} from './report/schema';
 
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
 const REPORT_FILE_CHUNKS_PER_COMMIT = 8;
@@ -87,6 +93,7 @@ export async function createBrand(name: string, color = '#1AB7B0'): Promise<Bran
     shareToken: makeShareToken(),
     metaAdAccountId: '',
     commissionPercent: DEFAULT_COMMISSION_PERCENT,
+    commissionRules: [],
     spendBasis: 'gross',
     exchangeRate: DEFAULT_EXCHANGE_RATE,
     visibleReportTabs: [...DEFAULT_VISIBLE_REPORT_TABS],
@@ -133,6 +140,9 @@ export async function updateBrand(brandId: string, patch: BrandPatch) {
     }
     update.commissionPercent = Math.round(commissionPercent * 100) / 100;
   }
+  if (patch.commissionRules !== undefined) {
+    update.commissionRules = normalizeCommissionRules(patch.commissionRules);
+  }
   if (patch.spendBasis !== undefined) {
     if (patch.spendBasis !== 'gross' && patch.spendBasis !== 'net') {
       throw new Error('광고비 기준은 그로스 또는 넷이어야 합니다.');
@@ -161,6 +171,26 @@ export async function updateBrand(brandId: string, patch: BrandPatch) {
   }
   if (Object.keys(update).length === 0) return;
   await updateDoc(doc(db, 'brands', brandId), update);
+}
+
+function normalizeCommissionRules(rules: CommissionRule[]): CommissionRule[] {
+  if (!Array.isArray(rules)) throw new Error('기간별 수수료율 형식이 올바르지 않습니다.');
+  if (rules.length > MAX_COMMISSION_RULES) {
+    throw new Error(`기간별 수수료율은 최대 ${MAX_COMMISSION_RULES}개까지 등록할 수 있습니다.`);
+  }
+  const normalized = rules.map(rule => {
+    if (!isValidCommissionStartDate(rule?.startDate)) {
+      throw new Error('기간별 수수료율의 적용 시작일은 YYYY-MM-DD 형식으로 입력해주세요.');
+    }
+    if (!isValidCommissionPercent(rule?.percent)) {
+      throw new Error('기간별 수수료율은 0~100 사이의 숫자로 입력해주세요.');
+    }
+    return { startDate: rule.startDate, percent: Math.round(Number(rule.percent) * 100) / 100 };
+  });
+  if (new Set(normalized.map(rule => rule.startDate)).size !== normalized.length) {
+    throw new Error('같은 적용 시작일을 가진 구간이 두 개 이상입니다.');
+  }
+  return sortCommissionRules(normalized);
 }
 
 function normalizeMetaAdAccountIds(value: string): string {
@@ -403,6 +433,21 @@ function cleanFirestoreData<T>(value: T): T {
   return value;
 }
 
+function normalizeStoredCommissionRules(value: unknown): CommissionRule[] {
+  if (!Array.isArray(value)) return [];
+  const rules = value
+    .map(item => item as Partial<CommissionRule>)
+    .filter(rule => isValidCommissionStartDate(rule?.startDate) && isValidCommissionPercent(rule?.percent))
+    .map(rule => ({ startDate: String(rule.startDate), percent: Number(rule.percent) }));
+  const seen = new Set<string>();
+  const unique = rules.filter(rule => {
+    if (seen.has(rule.startDate)) return false;
+    seen.add(rule.startDate);
+    return true;
+  });
+  return sortCommissionRules(unique).slice(0, MAX_COMMISSION_RULES);
+}
+
 function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
   const storedCommission = Number(data.commissionPercent);
   const storedExchangeRate = Number(data.exchangeRate);
@@ -424,6 +469,7 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
     commissionPercent: Number.isFinite(storedCommission) && storedCommission >= 0 && storedCommission <= 100
       ? storedCommission
       : DEFAULT_COMMISSION_PERCENT,
+    commissionRules: normalizeStoredCommissionRules(data.commissionRules),
     spendBasis: data.spendBasis === 'net' ? 'net' : 'gross',
     exchangeRate: Number.isFinite(storedExchangeRate) && storedExchangeRate > 0 && storedExchangeRate <= 1000
       ? storedExchangeRate
