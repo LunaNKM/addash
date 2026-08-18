@@ -30,6 +30,7 @@ service cloud.firestore {
             'kpi',
             'files',
             'reportFiles',
+            'xReportFiles',
             'reportComments',
             'insights',
             'creativeAssets'

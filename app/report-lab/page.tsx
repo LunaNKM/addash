@@ -9,6 +9,14 @@ import { makeCreativeKey } from '@/lib/report/creativeKey';
 import { DEFAULT_EXCHANGE_RATE, toGrossCostKrw, type CommissionSetting } from '@/lib/report/schema';
 import { loadReportFromXlsx } from '@/lib/report/sources';
 import {
+  buildXReportDailyRows,
+  parseXReportFile,
+  summarizeXReportRows,
+  type XReportParseResult,
+  type XReportRow,
+  type XReportSummary
+} from '@/lib/report/xReport';
+import {
   createBrand,
   emptyKpi,
   findBrandByShareToken,
@@ -16,21 +24,24 @@ import {
   getReportComment,
   getReportFile,
   getSingleOneCollectorSettings,
+  getXReportFile,
   isAdminEmail,
   listCreativeAssets,
   listBrandsForAdmin,
   listReportFiles,
   listTabs,
+  listXReportFiles,
   saveKpi,
   saveSingleOneCollectorSettings,
   saveReportComment,
   saveReportFile,
+  saveXReportFile,
   upsertCreativeAssets,
   updateBrand
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis, type XReportFileDoc } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import {
   DirectCreativeUploadModal,
@@ -117,6 +128,9 @@ export default function ReportLabPage() {
   const [collectorOpen, setCollectorOpen] = useState(false);
   const [collectorSettings, setCollectorSettings] = useState<SingleOneCollectorSettings | null>(null);
   const [xlsxResult, setXlsxResult] = useState<ReportParseResult | null>(null);
+  const [xReportFiles, setXReportFiles] = useState<XReportFileDoc[]>([]);
+  const [selectedXReportFileId, setSelectedXReportFileId] = useState('');
+  const [xReportResult, setXReportResult] = useState<XReportParseResult | null>(null);
   const [metaResult, setMetaResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
   const [activeSubTab, setActiveSubTab] = useState<PromotionSubTab>('always');
@@ -148,6 +162,9 @@ export default function ReportLabPage() {
     setXlsxResult(null);
     setMetaResult(null);
     setReportFiles([]);
+    setXReportFiles([]);
+    setSelectedXReportFileId('');
+    setXReportResult(null);
     setSelectedXlsxReportFileId('');
     setSelectedMetaReportFileId('');
     setReportComment(null);
@@ -222,14 +239,20 @@ export default function ReportLabPage() {
       return;
     }
 
-    const [loadedKpi, loadedReportFiles, loadedCreativeAssets] = await Promise.all([
+    const [loadedKpi, loadedReportFiles, loadedCreativeAssets, loadedXReportFiles] = await Promise.all([
       getKpi(target.id, nextTab.id),
       listReportFiles(target.id, nextTab.id),
-      listCreativeAssets(target.id, nextTab.id)
+      listCreativeAssets(target.id, nextTab.id),
+      listXReportFiles(target.id, nextTab.id)
     ]);
     setKpi(loadedKpi);
     setReportFiles(loadedReportFiles);
     setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
+    setXReportFiles(loadedXReportFiles);
+
+    const firstXReport = loadedXReportFiles[0] || null;
+    setSelectedXReportFileId(firstXReport?.id || '');
+    setXReportResult(firstXReport ? (await getXReportFile(target.id, nextTab.id, firstXReport.id))?.result || null : null);
 
     const firstXlsx = loadedReportFiles.find(file => !isMetaReportFile(file)) || null;
     const firstMeta = loadedReportFiles.find(file => isMetaReportFile(file)) || null;
@@ -475,6 +498,26 @@ export default function ReportLabPage() {
     );
   }, [comparisonEnd, comparisonStart, dates.max, dates.min, filteredRows, periodEnd, periodStart, result]);
 
+  const xReportRows = useMemo<XReportRow[]>(() => {
+    if (!xReportResult) return [];
+    const start = periodStart || dates.min;
+    const end = periodEnd || dates.max;
+    return xReportResult.rows
+      .filter(row => (!start || row.date >= start) && (!end || row.date <= end))
+      .map(row => ({
+        ...row,
+        // 보고서의 다른 표와 동일하게 그로스/넷 토글과 브랜드 수수료율을 적용한다.
+        spend: spendBasis === 'gross' ? toGrossCostKrw(row.spend, row.date, commissionSetting) : row.spend
+      }));
+  }, [commissionSetting, dates.max, dates.min, periodEnd, periodStart, spendBasis, xReportResult]);
+
+  /** X 성과 섹션은 X RAW 행이 속한 탭에만 노출한다. RAW에 X가 전혀 없으면 모든 프로모션 탭에 노출한다. */
+  const xSectionRows = useMemo(() => {
+    if (!xReportRows.length) return [];
+    if (filteredRows.some(isXMediaRow)) return xReportRows;
+    return result?.rows.some(isXMediaRow) ? [] : xReportRows;
+  }, [filteredRows, result, xReportRows]);
+
   const creativeUploadTargets = useMemo<CreativeUploadTarget[]>(() => {
     const targets = new Map<string, CreativeUploadTarget>();
     for (const row of reportView?.currentRows || []) {
@@ -529,6 +572,38 @@ export default function ReportLabPage() {
       setCommentDraft('');
       setCommentEditing(false);
       applyReportResult(parsed, createdAt, 'xlsx');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function handleXFile(file: File) {
+    if (!brand || !dashboardTab || !isAdmin) {
+      setError('파일 저장을 위해서는 관리자 로그인과 브랜드 선택이 필요합니다.');
+      return;
+    }
+    setBusy('X RAW 데이터를 읽는 중입니다...');
+    setError('');
+    setNotice('');
+    try {
+      const parsed = await parseXReportFile(file);
+      const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
+      const createdAt = Date.now();
+      const savedId = await saveXReportFile(brand.id, dashboardTab.id, {
+        filename: file.name,
+        fileSize: file.size,
+        dateStart: detectedDates[0] || '',
+        dateEnd: detectedDates[detectedDates.length - 1] || '',
+        rowCount: parsed.rows.length,
+        result: parsed,
+        createdAt
+      });
+      setXReportFiles(await listXReportFiles(brand.id, dashboardTab.id));
+      setSelectedXReportFileId(savedId);
+      setXReportResult(parsed);
+      setNotice(`X RAW 적용 완료: ${parsed.rows.length.toLocaleString()}행 · ${detectedDates[0] || '-'} ~ ${detectedDates[detectedDates.length - 1] || '-'}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -865,6 +940,12 @@ export default function ReportLabPage() {
                 <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleFile(event.target.files[0])} />
               </label>
             )}
+            {brand && dashboardTab && (
+              <label className="btn outline">
+                X RAW 업로드
+                <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && handleXFile(event.target.files[0])} />
+              </label>
+            )}
             {brand && dashboardTab && user && (
               <button className="btn outline" onClick={() => setMetaImportOpen(true)}>
                 Meta API 가져오기
@@ -1046,6 +1127,30 @@ export default function ReportLabPage() {
             </div>
           )}
 
+          {xReportFiles.length > 0 && (
+            <div className="file-chips report-file-chips">
+              <span className="filter-label">X RAW</span>
+              {xReportFiles.map(file => (
+                <button
+                  key={file.id}
+                  className={`chip ${file.id === selectedXReportFileId ? 'active' : ''}`}
+                  onClick={() => {
+                    if (!brand || !dashboardTab) return;
+                    setSelectedXReportFileId(file.id);
+                    setBusy('저장된 X RAW 파일을 불러오는 중입니다...');
+                    getXReportFile(brand.id, dashboardTab.id, file.id)
+                      .then(loadedFile => setXReportResult(loadedFile?.result || null))
+                      .catch(err => setError(errorMessage(err)))
+                      .finally(() => setBusy(''));
+                  }}
+                  title={`${file.dateStart || '-'} ~ ${file.dateEnd || '-'} · ${file.rowCount.toLocaleString()}행`}
+                >
+                  {file.filename}
+                </button>
+              ))}
+            </div>
+          )}
+
           {result && (
             <div className="filter-bar report-dimension-controls">
               <span className="filter-label">캠페인</span>
@@ -1120,6 +1225,7 @@ export default function ReportLabPage() {
                   marketplaceRows={marketplaceRows}
                   activeSubTab={activeSubTab}
                   dailyToplineMetrics={brand.dailyToplineMetrics}
+                  xRows={xSectionRows}
                 />
               )}
             </>
@@ -1517,7 +1623,8 @@ function PromotionDetailReport({
   marketplace,
   marketplaceRows,
   activeSubTab,
-  dailyToplineMetrics
+  dailyToplineMetrics,
+  xRows
 }: {
   title: string;
   view: ReportView;
@@ -1526,6 +1633,7 @@ function PromotionDetailReport({
   marketplaceRows: NormalizedReportRow[];
   activeSubTab: PromotionSubTab;
   dailyToplineMetrics: DailyToplineMetric[];
+  xRows: XReportRow[];
 }) {
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const dailyData = buildYearDailyGroups(allRows, latestDate);
@@ -1553,7 +1661,74 @@ function PromotionDetailReport({
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} showRegistration={marketplace === 'owned'} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} showRegistration={marketplace === 'owned'} />
       <CampaignPerformanceSection title="캠페인별 성과" groups={campaignGroups} showRegistration={marketplace === 'owned'} />
+      {xRows.length > 0 && <XPerformanceSection rows={xRows} />}
       <YearDailyPerformanceTable data={dailyData} showRegistration={marketplace === 'owned'} />
+    </>
+  );
+}
+
+function XPerformanceSection({ rows }: { rows: XReportRow[] }) {
+  const dailyRows = buildXReportDailyRows(rows);
+  const total = summarizeXReportRows('x-total', '합계', rows);
+  const rangeStart = dailyRows[0]?.label || '-';
+  const rangeEnd = dailyRows[dailyRows.length - 1]?.label || '-';
+
+  return (
+    <section className="section">
+      <div className="section-head">
+        <b>X 성과</b>
+        <span className="muted">X RAW 업로드 기준 · {rangeStart} ~ {rangeEnd}</span>
+      </div>
+      <div className="table-wrap sticky-detail">
+        <table className="promotion-performance-table">
+          <thead>
+            <tr>
+              <th>일자</th>
+              <th>노출</th>
+              <th>광고비</th>
+              <th>클릭</th>
+              <th>좋아요</th>
+              <th>댓글</th>
+              <th>리포스트</th>
+              <th>팔로우</th>
+              <th>CTR</th>
+              <th>CPM</th>
+              <th>CPC</th>
+              <th>CPE</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="report-total-row">
+              <td>합계</td>
+              <XPerformanceCells row={total} />
+            </tr>
+            {dailyRows.map(row => (
+              <tr key={row.key}>
+                <td>{row.label}</td>
+                <XPerformanceCells row={row} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function XPerformanceCells({ row }: { row: XReportSummary }) {
+  return (
+    <>
+      <td>{formatInteger(row.impressions)}</td>
+      <td>{formatCurrency(row.spend)}</td>
+      <td>{formatInteger(row.linkClicks)}</td>
+      <td>{formatInteger(row.likes)}</td>
+      <td>{formatInteger(row.replies)}</td>
+      <td>{formatInteger(row.reposts)}</td>
+      <td>{formatInteger(row.follows)}</td>
+      <td>{formatPercent(row.ctr)}</td>
+      <td>{formatCurrency(row.cpm)}</td>
+      <td>{formatCurrency(row.cpc)}</td>
+      <td>{formatCurrency(row.cpe)}</td>
     </>
   );
 }
@@ -3129,8 +3304,14 @@ type MediaCampaignGroup = {
   campaigns: PromotionPerformanceRow[];
 };
 
+const X_MEDIA_KEY = 'x';
+
 function mediaGroupKey(row: NormalizedReportRow): string {
   return row.media.trim().toLowerCase() || '미분류';
+}
+
+function isXMediaRow(row: NormalizedReportRow): boolean {
+  return mediaGroupKey(row) === X_MEDIA_KEY;
 }
 
 function mediaGroupLabel(key: string): string {
@@ -3189,6 +3370,8 @@ function buildMediaCampaignPerformanceGroups(
 
   const byMedia = new Map<string, PromotionPerformanceRow[]>();
   for (const [key, list] of campaignTotals.entries()) {
+    // X는 캠페인별 성과에서 제외하고 전용 'X 성과' 섹션에서 보여준다.
+    if (key.startsWith(`${X_MEDIA_KEY}|||`)) continue;
     const periodTargetRows = campaignTargets.get(key) || [];
     // 기존 캠페인별 성과와 동일하게, 대상 기간에 실적이 있는 캠페인만 개별 노출한다.
     if (!hasReportPerformance(summarizeReportRows(key, key, periodTargetRows))) continue;

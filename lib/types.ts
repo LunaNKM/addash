@@ -1,5 +1,6 @@
 import type { CommissionRule } from './report/schema';
 import type { ReportParseResult } from './report/reportTypes';
+import type { XReportParseResult } from './report/xReport';
 
 export type { CommissionRule };
 export const MAX_COMMISSION_RULES = 12;
@@ -153,6 +154,18 @@ export type ReportFileDoc = {
   rowCount: number;
   exchangeRate: number;
   result: ReportParseResult;
+  createdAt: number;
+};
+
+/** X 광고 관리자 export 파일. SingleOne RAW와 별개로 저장한다. */
+export type XReportFileDoc = {
+  id: string;
+  filename: string;
+  fileSize: number;
+  dateStart: string;
+  dateEnd: string;
+  rowCount: number;
+  result: XReportParseResult;
   createdAt: number;
 };
 

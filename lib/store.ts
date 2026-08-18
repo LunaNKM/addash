@@ -13,8 +13,9 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import { DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings } from './types';
+import { DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type XReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
+import type { XReportParseResult, XReportRow } from './report/xReport';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
 import {
   DEFAULT_COMMISSION_PERCENT,
@@ -25,6 +26,7 @@ import {
 } from './report/schema';
 
 const REPORT_FILE_ROWS_PER_CHUNK = 25;
+const MAX_X_REPORT_ROWS = 4000;
 const REPORT_FILE_CHUNKS_PER_COMMIT = 8;
 
 export const emptyKpi: Kpi = {
@@ -236,6 +238,8 @@ export async function deleteTab(brandId: string, tabId: string, opts: { allowLas
   for (const file of files) await deleteFile(brandId, tabId, file.id);
   const reportFiles = await listReportFiles(brandId, tabId);
   for (const file of reportFiles) await deleteReportFile(brandId, tabId, file.id);
+  const xReportFiles = await listXReportFiles(brandId, tabId);
+  for (const file of xReportFiles) await deleteXReportFile(brandId, tabId, file.id);
   const reportComments = await listReportComments(brandId, tabId);
   for (const comment of reportComments) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', comment.id));
   const insights = await listInsights(brandId, tabId);
@@ -323,6 +327,59 @@ export async function deleteReportFile(brandId: string, tabId: string, fileId: s
   }
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId));
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', fileId)).catch(() => undefined);
+}
+
+export async function listXReportFiles(brandId: string, tabId: string): Promise<XReportFileDoc[]> {
+  const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'xReportFiles'), orderBy('createdAt', 'desc')));
+  return snap.docs.map(d => normalizeXReportFile(d.id, d.data()));
+}
+
+export async function getXReportFile(brandId: string, tabId: string, fileId: string): Promise<XReportFileDoc | null> {
+  const snap = await getDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'xReportFiles', fileId));
+  if (!snap.exists()) return null;
+  return normalizeXReportFile(snap.id, snap.data());
+}
+
+/** X export는 행 수가 적어 청크 없이 문서 하나에 저장한다. Firestore 문서 1MB 한도를 넘지 않도록 행 수를 제한한다. */
+export async function saveXReportFile(brandId: string, tabId: string, file: Omit<XReportFileDoc, 'id'>) {
+  if (file.result.rows.length > MAX_X_REPORT_ROWS) {
+    throw new Error(`X RAW 행이 너무 많습니다(${file.result.rows.length.toLocaleString()}행). ${MAX_X_REPORT_ROWS.toLocaleString()}행 이하로 나눠 업로드해주세요.`);
+  }
+
+  const sameName = await getDocs(query(
+    collection(db, 'brands', brandId, 'tabs', tabId, 'xReportFiles'),
+    where('filename', '==', file.filename),
+    limit(1)
+  ));
+  for (const d of sameName.docs) await deleteDoc(d.ref);
+
+  const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'xReportFiles'));
+  await setDoc(ref, cleanFirestoreData(file));
+  return ref.id;
+}
+
+export async function deleteXReportFile(brandId: string, tabId: string, fileId: string) {
+  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'xReportFiles', fileId));
+}
+
+function normalizeXReportFile(id: string, data: Record<string, unknown>): XReportFileDoc {
+  const result = data.result as XReportParseResult | undefined;
+  const rows = Array.isArray(result?.rows) ? (result?.rows as XReportRow[]) : [];
+  return {
+    id,
+    filename: String(data.filename || result?.fileName || ''),
+    fileSize: Number(data.fileSize || 0),
+    dateStart: String(data.dateStart || ''),
+    dateEnd: String(data.dateEnd || ''),
+    rowCount: Number(data.rowCount || rows.length),
+    result: {
+      fileName: String(result?.fileName || data.filename || ''),
+      sheetName: String(result?.sheetName || ''),
+      rows,
+      generatedAt: Number(result?.generatedAt || data.createdAt || 0)
+    },
+    createdAt: Number(data.createdAt || 0)
+  };
 }
 
 export async function listReportComments(brandId: string, tabId: string): Promise<ReportCommentDoc[]> {
