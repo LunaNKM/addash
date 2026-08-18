@@ -3580,6 +3580,10 @@ td[title], .legend-row[title], .donut-legend div[title] {
   color: var(--c-ink);
 }
 
+.promotion-stacked-table tbody td:first-child.promotion-child-label {
+  padding-left: 22px;
+}
+
 .issue-pill {
   display: inline-flex;
   align-items: center;

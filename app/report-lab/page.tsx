@@ -508,7 +508,7 @@ export default function ReportLabPage() {
         'SingleOne Upload'
       );
       if (!parsed.rows.length) {
-        throw new Error('업로드 파일에서 media가 s-로 시작하는 SingleOne 행을 찾지 못했습니다.');
+        throw new Error('업로드 파일에서 media가 s-로 시작하거나 X인 SingleOne 행을 찾지 못했습니다.');
       }
       const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
       const createdAt = Date.now();
@@ -1396,7 +1396,7 @@ function EmptyUpload({ onFile, busy, exchangeRate, canUpload }: { onFile: (file:
           <span className="muted">현재 환율: {exchangeRate.toFixed(2)}</span>
         </div>
         <p>
-          XLSX RAW 파일을 업로드하면 media가 s-로 시작하는 SingleOne 행만 보고서 데이터로 변환합니다.
+          XLSX RAW 파일을 업로드하면 media가 s-로 시작하거나 X인 SingleOne 행만 보고서 데이터로 변환합니다.
           Meta 데이터는 Meta API 가져오기 결과와 함께 반영됩니다.
         </p>
         {canUpload ? (
@@ -1537,7 +1537,7 @@ function PromotionDetailReport({
     { label: 'Purchase', test: row => matchesAnyReportText(row, ['purchase', 'conversion']) },
     { label: 'Traffic', test: row => matchesAnyReportText(row, ['traffic', 'click']) }
   ], '기타');
-  const campaignRows = buildCampaignPerformanceRows(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end);
+  const campaignGroups = buildMediaCampaignPerformanceGroups(allRows, view.currentRows, view.previousRows, view.currentPeriod.start, view.currentPeriod.end, view.previousPeriod.start, view.previousPeriod.end);
 
   return (
     <>
@@ -1552,7 +1552,7 @@ function PromotionDetailReport({
       {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
       <PromotionPerformanceSection title="전체 성과" rows={overallRows} showRegistration={marketplace === 'owned'} />
       <PromotionPerformanceSection title="목적별 성과" rows={objectiveRows} showRegistration={marketplace === 'owned'} />
-      <PromotionPerformanceSection title="캠페인별 성과" rows={campaignRows} showRegistration={marketplace === 'owned'} />
+      <CampaignPerformanceSection title="캠페인별 성과" groups={campaignGroups} showRegistration={marketplace === 'owned'} />
       <YearDailyPerformanceTable data={dailyData} showRegistration={marketplace === 'owned'} />
     </>
   );
@@ -1987,23 +1987,95 @@ function PromotionPerformanceSection({ title, rows, showRegistration = false }: 
           </thead>
           <tbody>
             {visibleRows.map((row, index) => (
-              <React.Fragment key={row.label}>
-                <tr className={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}>
-                  <td>{row.label}</td>
-                  <PromotionComparisonCells row={row.total} showRegistration={showRegistration} />
-                </tr>
-                <tr className="promotion-target-row">
-                  <td>대상 기간</td>
-                  <PromotionComparisonCells row={row.target} showRegistration={showRegistration} />
-                </tr>
-                <tr className="promotion-period-row">
-                  <td>이전 기간</td>
-                  <PromotionComparisonCells row={row.previous} showRegistration={showRegistration} />
-                </tr>
-                <tr className="promotion-pop-row">
-                  <td>PoP Diff</td>
-                  <PromotionComparisonDiffCells current={row.target} previous={row.previous} showRegistration={showRegistration} />
-                </tr>
+              <PromotionPerformanceRowBlock
+                key={row.label}
+                row={row}
+                headRowClassName={index === 0 && row.label === '전체 성과' ? 'report-total-row' : ''}
+                showRegistration={showRegistration}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function PromotionPerformanceRowBlock({
+  row,
+  headRowClassName = '',
+  labelClassName = '',
+  showRegistration = false
+}: {
+  row: PromotionPerformanceRow;
+  headRowClassName?: string;
+  labelClassName?: string;
+  showRegistration?: boolean;
+}) {
+  return (
+    <React.Fragment>
+      <tr className={headRowClassName}>
+        <td className={labelClassName}>{row.label}</td>
+        <PromotionComparisonCells row={row.total} showRegistration={showRegistration} />
+      </tr>
+      <tr className="promotion-target-row">
+        <td className={labelClassName}>대상 기간</td>
+        <PromotionComparisonCells row={row.target} showRegistration={showRegistration} />
+      </tr>
+      <tr className="promotion-period-row">
+        <td className={labelClassName}>이전 기간</td>
+        <PromotionComparisonCells row={row.previous} showRegistration={showRegistration} />
+      </tr>
+      <tr className="promotion-pop-row">
+        <td className={labelClassName}>PoP Diff</td>
+        <PromotionComparisonDiffCells current={row.target} previous={row.previous} showRegistration={showRegistration} />
+      </tr>
+    </React.Fragment>
+  );
+}
+
+function CampaignPerformanceSection({
+  title,
+  groups,
+  showRegistration = false
+}: {
+  title: string;
+  groups: MediaCampaignGroup[];
+  showRegistration?: boolean;
+}) {
+  const first = groups[0]?.summary;
+  return (
+    <section className="section">
+      <div className="section-head">
+        <b>{title}</b>
+        <span className="muted">
+          대상 {first ? formatPromotionPeriodLabel(first.targetStart, first.targetEnd) : '-'} 대비 이전 {first ? formatPromotionPeriodLabel(first.previousStart, first.previousEnd) : '-'}
+        </span>
+      </div>
+      <div className="table-wrap sticky-detail">
+        <table className="promotion-performance-table promotion-stacked-table">
+          <thead>
+            <tr>
+              <th>그룹</th>
+              <PromotionComparisonHeaders showRegistration={showRegistration} />
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map(group => (
+              <React.Fragment key={group.key}>
+                <PromotionPerformanceRowBlock
+                  row={group.summary}
+                  headRowClassName="report-total-row"
+                  showRegistration={showRegistration}
+                />
+                {group.campaigns.map(campaign => (
+                  <PromotionPerformanceRowBlock
+                    key={`${group.key}|||${campaign.label}`}
+                    row={campaign}
+                    labelClassName="promotion-child-label"
+                    showRegistration={showRegistration}
+                  />
+                ))}
               </React.Fragment>
             ))}
           </tbody>
@@ -3040,54 +3112,51 @@ function promotionPerformanceLabel(
   return category?.label || fallbackLabel;
 }
 
-function buildCampaignPerformanceRows(
-  rows: NormalizedReportRow[],
-  targetRows: NormalizedReportRow[],
-  previousRows: NormalizedReportRow[],
-  targetStart: string,
-  targetEnd: string,
-  previousStart: string,
-  previousEnd: string
-): PromotionPerformanceRow[] {
-  const groups = new Map<string, NormalizedReportRow[]>();
-  for (const row of rows) {
-    const label = campaignNameLabel(row);
-    const list = groups.get(label) || [];
-    list.push(row);
-    groups.set(label, list);
-  }
+/** 캠페인별 성과에서 플랫폼(media) 블록을 노출하는 순서. 목록에 없는 매체는 뒤에 붙는다. */
+const MEDIA_GROUP_ORDER = ['s-meta', 'meta', 'x'];
+const MEDIA_GROUP_LABELS: Record<string, string> = {
+  's-meta': 'S-META',
+  meta: 'META',
+  x: 'X',
+  's-tiktok': 'S-TIKTOK',
+  's-line': 'S-LINE'
+};
 
-  const targetGroups = new Map<string, NormalizedReportRow[]>();
-  for (const row of targetRows) {
-    const label = campaignNameLabel(row);
-    const list = targetGroups.get(label) || [];
-    list.push(row);
-    targetGroups.set(label, list);
-  }
+type MediaCampaignGroup = {
+  key: string;
+  label: string;
+  summary: PromotionPerformanceRow;
+  campaigns: PromotionPerformanceRow[];
+};
 
-  const active = [...groups.entries()].filter(([label]) => {
-    const target = summarizeReportRows('target', label, targetGroups.get(label) || []);
-    return (
-      target.spend !== 0 ||
-      target.sales !== 0 ||
-      target.impressions !== 0 ||
-      target.clicks !== 0 ||
-      target.conversions !== 0 ||
-      target.addToCart !== 0
-    );
-  });
-
-  const sorted = active.sort(([, aRows], [, bRows]) => {
-    const a = summarizeReportRows('a', 'a', aRows);
-    const b = summarizeReportRows('b', 'b', bRows);
-    return b.spend - a.spend || b.rows - a.rows;
-  });
-
-  return sorted.map(([label, list]) => buildPromotionPerformanceRow(label, list, targetRows, previousRows, targetStart, targetEnd, previousStart, previousEnd));
+function mediaGroupKey(row: NormalizedReportRow): string {
+  return row.media.trim().toLowerCase() || '미분류';
 }
 
-function buildPromotionPerformanceRow(
-  label: string,
+function mediaGroupLabel(key: string): string {
+  return MEDIA_GROUP_LABELS[key] || (key === '미분류' ? '미분류 매체' : key.toUpperCase());
+}
+
+function mediaGroupRank(key: string): number {
+  const index = MEDIA_GROUP_ORDER.indexOf(key);
+  return index === -1 ? MEDIA_GROUP_ORDER.length : index;
+}
+
+function groupReportRows(
+  rows: NormalizedReportRow[],
+  keyOf: (row: NormalizedReportRow) => string
+): Map<string, NormalizedReportRow[]> {
+  const groups = new Map<string, NormalizedReportRow[]>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    const list = groups.get(key) || [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  return groups;
+}
+
+function buildMediaCampaignPerformanceGroups(
   rows: NormalizedReportRow[],
   targetRows: NormalizedReportRow[],
   previousRows: NormalizedReportRow[],
@@ -3095,20 +3164,61 @@ function buildPromotionPerformanceRow(
   targetEnd: string,
   previousStart: string,
   previousEnd: string
-): PromotionPerformanceRow {
-  const labels = new Set(rows.map(row => campaignNameLabel(row)));
-  const targetGroupRows = targetRows.filter(row => labels.has(campaignNameLabel(row)));
-  const previousGroupRows = previousRows.filter(row => labels.has(campaignNameLabel(row)));
-  return {
+): MediaCampaignGroup[] {
+  const campaignKeyOf = (row: NormalizedReportRow) => `${mediaGroupKey(row)}|||${campaignNameLabel(row)}`;
+  const campaignTotals = groupReportRows(rows, campaignKeyOf);
+  const campaignTargets = groupReportRows(targetRows, campaignKeyOf);
+  const campaignPreviouses = groupReportRows(previousRows, campaignKeyOf);
+
+  const makeRow = (
+    label: string,
+    keyPrefix: string,
+    totalRows: NormalizedReportRow[],
+    periodTargetRows: NormalizedReportRow[],
+    periodPreviousRows: NormalizedReportRow[]
+  ): PromotionPerformanceRow => ({
     label,
-    total: summarizeReportRows(`${label}-total`, label, rows),
-    target: summarizeReportRows(`${label}-target`, label, targetGroupRows),
-    previous: summarizeReportRows(`${label}-previous`, label, previousGroupRows),
+    total: summarizeReportRows(`${keyPrefix}-total`, label, totalRows),
+    target: summarizeReportRows(`${keyPrefix}-target`, label, periodTargetRows),
+    previous: summarizeReportRows(`${keyPrefix}-previous`, label, periodPreviousRows),
     targetStart,
     targetEnd,
     previousStart,
     previousEnd
-  };
+  });
+
+  const byMedia = new Map<string, PromotionPerformanceRow[]>();
+  for (const [key, list] of campaignTotals.entries()) {
+    const periodTargetRows = campaignTargets.get(key) || [];
+    // 기존 캠페인별 성과와 동일하게, 대상 기간에 실적이 있는 캠페인만 개별 노출한다.
+    if (!hasReportPerformance(summarizeReportRows(key, key, periodTargetRows))) continue;
+    const [mediaKey, campaignLabel] = [key.slice(0, key.indexOf('|||')), key.slice(key.indexOf('|||') + 3)];
+    const campaigns = byMedia.get(mediaKey) || [];
+    campaigns.push(makeRow(campaignLabel, key, list, periodTargetRows, campaignPreviouses.get(key) || []));
+    byMedia.set(mediaKey, campaigns);
+  }
+
+  const mediaTotals = groupReportRows(rows, mediaGroupKey);
+  const mediaTargets = groupReportRows(targetRows, mediaGroupKey);
+  const mediaPreviouses = groupReportRows(previousRows, mediaGroupKey);
+
+  return [...byMedia.entries()]
+    .map(([mediaKey, campaigns]) => {
+      const label = mediaGroupLabel(mediaKey);
+      return {
+        key: mediaKey,
+        label,
+        summary: makeRow(
+          `${label} 합계`,
+          `media-${mediaKey}`,
+          mediaTotals.get(mediaKey) || [],
+          mediaTargets.get(mediaKey) || [],
+          mediaPreviouses.get(mediaKey) || []
+        ),
+        campaigns: campaigns.sort((a, b) => b.total.spend - a.total.spend || b.total.rows - a.total.rows)
+      };
+    })
+    .sort((a, b) => mediaGroupRank(a.key) - mediaGroupRank(b.key) || b.summary.target.spend - a.summary.target.spend || a.label.localeCompare(b.label, 'ko'));
 }
 
 function campaignNameLabel(row: NormalizedReportRow): string {
@@ -3306,8 +3416,12 @@ function adLandingText(row: NormalizedReportRow): string {
   return adIdentityText(row);
 }
 
+/** SingleOne RAW에서 s- 계열 외에 추가로 받아들이는 매체(media) 값. */
+const EXTRA_UPLOAD_MEDIA = new Set(['x']);
+
 function isSingleOneUploadRow(row: NormalizedReportRow): boolean {
-  return row.media.trim().toLowerCase().startsWith('s-');
+  const media = row.media.trim().toLowerCase();
+  return media.startsWith('s-') || EXTRA_UPLOAD_MEDIA.has(media);
 }
 
 function formatCurrency(value: number): string {
