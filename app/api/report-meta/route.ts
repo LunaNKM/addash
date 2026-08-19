@@ -4,15 +4,23 @@ import { creativeAssetId, makeCreativeKey } from '@/lib/report/creativeKey';
 import { toGrossCostKrw } from '@/lib/report/schema';
 import type { NormalizedReportRow, ReportParseResult } from '@/lib/report/reportTypes';
 
+/** 2년치처럼 긴 기간을 가져올 때 기본 실행 시간(10~15초)으로는 반드시 504가 난다. */
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 const META_API_VERSION = process.env.META_API_VERSION || 'v20.0';
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
-const REPORT_FILE_ROWS_PER_CHUNK = 25;
+const REPORT_FILE_ROWS_PER_CHUNK = 200;
 const META_DATE_CHUNK_DAYS = 7;
 const META_ADSET_FILTER_CHUNK_SIZE = 50;
 const META_AD_CREATIVE_CHUNK_SIZE = 50;
 const META_CREATIVE_WRITE_CONCURRENCY = 6;
 const META_CREATIVE_REQUEST_BATCH_SIZE = 25;
 const MAX_META_IMAGE_DATA_LENGTH = 240_000;
+/** Meta Graph API 요청은 전역으로 이만큼만 동시에 나간다(rate limit 회피). */
+const META_REQUEST_CONCURRENCY = 6;
+const REPORT_CHUNK_WRITE_CONCURRENCY = 12;
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
 
 type MetaAction = { action_type: string; value: string };
@@ -128,8 +136,10 @@ async function fetchCampaignsAndAdsets(adAccountId: string, dateStart: string, d
   const adsetMap = new Map<string, Omit<MetaAdset, 'id'>>();
 
   const chunks = dateChunks(dateStart, dateEnd, META_DATE_CHUNK_DAYS);
-  for (const chunk of chunks) {
-    const result = await withDailyFallback(chunk.start, chunk.end, (start, end) => fetchCampaignsAndAdsetsWindow(adAccountId, start, end));
+  const windows = await Promise.all(chunks.map(range => (
+    withDailyFallback(range.start, range.end, (start, end) => fetchCampaignsAndAdsetsWindow(adAccountId, start, end))
+  )));
+  for (const result of windows) {
     for (const campaign of result.campaigns) campaignMap.set(campaign.id, campaign.name);
     for (const adset of result.adsets) {
       adsetMap.set(adset.id, {
@@ -345,18 +355,16 @@ async function fetchCampaignsAndAdsetsWindow(adAccountId: string, dateStart: str
 }
 
 async function fetchAllInsights(adAccountId: string, dateStart: string, dateEnd: string, adsetIds?: string[]): Promise<MetaInsightRow[]> {
-  const rows: MetaInsightRow[] = [];
   const adsetChunks = adsetIds?.length ? chunk(adsetIds, META_ADSET_FILTER_CHUNK_SIZE) : [[]];
   const rangeChunks = dateChunks(dateStart, dateEnd, META_DATE_CHUNK_DAYS);
+  const jobs = rangeChunks.flatMap(range => adsetChunks.map(ids => ({ range, ids })));
 
-  for (const range of rangeChunks) {
-    for (const ids of adsetChunks) {
-      const result = await withDailyFallback(range.start, range.end, (start, end) => fetchAllInsightsWindow(adAccountId, start, end, ids));
-      rows.push(...result);
-    }
-  }
+  // 2년치면 기간 청크만 100개가 넘는다. 순차로 돌리면 함수 실행 시간을 넘겨 504가 난다.
+  const results = await Promise.all(jobs.map(job => (
+    withDailyFallback(job.range.start, job.range.end, (start, end) => fetchAllInsightsWindow(adAccountId, start, end, job.ids))
+  )));
 
-  return rows;
+  return results.flat();
 }
 
 async function fetchAllInsightsForAccounts(adAccountIds: string[], dateStart: string, dateEnd: string, adsetIds?: string[]): Promise<MetaInsightRow[]> {
@@ -415,10 +423,9 @@ async function withDailyFallback<T>(dateStart: string, dateEnd: string, fetcher:
     return await fetcher(dateStart, dateEnd);
   } catch (err) {
     if (!isTemporaryMetaError(err) || dateStart === dateEnd) throw err;
-    const dailyResults: T[] = [];
-    for (const chunk of dateChunks(dateStart, dateEnd, 1)) {
-      dailyResults.push(await fetcher(chunk.start, chunk.end));
-    }
+    const dailyResults = await Promise.all(
+      dateChunks(dateStart, dateEnd, 1).map(chunk => fetcher(chunk.start, chunk.end))
+    );
     const first = dailyResults[0];
     if (Array.isArray(first)) return dailyResults.flat() as T;
     const campaigns = new Map<string, string>();
@@ -438,7 +445,46 @@ function isTemporaryMetaError(err: unknown): boolean {
   return err instanceof Error && (err.message.includes('code=2') || err.message.includes('code=1'));
 }
 
+/** 순서를 유지하면서 최대 limit개씩만 동시에 실행한다. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      results[index] = await task(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+let metaInFlight = 0;
+const metaWaiters: Array<() => void> = [];
+
+/** 계정·기간 청크를 병렬로 돌려도 Graph API 동시 요청 수는 전역으로 묶어 둔다. */
+async function withMetaSlot<T>(task: () => Promise<T>): Promise<T> {
+  while (metaInFlight >= META_REQUEST_CONCURRENCY) {
+    await new Promise<void>(resolve => metaWaiters.push(resolve));
+  }
+  metaInFlight += 1;
+  try {
+    return await task();
+  } finally {
+    metaInFlight -= 1;
+    metaWaiters.shift()?.();
+  }
+}
+
 async function fetchMetaJson<T>(url: string): Promise<T> {
+  return withMetaSlot(() => fetchMetaJsonDirect<T>(url));
+}
+
+async function fetchMetaJsonDirect<T>(url: string): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -791,12 +837,13 @@ async function saveReportFileToFirestore(brandId: string, tabId: string, fileDoc
     chunkCount: chunks.length
   }, idToken);
 
-  for (let index = 0; index < chunks.length; index += 1) {
-    await writeFirestoreDocument(`${basePath}/chunks/${String(index).padStart(4, '0')}`, {
+  // 2년치는 청크 문서가 수백 개가 된다. 한 개씩 PATCH하면 Meta 조회를 통과해도 저장 단계에서 504가 난다.
+  await mapWithConcurrency(chunks, REPORT_CHUNK_WRITE_CONCURRENCY, (rowsChunk, index) => (
+    writeFirestoreDocument(`${basePath}/chunks/${String(index).padStart(4, '0')}`, {
       index,
-      rows: chunks[index]
-    }, idToken);
-  }
+      rows: rowsChunk
+    }, idToken)
+  ));
 
   return docId;
 }

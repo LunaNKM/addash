@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { buildFileStats } from '@/lib/aggregation';
 import type { ParsedRow } from '@/lib/types';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
 const META_API_VERSION = 'v20.0';
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
