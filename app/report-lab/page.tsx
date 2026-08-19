@@ -1685,6 +1685,8 @@ function XPerformanceSection({ rows }: { rows: XReportRow[] }) {
             <tr>
               <th>일자</th>
               <th>노출</th>
+              <th>도달</th>
+              <th>평균 빈도</th>
               <th>광고비</th>
               <th>클릭</th>
               <th>좋아요</th>
@@ -1719,6 +1721,8 @@ function XPerformanceCells({ row }: { row: XReportSummary }) {
   return (
     <>
       <td>{formatInteger(row.impressions)}</td>
+      <td>{formatInteger(row.reach)}</td>
+      <td>{row.frequency.toFixed(2)}</td>
       <td>{formatCurrency(row.spend)}</td>
       <td>{formatInteger(row.linkClicks)}</td>
       <td>{formatInteger(row.likes)}</td>

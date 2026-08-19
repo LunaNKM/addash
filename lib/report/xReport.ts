@@ -10,6 +10,8 @@ export type XReportRow = {
   adId: string;
   adName: string;
   impressions: number;
+  /** export의 Reach 열. 열이 없던 시절에 저장한 파일에는 비어 있을 수 있다. */
+  reach: number;
   spend: number;
   linkClicks: number;
   likes: number;
@@ -31,6 +33,7 @@ export type XReportSummary = {
   key: string;
   label: string;
   impressions: number;
+  reach: number;
   spend: number;
   linkClicks: number;
   likes: number;
@@ -42,6 +45,8 @@ export type XReportSummary = {
   cpm: number;
   cpc: number;
   cpe: number;
+  /** 노출 ÷ 도달. export의 Average frequency 열과 같은 정의라 합계 행에서도 일관되게 나온다. */
+  frequency: number;
 };
 
 const X_COLUMN_ALIASES = {
@@ -49,6 +54,7 @@ const X_COLUMN_ALIASES = {
   adId: ['ad id'],
   adName: ['ad name'],
   impressions: ['impressions'],
+  reach: ['reach'],
   spend: ['spend'],
   linkClicks: ['link clicks'],
   likes: ['likes'],
@@ -94,6 +100,7 @@ function toXReportRow(row: unknown[], columns: Partial<Record<XColumnKey, number
     adId: String(cell('adId') ?? '').trim(),
     adName: String(cell('adName') ?? '').trim() || '이름 없는 소재',
     impressions: parseNumber(cell('impressions')),
+    reach: parseNumber(cell('reach')),
     spend,
     linkClicks: parseNumber(cell('linkClicks')),
     likes: parseNumber(cell('likes')),
@@ -143,6 +150,8 @@ export function summarizeXReportRows(key: string, label: string, rows: XReportRo
   const summary = rows.reduce(
     (acc, row) => {
       acc.impressions += row.impressions;
+      // Reach 열을 읽기 전에 저장한 X RAW 파일에는 reach가 없어 그대로 더하면 NaN이 된다.
+      acc.reach += Number.isFinite(row.reach) ? row.reach : 0;
       acc.spend += row.spend;
       acc.linkClicks += row.linkClicks;
       acc.likes += row.likes;
@@ -152,7 +161,7 @@ export function summarizeXReportRows(key: string, label: string, rows: XReportRo
       acc.engagements += row.engagements;
       return acc;
     },
-    { key, label, impressions: 0, spend: 0, linkClicks: 0, likes: 0, replies: 0, reposts: 0, follows: 0, engagements: 0 }
+    { key, label, impressions: 0, reach: 0, spend: 0, linkClicks: 0, likes: 0, replies: 0, reposts: 0, follows: 0, engagements: 0 }
   );
 
   return {
@@ -161,7 +170,8 @@ export function summarizeXReportRows(key: string, label: string, rows: XReportRo
     ctr: safeRatio(summary.linkClicks, summary.impressions),
     cpm: safeRatio(summary.spend * 1000, summary.impressions),
     cpc: safeRatio(summary.spend, summary.linkClicks),
-    cpe: safeRatio(summary.spend, summary.engagements)
+    cpe: safeRatio(summary.spend, summary.engagements),
+    frequency: safeRatio(summary.impressions, summary.reach)
   };
 }
 
