@@ -41,7 +41,7 @@ import {
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis, type XReportFileDoc } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import {
   DirectCreativeUploadModal,
@@ -112,7 +112,6 @@ export default function ReportLabPage() {
   const [dashboardTab, setDashboardTab] = useState<DashboardTab | null>(null);
   const [dashboardTabs, setDashboardTabs] = useState<DashboardTab[]>([]);
   const [kpi, setKpi] = useState<Kpi>(emptyKpi);
-  const [reportFiles, setReportFiles] = useState<ReportFileDoc[]>([]);
   const [selectedXlsxReportFileId, setSelectedXlsxReportFileId] = useState('');
   const [selectedMetaReportFileId, setSelectedMetaReportFileId] = useState('');
   const [reportComment, setReportComment] = useState<ReportCommentDoc | null>(null);
@@ -128,8 +127,6 @@ export default function ReportLabPage() {
   const [collectorOpen, setCollectorOpen] = useState(false);
   const [collectorSettings, setCollectorSettings] = useState<SingleOneCollectorSettings | null>(null);
   const [xlsxResult, setXlsxResult] = useState<ReportParseResult | null>(null);
-  const [xReportFiles, setXReportFiles] = useState<XReportFileDoc[]>([]);
-  const [selectedXReportFileId, setSelectedXReportFileId] = useState('');
   const [xReportResult, setXReportResult] = useState<XReportParseResult | null>(null);
   const [metaResult, setMetaResult] = useState<ReportParseResult | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('total');
@@ -161,9 +158,6 @@ export default function ReportLabPage() {
   const resetReportState = useCallback(() => {
     setXlsxResult(null);
     setMetaResult(null);
-    setReportFiles([]);
-    setXReportFiles([]);
-    setSelectedXReportFileId('');
     setXReportResult(null);
     setSelectedXlsxReportFileId('');
     setSelectedMetaReportFileId('');
@@ -246,12 +240,9 @@ export default function ReportLabPage() {
       listXReportFiles(target.id, nextTab.id)
     ]);
     setKpi(loadedKpi);
-    setReportFiles(loadedReportFiles);
     setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
-    setXReportFiles(loadedXReportFiles);
 
     const firstXReport = loadedXReportFiles[0] || null;
-    setSelectedXReportFileId(firstXReport?.id || '');
     setXReportResult(firstXReport ? (await getXReportFile(target.id, nextTab.id, firstXReport.id))?.result || null : null);
 
     const firstXlsx = loadedReportFiles.find(file => !isMetaReportFile(file)) || null;
@@ -303,7 +294,6 @@ export default function ReportLabPage() {
       listReportFiles(brand.id, dashboardTab.id),
       listCreativeAssets(brand.id, dashboardTab.id)
     ]);
-    setReportFiles(loadedReportFiles);
     setCreativeAssets(indexCreativeAssets(loadedCreativeAssets));
     const selectedXlsx = loadedReportFiles.find(file => file.id === selectedXlsxReportFileId && !isMetaReportFile(file))
       || loadedReportFiles.find(file => !isMetaReportFile(file))
@@ -565,8 +555,6 @@ export default function ReportLabPage() {
         result: parsed,
         createdAt
       });
-      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
-      setReportFiles(loadedReportFiles);
       setSelectedXlsxReportFileId(savedId);
       setReportComment(null);
       setCommentDraft('');
@@ -591,7 +579,7 @@ export default function ReportLabPage() {
       const parsed = await parseXReportFile(file);
       const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
       const createdAt = Date.now();
-      const savedId = await saveXReportFile(brand.id, dashboardTab.id, {
+      await saveXReportFile(brand.id, dashboardTab.id, {
         filename: file.name,
         fileSize: file.size,
         dateStart: detectedDates[0] || '',
@@ -600,8 +588,6 @@ export default function ReportLabPage() {
         result: parsed,
         createdAt
       });
-      setXReportFiles(await listXReportFiles(brand.id, dashboardTab.id));
-      setSelectedXReportFileId(savedId);
       setXReportResult(parsed);
       setNotice(`X RAW 적용 완료: ${parsed.rows.length.toLocaleString()}행 · ${detectedDates[0] || '-'} ~ ${detectedDates[detectedDates.length - 1] || '-'}`);
     } catch (err) {
@@ -637,7 +623,6 @@ export default function ReportLabPage() {
 
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
-      setReportFiles(loadedReportFiles);
       setSelectedMetaReportFileId(saved?.id || '');
       setReportComment(null);
       setCommentDraft('');
@@ -1094,62 +1079,7 @@ export default function ReportLabPage() {
             )}
           </div>
 
-          {reportFiles.length > 0 && (
-            <div className="file-chips report-file-chips">
-              {reportFiles.map(file => (
-                <button
-                  key={file.id}
-                  className={`chip ${file.id === selectedXlsxReportFileId || file.id === selectedMetaReportFileId ? 'active' : ''}`}
-                  onClick={() => {
-                    if (!brand || !dashboardTab) return;
-                    const source: ReportSourceType = isMetaReportFile(file) ? 'meta' : 'xlsx';
-                    if (source === 'meta') setSelectedMetaReportFileId(file.id);
-                    else setSelectedXlsxReportFileId(file.id);
-                    setBusy('저장된 RAW 파일을 불러오는 중입니다...');
-                    Promise.all([
-                      getReportFile(brand.id, dashboardTab.id, file.id),
-                      getReportComment(brand.id, dashboardTab.id, file.id)
-                    ])
-                      .then(([loadedFile, loadedComment]) => {
-                        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || file.createdAt, source);
-                        setReportComment(loadedComment);
-                        setCommentDraft(loadedComment?.text || '');
-                        setCommentEditing(false);
-                      })
-                      .catch(err => setError(errorMessage(err)))
-                      .finally(() => setBusy(''));
-                  }}
-                  title={`${file.dateStart || '-'} ~ ${file.dateEnd || '-'} · ${file.rowCount.toLocaleString()}행`}
-                >
-                  {file.filename}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {xReportFiles.length > 0 && (
-            <div className="file-chips report-file-chips">
-              <span className="filter-label">X RAW</span>
-              {xReportFiles.map(file => (
-                <button
-                  key={file.id}
-                  className={`chip ${file.id === selectedXReportFileId ? 'active' : ''}`}
-                  onClick={() => {
-                    if (!brand || !dashboardTab) return;
-                    setSelectedXReportFileId(file.id);
-                    setBusy('저장된 X RAW 파일을 불러오는 중입니다...');
-                    getXReportFile(brand.id, dashboardTab.id, file.id)
-                      .then(loadedFile => setXReportResult(loadedFile?.result || null))
-                      .catch(err => setError(errorMessage(err)))
-                      .finally(() => setBusy(''));
-                  }}
-                  title={`${file.dateStart || '-'} ~ ${file.dateEnd || '-'} · ${file.rowCount.toLocaleString()}행`}
-                >
-                  {file.filename}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* RAW 파일 목록은 설정에서만 관리한다. 화면에는 소스별 최신 파일이 자동으로 적용된다. */}
 
           {result && (
             <div className="filter-bar report-dimension-controls">
@@ -1680,7 +1610,7 @@ function XPerformanceSection({ rows }: { rows: XReportRow[] }) {
         <span className="muted">X RAW 업로드 기준 · {rangeStart} ~ {rangeEnd}</span>
       </div>
       <div className="table-wrap sticky-detail">
-        <table className="promotion-performance-table">
+        <table className="promotion-performance-table x-performance-table">
           <thead>
             <tr>
               <th>일자</th>
