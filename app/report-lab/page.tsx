@@ -52,6 +52,7 @@ import {
 import { MetaCreativeFilterModal, type MetaCreativeSelection } from '../components/MetaCreativeFilterModal';
 import { MetaFilterModal } from '../components/MetaFilterModal';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
+import { RichText, RichTextEditor } from '../components/RichText';
 import type {
   NormalizedReportRow,
   ReportComparisonMetric,
@@ -116,7 +117,6 @@ export default function ReportLabPage() {
   const [selectedMetaReportFileId, setSelectedMetaReportFileId] = useState('');
   const [reportComment, setReportComment] = useState<ReportCommentDoc | null>(null);
   const [creativeAssets, setCreativeAssets] = useState<Record<string, CreativeAssetDoc>>({});
-  const [commentDraft, setCommentDraft] = useState('');
   const [commentEditing, setCommentEditing] = useState(false);
   const [commentBusy, setCommentBusy] = useState('');
   const [metaImportOpen, setMetaImportOpen] = useState(false);
@@ -163,7 +163,6 @@ export default function ReportLabPage() {
     setSelectedMetaReportFileId('');
     setReportComment(null);
     setCreativeAssets({});
-    setCommentDraft('');
     setCommentEditing(false);
     setPeriodStart('');
     setPeriodEnd('');
@@ -275,7 +274,6 @@ export default function ReportLabPage() {
       applyReportResult(null, undefined, 'xlsx');
     }
     setReportComment(loadedComment);
-    setCommentDraft(loadedComment?.text || '');
     setCommentEditing(false);
   }, [applyReportResult, resetReportState]);
 
@@ -319,7 +317,6 @@ export default function ReportLabPage() {
 
     if (!loadedXlsx && !loadedMeta) applyReportResult(null, undefined, 'xlsx');
     setReportComment(loadedComment);
-    setCommentDraft(loadedComment?.text || '');
     setCommentEditing(false);
   }, [activeTab, applyReportResult, brand, dashboardTab, selectedMetaReportFileId, selectedXlsxReportFileId]);
 
@@ -557,7 +554,6 @@ export default function ReportLabPage() {
       });
       setSelectedXlsxReportFileId(savedId);
       setReportComment(null);
-      setCommentDraft('');
       setCommentEditing(false);
       applyReportResult(parsed, createdAt, 'xlsx');
     } catch (err) {
@@ -625,7 +621,6 @@ export default function ReportLabPage() {
       const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
       setSelectedMetaReportFileId(saved?.id || '');
       setReportComment(null);
-      setCommentDraft('');
       setCommentEditing(false);
 
       if (saved) {
@@ -812,7 +807,6 @@ export default function ReportLabPage() {
       });
       const saved = await getReportComment(brand.id, dashboardTab.id, selectedReportFileId);
       setReportComment(saved);
-      setCommentDraft(saved?.text || nextText);
       setCommentEditing(false);
     } catch (err) {
       alert(errorMessage(err));
@@ -1133,8 +1127,6 @@ export default function ReportLabPage() {
                   allRows={filteredRows}
                   kpi={kpi}
                   comment={reportComment}
-                  commentDraft={commentDraft}
-                  setCommentDraft={setCommentDraft}
                   editing={commentEditing}
                   setEditing={setCommentEditing}
                   isAdmin={isAdmin}
@@ -1453,8 +1445,6 @@ function TotalPerformance({
   allRows,
   kpi,
   comment,
-  commentDraft,
-  setCommentDraft,
   editing,
   setEditing,
   isAdmin,
@@ -1467,8 +1457,6 @@ function TotalPerformance({
   allRows: NormalizedReportRow[];
   kpi: Kpi;
   comment: ReportCommentDoc | null;
-  commentDraft: string;
-  setCommentDraft: (value: string) => void;
   editing: boolean;
   setEditing: (value: boolean) => void;
   isAdmin: boolean;
@@ -1487,8 +1475,6 @@ function TotalPerformance({
       <SummaryCards total={view.current.total} kpi={kpi} />
       <ReportCommentSection
         comment={comment}
-        draft={commentDraft}
-        setDraft={setCommentDraft}
         editing={editing}
         setEditing={setEditing}
         isAdmin={isAdmin}
@@ -1734,8 +1720,6 @@ function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
 
 function ReportCommentSection({
   comment,
-  draft,
-  setDraft,
   editing,
   setEditing,
   isAdmin,
@@ -1744,8 +1728,6 @@ function ReportCommentSection({
   onSave
 }: {
   comment: ReportCommentDoc | null;
-  draft: string;
-  setDraft: (value: string) => void;
   editing: boolean;
   setEditing: (value: boolean) => void;
   isAdmin: boolean;
@@ -1759,71 +1741,34 @@ function ReportCommentSection({
     <section className="section report-comment-section">
       <div className="section-head">
         <b>Comment</b>
-        {isAdmin && (
+        {isAdmin && !editing && (
           <div className="report-comment-actions">
             <button className="btn outline" disabled={Boolean(busy)} onClick={onGenerate}>
               {busy || 'Comment 생성'}
             </button>
-            {comment?.text && !editing && (
-              <button className="btn ghost" disabled={Boolean(busy)} onClick={() => {
-                setDraft(comment.text);
-                setEditing(true);
-              }}>
-                수정
-              </button>
-            )}
+            <button className="btn ghost" disabled={Boolean(busy)} onClick={() => setEditing(true)}>
+              {comment?.text ? '수정' : '작성'}
+            </button>
           </div>
         )}
       </div>
       {editing ? (
-        <div className="report-comment-editor">
-          <textarea value={draft} onChange={event => setDraft(event.target.value)} />
-          <div className="modal-actions">
-            <button className="btn outline" disabled={Boolean(busy)} onClick={() => {
-              setDraft(comment?.text || '');
-              setEditing(false);
-            }}>
-              취소
-            </button>
-            <button className="btn brand" disabled={Boolean(busy)} onClick={() => onSave(draft)}>
-              저장
-            </button>
-          </div>
-        </div>
+        <RichTextEditor
+          initialText={comment?.text || ''}
+          placeholder="이번 기간 성과에 대해 공유할 내용을 적어주세요."
+          busy={busy}
+          minHeight={420}
+          onCancel={() => setEditing(false)}
+          onSave={onSave}
+        />
       ) : (
         <div className="report-comment-box">
           {comment?.text
-            ? <ReportCommentContent text={comment.text} />
-            : <span className="muted">Comment를 생성하면 공유 링크에서도 이 영역에 표시됩니다.</span>}
+            ? <RichText text={comment.text} className="report-comment-content" lineClassName="report-comment-line" />
+            : <span className="muted">Comment를 작성하면 공유 링크에서도 이 영역에 표시됩니다.</span>}
         </div>
       )}
     </section>
-  );
-}
-
-function ReportCommentContent({ text }: { text: string }) {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  return (
-    <div className="report-comment-content">
-      {lines.map((line, index) => {
-        const trimmed = line.trim();
-        const isHead = trimmed === '현 상황' || trimmed === 'NEXT';
-        const labelMatch = /^\[(.+)\]$/.exec(trimmed);
-        const isAction = /^\d+\)/.test(trimmed);
-        const isBullet = trimmed.startsWith('- ') || trimmed === '-';
-        let cls = 'report-comment-line';
-        if (isHead) cls += ' is-head';
-        else if (labelMatch) cls += ' is-label';
-        else if (isAction) cls += ' is-action';
-        else if (isBullet) cls += ' is-bullet';
-        const content = labelMatch ? labelMatch[1] : (line || ' ');
-        return (
-          <div key={index} className={cls}>
-            {content}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

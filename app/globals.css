@@ -3299,8 +3299,7 @@ td[title], .legend-row[title], .donut-legend div[title] {
   margin-left: auto;
 }
 
-.report-comment-box,
-.report-comment-editor {
+.report-comment-box {
   border: 1px solid var(--c-border);
   background: var(--c-bg-elevated);
   border-radius: var(--r-md);
@@ -3317,54 +3316,11 @@ td[title], .legend-row[title], .donut-legend div[title] {
 
 .report-comment-line {
   white-space: pre-wrap;
+  min-height: 1.82em;
 }
-
-.report-comment-line.is-bullet {
+.report-comment-line b {
   font-weight: 700;
-}
-
-.report-comment-line.is-head {
-  font-weight: 800;
-  font-size: 14px;
-  letter-spacing: 0.01em;
   color: var(--c-ink);
-  margin: 18px 0 6px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid var(--c-border);
-}
-
-.report-comment-content > .report-comment-line.is-head:first-child {
-  margin-top: 0;
-}
-
-.report-comment-line.is-label {
-  font-weight: 700;
-  color: var(--brand);
-  margin: 12px 0 2px;
-}
-
-.report-comment-line.is-action {
-  padding-left: 14px;
-  text-indent: -14px;
-}
-
-.report-comment-editor textarea {
-  width: 100%;
-  min-height: 420px;
-  resize: vertical;
-  border: 1px solid var(--c-border-strong);
-  border-radius: var(--r-sm);
-  background: var(--c-bg-elevated);
-  padding: 14px;
-  color: var(--c-ink);
-  font-size: 13px;
-  line-height: 1.7;
-  outline: 0;
-}
-
-.report-comment-editor textarea:focus {
-  border-color: var(--brand);
-  box-shadow: var(--sh-focus);
 }
 
 .report-chart-section {
