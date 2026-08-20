@@ -14,7 +14,7 @@ import { buildFileStats, mergeStats, totalStat } from '@/lib/aggregation';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { AD_PLATFORMS, AD_PLATFORM_LABELS, type AdPlatform, type Brand, type BrandPatch, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type MetricKey } from '@/lib/types';
 import {
-  applyFilters, countUnique, errorMessage, toggleSet, topBy,
+  applyFilters, countUnique, errorMessage, toggleSet,
   type DashboardBundle, type SortOrder
 } from '@/lib/dashUtils';
 import { AnimatedChip } from './components/AnimatedChip';
@@ -389,24 +389,17 @@ export default function Page() {
     }
   }
 
-  async function generateInsight() {
-    if (!brand || !tab || !user) return;
-    setBusy('인사이트 생성 중...');
+  async function saveInsightText(text: string) {
+    if (!brand || !tab) return;
+    setBusy('인사이트 저장 중...');
     try {
-      const token = await user.getIdToken();
-      const resp = await fetch('/api/insight', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          brandName: brand.name, tabName: tab.name, total,
-          adsets: topBy(filtered.adsetDailyStats, 'spend', 20),
-          campaigns: topBy(filtered.campaignDailyStats, 'spend', 20),
-          daily: filtered.dailyStats
-        })
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || '인사이트 생성 실패');
-      const insight: Omit<InsightDoc, 'id'> = { text: String(data.text || ''), createdAt: Date.now(), fileIds: [...selectedFileIds], periodStart, periodEnd };
+      const insight: Omit<InsightDoc, 'id'> = {
+        text: text.trim(),
+        createdAt: Date.now(),
+        fileIds: [...selectedFileIds],
+        periodStart,
+        periodEnd
+      };
       await saveInsight(brand.id, tab.id, insight);
       const loadedInsights = await listInsights(brand.id, tab.id);
       setInsights(loadedInsights);
@@ -546,7 +539,7 @@ export default function Page() {
             </div>
 
             <KpiGrid total={total} kpi={kpi} />
-            <InsightSection insights={insights} isAdmin={isAdmin} onGenerate={generateInsight} />
+            <InsightSection insights={insights} isAdmin={isAdmin} busy={busy} onSave={saveInsightText} />
             <DailyTrendSection rows={filtered.dailyStats} activeMetrics={activeMetrics} setActiveMetrics={setActiveMetrics} dailySort={dailySort} setDailySort={setDailySort} openDaily={openDaily} setOpenDaily={setOpenDaily} />
             <DailyDetailSection rows={filtered.detailStats} sort={detailSort} setSort={setDetailSort} open={openDetail} setOpen={setOpenDetail} />
             {countUnique(filtered.campaignDailyStats.map(row => row.campaignName || '')) > 1 && <CompareSection title="캠페인별 비교" rows={filtered.campaignDailyStats} groupKey="campaignName" metric={campaignMetric} setMetric={setCampaignMetric} />}
