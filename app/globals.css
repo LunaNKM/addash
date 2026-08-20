@@ -1418,13 +1418,15 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 /* ─────────────────────────────────────────────────────────────
-   AI INSIGHT BOX
+   INSIGHT BOX
    ───────────────────────────────────────────────────────────── */
 .insight-box {
-  background: linear-gradient(135deg, #16161A 0%, #1F1F24 100%);
+  background: var(--c-bg-elevated);
+  border: 1px solid var(--c-border);
   border-radius: var(--r-lg);
   padding: 22px 24px;
-  color: white;
+  color: var(--c-ink);
+  box-shadow: var(--sh-xs);
   position: relative;
   overflow: hidden;
 }
@@ -1435,17 +1437,17 @@ tbody tr:last-child td { border-bottom: 0; }
   right: -10%;
   width: 60%;
   height: 200%;
-  background: radial-gradient(closest-side, hsl(var(--brand-h) var(--brand-s) var(--brand-l) / 0.18), transparent 70%);
+  background: radial-gradient(closest-side, hsl(var(--brand-h) var(--brand-s) var(--brand-l) / 0.06), transparent 70%);
   pointer-events: none;
 }
 .insight-box .muted {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--c-ink-3);
 }
 .insight-content {
   position: relative;
   font-size: 13px;
   line-height: 1.85;
-  color: rgba(255, 255, 255, 0.86);
+  color: var(--c-ink);
   font-weight: 400;
   letter-spacing: -0.005em;
 }
