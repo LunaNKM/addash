@@ -9,10 +9,10 @@ import {
   listFiles, listInsights, listTabs, removeAdmin, renameTab, saveFile, saveInsight,
   saveKpi, updateBrand
 } from '@/lib/store';
-import { parseMetaFile, type ParseReport } from '@/lib/parser';
+import { parseAdFile, type ParseReport } from '@/lib/parser';
 import { buildFileStats, mergeStats, totalStat } from '@/lib/aggregation';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
-import type { Brand, BrandPatch, DashboardTab, FileDoc, InsightDoc, Kpi, MetricKey } from '@/lib/types';
+import { AD_PLATFORMS, AD_PLATFORM_LABELS, type AdPlatform, type Brand, type BrandPatch, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type MetricKey } from '@/lib/types';
 import {
   applyFilters, countUnique, errorMessage, toggleSet, topBy,
   type DashboardBundle, type SortOrder
@@ -31,6 +31,7 @@ import { CampaignTable } from './components/CampaignTable';
 import { ParsePreview } from './components/ParsePreview';
 import { SettingsModal, type SettingsMode } from './components/SettingsModal';
 import { MetaFilterModal } from './components/MetaFilterModal';
+import { PlatformSections, type PlatformBundle } from './components/PlatformSections';
 
 const defaultVisibleMetrics: MetricKey[] = ['spend', 'impression', 'ctr'];
 
@@ -203,7 +204,40 @@ export default function Page() {
     [merged, periodStart, periodEnd, campaignFilter, adsetFilter]
   );
 
+  /** Meta·X·YouTube를 각각 따로 합쳐 매체별 섹션에 넘긴다. 위쪽 지표는 세 매체를 모두 합친 값이다. */
+  const platformBundles = useMemo<PlatformBundle[]>(() => {
+    const selected = files.filter(file => selectedFileIds.has(file.id));
+    return AD_PLATFORMS.flatMap(platform => {
+      const list = selected.filter(file => file.platform === platform);
+      if (!list.length) return [];
+      return [{
+        platform,
+        files: list,
+        data: applyFilters(mergeStats(list), periodStart, periodEnd, campaignFilter, adsetFilter)
+      }];
+    });
+  }, [files, selectedFileIds, periodStart, periodEnd, campaignFilter, adsetFilter]);
+
   const total = useMemo(() => totalStat(filtered.dailyStats.length ? filtered.dailyStats : filtered.detailStats), [filtered]);
+  /** 이 탭에 올라온 매체 목록. Meta·X·YouTube를 섞어 올려도 각각 한 번에 켜고 끌 수 있게 한다. */
+  const platformsInTab = useMemo(
+    () => AD_PLATFORMS.filter(platform => files.some(file => file.platform === platform)),
+    [files]
+  );
+
+  function isPlatformSelected(platform: AdPlatform): boolean {
+    const list = files.filter(file => file.platform === platform);
+    return list.length > 0 && list.every(file => selectedFileIds.has(file.id));
+  }
+
+  function togglePlatform(platform: AdPlatform) {
+    const list = files.filter(file => file.platform === platform);
+    const next = new Set(selectedFileIds);
+    const turnOff = isPlatformSelected(platform);
+    for (const file of list) turnOff ? next.delete(file.id) : next.add(file.id);
+    setSelectedFileIds(next);
+  }
+
   const campaigns = useMemo(() => Array.from(new Set(merged.detailStats.map(row => row.campaignName || '').filter(Boolean))).sort(), [merged]);
   const adsets = useMemo(() => Array.from(new Set(merged.detailStats.map(row => row.adsetName || '').filter(Boolean))).sort(), [merged]);
 
@@ -212,7 +246,7 @@ export default function Page() {
   async function onUploadFile(file: File) {
     setBusy('파일을 분석 중입니다...');
     try {
-      const report = await parseMetaFile(file);
+      const report = await parseAdFile(file);
       setParseReport(report);
       setPendingFile(file);
     } catch (err) {
@@ -227,7 +261,13 @@ export default function Page() {
     setBusy('업로드 저장 중...');
     try {
       const stats = buildFileStats(parseReport.rows);
-      const doc: Omit<FileDoc, 'id'> = { filename: pendingFile.name, fileSize: pendingFile.size, createdAt: Date.now(), ...stats };
+      const doc: Omit<FileDoc, 'id'> = {
+        platform: parseReport.platform,
+        filename: pendingFile.name,
+        fileSize: pendingFile.size,
+        createdAt: Date.now(),
+        ...stats
+      };
       await saveFile(brand.id, tab.id, doc);
       tabCacheRef.current.delete(`${brand.id}:${tab.id}`);
       await selectTab(brand, tab, true);
@@ -422,7 +462,7 @@ export default function Page() {
               <button className="btn outline" onClick={() => setMetaImportOpen(true)}>Meta 가져오기</button>
               <label className="btn brand">
                 파일 추가
-                <input hidden type="file" accept=".xlsx,.xls,.csv" onChange={event => event.target.files?.[0] && onUploadFile(event.target.files[0])} />
+                <input hidden type="file" accept=".xlsx,.xls,.csv,.tsv" onChange={event => event.target.files?.[0] && onUploadFile(event.target.files[0])} />
               </label>
             </>
           )}
@@ -470,6 +510,20 @@ export default function Page() {
               <span className="filter-label">파일</span>
               <button className="btn outline" onClick={() => setSelectedFileIds(new Set(files.map(file => file.id)))}>전체</button>
               <button className="btn outline" onClick={() => setSelectedFileIds(new Set())}>해제</button>
+              {platformsInTab.length > 1 && (
+                <>
+                  <span className="filter-label" style={{ marginLeft: 8 }}>매체</span>
+                  {platformsInTab.map(platform => (
+                    <button
+                      key={platform}
+                      className={`btn ${isPlatformSelected(platform) ? 'brand' : 'outline'}`}
+                      onClick={() => togglePlatform(platform)}
+                    >
+                      {AD_PLATFORM_LABELS[platform]}
+                    </button>
+                  ))}
+                </>
+              )}
               <span className="filter-label" style={{ marginLeft: 8 }}>필터</span>
               <select value={campaignFilter} onChange={event => setCampaignFilter(event.target.value)}>
                 <option value="">캠페인 전체</option>
@@ -484,7 +538,7 @@ export default function Page() {
               {files.map(file => (
                 <AnimatedChip
                   key={file.id}
-                  label={file.filename}
+                  label={`${AD_PLATFORM_LABELS[file.platform]} · ${file.filename}`}
                   active={selectedFileIds.has(file.id)}
                   onClick={() => setSelectedFileIds(toggleSet(selectedFileIds, file.id))}
                 />
@@ -502,6 +556,7 @@ export default function Page() {
               <Scatter rows={filtered.creativeStats} />
             </div>
             <CampaignTable rows={filtered.creativeStats} open={openCampaignTable} setOpen={setOpenCampaignTable} sort={campaignTableSort} setSort={setCampaignTableSort} />
+            <PlatformSections bundles={platformBundles} />
           </div>
         </main>
       )}

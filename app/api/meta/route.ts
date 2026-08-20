@@ -359,6 +359,7 @@ export async function POST(req: Request) {
     const filename = `Meta API${adAccountIds.length > 1 ? ` ${adAccountIds.length} accounts` : ''} ${dateStart}~${dateEnd}`;
 
     const fileDoc = {
+      platform: 'meta' as const,
       filename,
       fileSize: 0,
       createdAt: Date.now(),

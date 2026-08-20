@@ -44,6 +44,36 @@ export const DAILY_TOPLINE_METRIC_LABELS: Record<DailyToplineMetric, string> = {
 };
 
 export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'cpm' | 'cpc' | 'roas';
+
+/** 대시보드 파일 하나가 어느 매체 export에서 왔는지. 레거시 파일은 모두 meta로 본다. */
+export type AdPlatform = 'meta' | 'x' | 'youtube';
+export const AD_PLATFORMS: AdPlatform[] = ['meta', 'x', 'youtube'];
+export const AD_PLATFORM_LABELS: Record<AdPlatform, string> = {
+  meta: 'Meta',
+  x: 'X',
+  youtube: 'YouTube'
+};
+
+/**
+ * 매체별로만 존재하는 지표. 합계 시 단순 합산되며, 값이 없으면 아예 필드를 만들지 않는다.
+ * (Meta 파일 문서 크기를 그대로 유지하기 위해 0인 값은 저장하지 않는다.)
+ */
+export type PlatformExtras = {
+  /** X: Reach */
+  reach?: number;
+  /** X: Likes */
+  likes?: number;
+  /** X: Replies */
+  replies?: number;
+  /** X: Reposts */
+  reposts?: number;
+  /** X: Follows */
+  follows?: number;
+  /** X: 광고비 ÷ Cost per engagement로 역산한 인게이지먼트 수 */
+  engagements?: number;
+  /** YouTube: TrueView 평균 CPV (노출 가중 평균) */
+  cpv?: number;
+};
 export type SpendBasis = 'gross' | 'net';
 
 export type Brand = {
@@ -93,7 +123,7 @@ export type Kpi = {
   roasGoal: number;
 };
 
-export type ParsedRow = {
+export type ParsedRow = PlatformExtras & {
   date: string;
   campaignName: string;
   adsetName: string;
@@ -110,10 +140,11 @@ export type ParsedRow = {
   cpmWeight: number;
   cpcWeight: number;
   roasWeight: number;
+  cpvWeight?: number;
   raw?: Record<string, unknown>;
 };
 
-export type StatRow = {
+export type StatRow = PlatformExtras & {
   key: string;
   date?: string;
   campaignName?: string;
@@ -131,6 +162,7 @@ export type StatRow = {
 
 export type FileDoc = {
   id: string;
+  platform: AdPlatform;
   filename: string;
   fileSize: number;
   dateStart: string;

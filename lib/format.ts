@@ -19,6 +19,24 @@ export function formatMetric(key: MetricKey, value: number): string {
   return Math.round(v).toLocaleString() + '회';
 }
 
+/** 대시보드 표에서 쓰는 단순 포매터. formatMetric과 같은 표기(₩, 회, %)를 따른다. */
+export function formatCount(value: number): string {
+  return Math.round(Number(value) || 0).toLocaleString();
+}
+
+export function formatWon(value: number): string {
+  return '₩' + Math.round(Number(value) || 0).toLocaleString();
+}
+
+/** 이미 퍼센트 단위(57.25 = 57.25%)로 저장된 값을 표기한다. */
+export function formatRate(value: number): string {
+  return (Number(value) || 0).toFixed(2) + '%';
+}
+
+export function formatRatio(value: number, digits = 2): string {
+  return (Number(value) || 0).toFixed(digits);
+}
+
 export function formatDateWithDay(date: string): string {
   if (!date) return '-';
   const d = new Date(date + 'T00:00:00');

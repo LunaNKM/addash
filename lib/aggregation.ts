@@ -1,5 +1,9 @@
 import type { ParsedRow, StatRow } from './types';
 
+/** 매체 전용 지표 중 단순 합산되는 것들. */
+const EXTRA_SUM_KEYS = ['reach', 'likes', 'replies', 'reposts', 'follows', 'engagements'] as const;
+type ExtraSumKey = typeof EXTRA_SUM_KEYS[number];
+
 type Bucket = {
   key: string;
   date?: string;
@@ -18,7 +22,9 @@ type Bucket = {
   cpcWeight: number;
   roasWeighted: number;
   roasWeight: number;
-};
+  cpvWeighted: number;
+  cpvWeight: number;
+} & Record<ExtraSumKey, number>;
 
 function add(bucket: Bucket, row: ParsedRow) {
   bucket.spend += row.spend;
@@ -29,6 +35,19 @@ function add(bucket: Bucket, row: ParsedRow) {
   if (row.cpmWeight > 0) { bucket.cpmWeighted += row.cpm * row.cpmWeight; bucket.cpmWeight += row.cpmWeight; }
   if (row.cpcWeight > 0) { bucket.cpcWeighted += row.cpc * row.cpcWeight; bucket.cpcWeight += row.cpcWeight; }
   if (row.roasWeight > 0) { bucket.roasWeighted += row.roas * row.roasWeight; bucket.roasWeight += row.roasWeight; }
+  const cpvWeight = Number(row.cpvWeight ?? (Number(row.cpv || 0) > 0 ? row.impression : 0));
+  if (cpvWeight > 0) { bucket.cpvWeighted += Number(row.cpv || 0) * cpvWeight; bucket.cpvWeight += cpvWeight; }
+  for (const key of EXTRA_SUM_KEYS) bucket[key] += Number(row[key] || 0);
+}
+
+/** 0인 매체 전용 지표는 필드를 만들지 않는다. Meta 파일 문서를 예전과 동일하게 유지하기 위함. */
+function extraFields(b: Bucket): Partial<StatRow> {
+  const out: Partial<StatRow> = {};
+  for (const key of EXTRA_SUM_KEYS) {
+    if (b[key]) out[key] = round2(b[key]);
+  }
+  if (b.cpvWeight > 0) out.cpv = round2(b.cpvWeighted / b.cpvWeight);
+  return out;
 }
 
 function cleanText(value?: string) { return value || undefined; }
@@ -47,7 +66,8 @@ function finalize(b: Bucket): StatRow {
     ctr: round4(b.ctrWeight ? b.ctrWeighted / b.ctrWeight : (b.impression ? (b.click / b.impression) * 100 : 0)),
     cpm: round2(b.cpmWeight ? b.cpmWeighted / b.cpmWeight : (b.impression ? (b.spend / b.impression) * 1000 : 0)),
     cpc: round2(b.cpcWeight ? b.cpcWeighted / b.cpcWeight : (b.click ? b.spend / b.click : 0)),
-    roas: round4(b.roasWeight ? b.roasWeighted / b.roasWeight : 0)
+    roas: round4(b.roasWeight ? b.roasWeighted / b.roasWeight : 0),
+    ...extraFields(b)
   };
 }
 
@@ -74,7 +94,15 @@ export function aggregateRows(rows: ParsedRow[], getKey: (row: ParsedRow) => Par
         cpcWeighted: 0,
         cpcWeight: 0,
         roasWeighted: 0,
-        roasWeight: 0
+        roasWeight: 0,
+        cpvWeighted: 0,
+        cpvWeight: 0,
+        reach: 0,
+        likes: 0,
+        replies: 0,
+        reposts: 0,
+        follows: 0,
+        engagements: 0
       };
       map.set(base.key, bucket);
     }
@@ -100,7 +128,15 @@ export function totalStat(rows: ParsedRow[] | StatRow[], key = 'total'): StatRow
     ctrWeight: Number(('ctrWeight' in r ? r.ctrWeight : 0) || r.impression || 0),
     cpmWeight: Number(('cpmWeight' in r ? r.cpmWeight : 0) || r.impression || 0),
     cpcWeight: Number(('cpcWeight' in r ? r.cpcWeight : 0) || r.click || 0),
-    roasWeight: Number(('roasWeight' in r ? r.roasWeight : 0) || r.spend || 0)
+    roasWeight: Number(('roasWeight' in r ? r.roasWeight : 0) || r.spend || 0),
+    cpv: Number(r.cpv || 0),
+    cpvWeight: Number(('cpvWeight' in r ? r.cpvWeight : 0) || (Number(r.cpv || 0) > 0 ? r.impression : 0) || 0),
+    reach: Number(r.reach || 0),
+    likes: Number(r.likes || 0),
+    replies: Number(r.replies || 0),
+    reposts: Number(r.reposts || 0),
+    follows: Number(r.follows || 0),
+    engagements: Number(r.engagements || 0)
   })) as ParsedRow[];
   return aggregateRows(converted, () => ({ key }))[0] || emptyStat(key);
 }
@@ -154,7 +190,15 @@ function aggregateStats(rows: StatRow[], getKey: (row: StatRow) => Partial<Bucke
     ctrWeight: r.impression,
     cpmWeight: r.impression,
     cpcWeight: r.click,
-    roasWeight: r.spend
+    roasWeight: r.spend,
+    cpv: Number(r.cpv || 0),
+    cpvWeight: Number(r.cpv || 0) > 0 ? r.impression : 0,
+    reach: Number(r.reach || 0),
+    likes: Number(r.likes || 0),
+    replies: Number(r.replies || 0),
+    reposts: Number(r.reposts || 0),
+    follows: Number(r.follows || 0),
+    engagements: Number(r.engagements || 0)
   })) as ParsedRow[];
   return aggregateRows(parsed, getKey as unknown as (row: ParsedRow) => Partial<Bucket> & { key: string });
 }

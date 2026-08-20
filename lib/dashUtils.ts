@@ -1,5 +1,5 @@
 import { totalStat } from './aggregation';
-import { formatDateWithDay, formatMetric, metricLabels } from './format';
+import { formatCount, formatDateWithDay, formatMetric, formatWon, metricLabels } from './format';
 import type { Kpi, MetricKey, ParsedRow, StatRow } from './types';
 
 export type SortOrder = 'asc' | 'desc';
@@ -94,19 +94,41 @@ export function asStatRow(row: TableRow | undefined): StatRow | undefined {
     ctr: Number(row.ctr || 0),
     cpm: Number(row.cpm || 0),
     cpc: Number(row.cpc || 0),
-    roas: Number(row.roas || 0)
+    roas: Number(row.roas || 0),
+    ...(row.reach ? { reach: Number(row.reach) } : {}),
+    ...(row.likes ? { likes: Number(row.likes) } : {}),
+    ...(row.replies ? { replies: Number(row.replies) } : {}),
+    ...(row.reposts ? { reposts: Number(row.reposts) } : {}),
+    ...(row.follows ? { follows: Number(row.follows) } : {}),
+    ...(row.engagements ? { engagements: Number(row.engagements) } : {}),
+    ...(row.cpv ? { cpv: Number(row.cpv) } : {})
   };
 }
 
+/** 매체 전용 지표(X·YouTube)의 표기명. 보고서 탭 X 표와 같은 명칭을 쓴다. */
+const extraLabels: Record<string, string> = {
+  reach: '도달',
+  likes: '좋아요',
+  replies: '댓글',
+  reposts: '리포스트',
+  follows: '팔로우',
+  engagements: '인게이지먼트',
+  cpv: 'TrueView 평균 CPV'
+};
+
 export function labelForColumn(column: string): string {
   const map: Record<string, string> = { date: '날짜', campaignAdsetAd: '캠페인 / 광고세트 / 소재' };
-  return map[column] || metricLabels[column as MetricKey] || column;
+  return map[column] || metricLabels[column as MetricKey] || extraLabels[column] || column;
 }
 
 export function cell(row: TableRow, column: string): string {
   if (column === 'date') return formatDateWithDay(row.date || '');
   if (column === 'campaignAdsetAd') return `${row.campaignName || ''} / ${row.adsetName || ''} / ${row.adName || ''}`;
   if (metricKeys.includes(column as MetricKey)) return formatMetric(column as MetricKey, metricValue(asStatRow(row), column as MetricKey));
+  if (extraLabels[column]) {
+    const value = Number((row as Record<string, unknown>)[column] || 0);
+    return column === 'cpv' ? formatWon(value) : formatCount(value);
+  }
   return String((row as Record<string, unknown>)[column] || '');
 }
 

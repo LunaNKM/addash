@@ -13,7 +13,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import { DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type XReportFileDoc } from './types';
+import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type XReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import type { XReportParseResult, XReportRow } from './report/xReport';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
@@ -550,6 +550,8 @@ function normalizeTab(id: string, brandId: string, data: Record<string, unknown>
 function normalizeFile(id: string, data: Record<string, unknown>): FileDoc {
   return {
     id,
+    // platform이 없던 시절 업로드/Meta API 파일은 모두 Meta로 본다.
+    platform: AD_PLATFORMS.includes(data.platform as AdPlatform) ? (data.platform as AdPlatform) : 'meta',
     filename: String(data.filename || ''),
     fileSize: Number(data.fileSize || 0),
     dateStart: String(data.dateStart || ''),
@@ -685,6 +687,9 @@ function normalizeStat(data: Record<string, unknown> | undefined, fallbackKey: s
     cpc: Number(d.cpc || 0),
     roas: Number(d.roas || 0)
   };
+  for (const key of ['reach', 'likes', 'replies', 'reposts', 'follows', 'engagements', 'cpv'] as const) {
+    if (d[key] !== undefined && d[key] !== null) base[key] = Number(d[key] || 0);
+  }
   if (d.date) base.date = String(d.date);
   if (d.campaignName) base.campaignName = String(d.campaignName);
   if (d.adsetName) base.adsetName = String(d.adsetName);
