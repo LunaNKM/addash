@@ -163,6 +163,8 @@ export type StatRow = PlatformExtras & {
 export type FileDoc = {
   id: string;
   platform: AdPlatform;
+  /** 업로드한 파일에서 각 지표를 어느 열에서 읽었는지. 표 머리글을 원본 헤더명으로 보여주는 데 쓴다. */
+  sourceLabels?: Record<string, string>;
   filename: string;
   fileSize: number;
   dateStart: string;

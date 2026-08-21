@@ -66,9 +66,10 @@ const YOUTUBE_ALIASES = {
   cpv: ['trueview평균cpv', '평균cpv', 'avgcpv'],
   cpm: ['평균cpm', 'avgcpm', 'averagecpm'],
   impression: ['노출수', 'impressions', 'impr'],
-  click: ['상호작용수', 'interactions'],
-  ctr: ['상호작용발생률', 'interactionrate'],
-  cpc: ['평균비용', 'avgcost', 'averagecost'],
+  // 캠페인 목표에 따라 '상호작용 수'로 내려오기도, '클릭수'로 내려오기도 한다.
+  click: ['상호작용수', '클릭수', 'interactions', 'clicks'],
+  ctr: ['상호작용발생률', '클릭률ctr', '클릭률', 'interactionrate', 'ctr'],
+  cpc: ['평균비용', '평균cpc', 'avgcpc', 'averagecpc', 'avgcost', 'averagecost'],
   spend: ['비용', 'cost'],
   status: ['광고상태', 'adstate', 'adstatus']
 } as const;
@@ -224,9 +225,9 @@ function toXRow(row: unknown[], columns: Partial<Record<XKey, number>>): ParsedR
     reposts: parseNumber(cellAt(row, columns.reposts)),
     follows: parseNumber(cellAt(row, columns.follows)),
     engagements,
-    ctrWeight: ctr > 0 ? impression : 0,
-    cpmWeight: cpm > 0 ? impression : 0,
-    cpcWeight: cpc > 0 ? Math.max(click, 1) : 0,
+    ctrWeight: columns.ctr !== undefined ? impression : 0,
+    cpmWeight: columns.cpm !== undefined ? impression : 0,
+    cpcWeight: columns.cpc !== undefined && click > 0 ? click : 0,
     roasWeight: 0
   };
 }
@@ -300,9 +301,11 @@ function toYoutubeRow(row: unknown[], columns: Partial<Record<YoutubeKey, number
     cpc,
     roas: 0,
     cpv,
-    ctrWeight: ctr > 0 ? impression : 0,
-    cpmWeight: cpm > 0 ? impression : 0,
-    cpcWeight: cpc > 0 ? Math.max(click, 1) : 0,
+    // 값이 0이어도 열이 있으면 가중치를 준다. 0%인 행도 평균을 희석해야 하기 때문이다.
+    ctrWeight: columns.ctr !== undefined ? impression : 0,
+    cpmWeight: columns.cpm !== undefined ? impression : 0,
+    // 클릭 없이 비용만 나간 행(동영상 조회 캠페인)이 많아 CPC는 비용 ÷ 클릭으로 다시 계산한다.
+    cpcWeight: 0,
     roasWeight: 0,
     cpvWeight: cpv > 0 ? impression : 0
   };
@@ -386,10 +389,11 @@ function parseRow(row: Row, detected: Record<string, string>): ParsedRow | null 
     cpm,
     cpc,
     roas: parseNumber(roasMatch?.value),
-    ctrWeight: ctr > 0 ? impression : 0,
-    cpmWeight: cpm > 0 ? impression : 0,
-    cpcWeight: cpc > 0 ? Math.max(click, 1) : 0,
-    roasWeight: parseNumber(roasMatch?.value) > 0 ? Math.max(spend, 1) : 0,
+    // 값이 0이어도 열이 있으면 가중치를 준다. (예전에는 합계 단계에서만 이렇게 보정했다)
+    ctrWeight: ctrMatch ? impression : 0,
+    cpmWeight: cpmMatch ? impression : 0,
+    cpcWeight: cpcMatch && click > 0 ? click : 0,
+    roasWeight: roasMatch ? Math.max(spend, 1) : 0,
     raw: row
   };
 }

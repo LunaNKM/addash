@@ -614,6 +614,7 @@ function normalizeFile(id: string, data: Record<string, unknown>): FileDoc {
     id,
     // platform이 없던 시절 업로드/Meta API 파일은 모두 Meta로 본다.
     platform: AD_PLATFORMS.includes(data.platform as AdPlatform) ? (data.platform as AdPlatform) : 'meta',
+    sourceLabels: normalizeSourceLabels(data.sourceLabels),
     filename: String(data.filename || ''),
     fileSize: Number(data.fileSize || 0),
     dateStart: String(data.dateStart || ''),
@@ -747,6 +748,16 @@ function chunk<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+}
+
+function normalizeSourceLabels(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, label] of Object.entries(value as Record<string, unknown>)) {
+    const text = String(label || '').trim();
+    if (text) out[key] = text;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function normalizeStat(data: Record<string, unknown> | undefined, fallbackKey: string): import('./types').StatRow {

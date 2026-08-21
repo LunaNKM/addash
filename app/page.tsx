@@ -35,6 +35,15 @@ import { PlatformSections, type PlatformBundle } from './components/PlatformSect
 
 const defaultVisibleMetrics: MetricKey[] = ['spend', 'impression', 'ctr'];
 
+/** 표 머리글에 쓸 지표 열 이름만 추린다. (캠페인·광고그룹 같은 이름 열은 뺀다) */
+const SOURCE_LABEL_KEYS = ['spend', 'impression', 'click', 'ctr', 'cpm', 'cpc', 'cpv', 'reach', 'landing'];
+
+function pickSourceLabels(detected: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    SOURCE_LABEL_KEYS.filter(key => detected[key]).map(key => [key, detected[key]])
+  );
+}
+
 export default function Page() {
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -265,6 +274,7 @@ export default function Page() {
       const stats = buildFileStats(parseReport.rows);
       const doc: Omit<FileDoc, 'id'> = {
         platform: parseReport.platform,
+        sourceLabels: pickSourceLabels(parseReport.detected),
         filename: pendingFile.name,
         fileSize: pendingFile.size,
         createdAt: Date.now(),
