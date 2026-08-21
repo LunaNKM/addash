@@ -3670,3 +3670,125 @@ td[title], .legend-row[title], .donut-legend div[title] {
 .sticky-detail tbody tr.detail-date-separator .date-cell {
   border-top: 2px solid var(--c-border-vivid) !important;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   NOTE HISTORY (인사이트 / Comment 작성 이력 캘린더)
+   ───────────────────────────────────────────────────────────── */
+.note-history-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-bg-elevated);
+  color: var(--c-ink-3);
+  cursor: pointer;
+  transition: color 140ms var(--ease-out), border-color 140ms var(--ease-out), background 140ms var(--ease-out);
+}
+.note-history-btn:hover {
+  color: var(--brand);
+  border-color: var(--brand-400);
+  background: var(--c-bg-muted);
+}
+.note-history-btn:focus-visible { outline: none; box-shadow: var(--sh-focus); }
+
+.note-history-card { width: min(560px, 94vw); }
+
+.note-history-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 18px 0 10px;
+}
+.note-history-nav b {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 120px;
+  text-align: center;
+}
+.note-history-nav .btn { padding: 4px 12px; }
+
+.note-history-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.note-history-weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-ink-3);
+  padding-bottom: 4px;
+}
+.note-history-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  aspect-ratio: 1 / 1;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--c-ink-3);
+  font-size: 12.5px;
+  cursor: default;
+}
+.note-history-cell.empty { border: 0; }
+.note-history-cell em { font-style: normal; }
+.note-history-cell.today { border-color: var(--c-border-vivid); }
+.note-history-cell.has {
+  color: var(--c-ink);
+  font-weight: 600;
+  background: var(--c-bg-muted);
+  cursor: pointer;
+}
+.note-history-cell.has:hover { border-color: var(--brand-400); }
+.note-history-cell.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.note-history-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--brand);
+}
+.note-history-cell.active .note-history-dot { background: #fff; }
+
+.note-history-view {
+  margin-top: 16px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-bg-elevated);
+  padding: 16px;
+  max-height: 300px;
+  overflow: auto;
+}
+.note-history-view-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.note-history-view-head b { font-size: 13px; font-weight: 600; }
+
+.note-history-content {
+  color: var(--c-ink);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.note-history-line {
+  white-space: pre-wrap;
+  min-height: 1.8em;
+}
+.note-history-line b { font-weight: 700; }

@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import type { InsightDoc } from '@/lib/types';
+import { NoteHistoryButton } from './NoteHistoryModal';
 import { RichText, RichTextEditor } from './RichText';
 
 /** 관리자가 직접 적는 인사이트. 굵게는 Ctrl+B(⌘B)로 지정한 부분에만 적용된다. */
-export function InsightSection({ insights, isAdmin, busy, onSave }: {
+export function InsightSection({ insights, isAdmin, busy, brandId, tabId, historyKey, onSave }: {
   insights: InsightDoc[];
   isAdmin: boolean;
   busy: string;
+  brandId: string;
+  tabId: string;
+  /** 저장할 때마다 값이 바뀌어 캘린더 이력을 다시 읽게 한다. */
+  historyKey: number;
   onSave: (text: string) => Promise<void> | void;
 }) {
   const latest = insights[0];
@@ -24,7 +29,10 @@ export function InsightSection({ insights, isAdmin, busy, onSave }: {
   return (
     <section className="section">
       <div className="section-head">
-        <b>인사이트</b>
+        <b>
+          인사이트
+          <NoteHistoryButton brandId={brandId} tabId={tabId} kind="insight" title="인사이트" refreshKey={historyKey} />
+        </b>
         {isAdmin && !editing && (
           <button className="btn outline" disabled={Boolean(busy)} onClick={() => setEditing(true)}>
             {latest?.text ? '수정' : '작성'}

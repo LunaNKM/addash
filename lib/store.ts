@@ -13,7 +13,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, primaryAdminEmail } from './firebase';
-import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type XReportFileDoc } from './types';
+import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type NoteHistoryDoc, type NoteHistoryKind, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type XReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import type { XReportParseResult, XReportRow } from './report/xReport';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
@@ -244,6 +244,8 @@ export async function deleteTab(brandId: string, tabId: string, opts: { allowLas
   for (const comment of reportComments) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', comment.id));
   const insights = await listInsights(brandId, tabId);
   for (const insight of insights) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'insights', insight.id));
+  const noteHistorySnap = await getDocs(collection(db, 'brands', brandId, 'tabs', tabId, 'noteHistory'));
+  for (const note of noteHistorySnap.docs) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'noteHistory', note.id));
   const creativeAssets = await listCreativeAssets(brandId, tabId);
   for (const asset of creativeAssets) await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'creativeAssets', asset.id));
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'kpi', 'default'));
@@ -418,6 +420,66 @@ export async function saveInsight(brandId: string, tabId: string, insight: Omit<
   const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'insights'));
   await setDoc(ref, cleanFirestoreData(insight));
   return ref.id;
+}
+
+/** 서울 기준 오늘 날짜(yyyy-mm-dd). 작성 이력은 이 값을 문서 키로 쓴다. */
+export function kstDateKey(at: number = Date.now()): string {
+  return new Date(at + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+export async function listNoteHistory(brandId: string, tabId: string, kind: NoteHistoryKind): Promise<NoteHistoryDoc[]> {
+  const snap = await getDocs(collection(db, 'brands', brandId, 'tabs', tabId, 'noteHistory'));
+  const byDate = new Map<string, NoteHistoryDoc>();
+  snap.docs
+    .map(d => normalizeNoteHistory(d.id, d.data()))
+    .filter(entry => entry.kind === kind && entry.text && entry.date)
+    .forEach(entry => byDate.set(entry.date, entry));
+
+  // 이력 컬렉션이 생기기 전에 저장한 글도 작성일 기준으로 함께 보여준다.
+  for (const legacy of await listLegacyNotes(brandId, tabId, kind)) {
+    if (!byDate.has(legacy.date)) byDate.set(legacy.date, legacy);
+  }
+
+  return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+async function listLegacyNotes(brandId: string, tabId: string, kind: NoteHistoryKind): Promise<NoteHistoryDoc[]> {
+  const legacy = kind === 'insight'
+    ? (await listInsights(brandId, tabId)).map(item => ({ ...item, at: item.createdAt }))
+    : (await listReportComments(brandId, tabId)).map(item => ({ ...item, at: item.updatedAt || item.createdAt }));
+  return legacy
+    .filter(item => item.text && item.at)
+    .map(item => ({
+      id: item.id,
+      kind,
+      date: kstDateKey(item.at),
+      text: item.text,
+      periodStart: item.periodStart,
+      periodEnd: item.periodEnd,
+      createdAt: item.createdAt,
+      updatedAt: item.at
+    }));
+}
+
+/** 같은 날 다시 저장하면 그날 기록을 덮어쓴다. (하루 = 카드 한 장) */
+export async function saveNoteHistory(
+  brandId: string,
+  tabId: string,
+  kind: NoteHistoryKind,
+  entry: { text: string; periodStart: string; periodEnd: string }
+) {
+  const now = Date.now();
+  const date = kstDateKey(now);
+  const ref = doc(db, 'brands', brandId, 'tabs', tabId, 'noteHistory', `${kind}_${date}`);
+  const existing = await getDoc(ref);
+  await setDoc(ref, cleanFirestoreData({
+    ...entry,
+    kind,
+    date,
+    createdAt: existing.exists() ? Number(existing.data().createdAt || now) : now,
+    updatedAt: now
+  }), { merge: true });
+  return date;
 }
 
 export async function listCreativeAssets(brandId: string, tabId: string): Promise<CreativeAssetDoc[]> {
@@ -618,6 +680,19 @@ function normalizeInsight(id: string, data: Record<string, unknown>): InsightDoc
     fileIds: Array.isArray(data.fileIds) ? data.fileIds.map(String) : [],
     periodStart: String(data.periodStart || ''),
     periodEnd: String(data.periodEnd || '')
+  };
+}
+
+function normalizeNoteHistory(id: string, data: Record<string, unknown>): NoteHistoryDoc {
+  return {
+    id,
+    kind: data.kind === 'comment' ? 'comment' : 'insight',
+    date: String(data.date || ''),
+    text: String(data.text || ''),
+    periodStart: String(data.periodStart || ''),
+    periodEnd: String(data.periodEnd || ''),
+    createdAt: Number(data.createdAt || 0),
+    updatedAt: Number(data.updatedAt || 0)
   };
 }
 

@@ -33,6 +33,7 @@ import {
   listXReportFiles,
   saveKpi,
   saveSingleOneCollectorSettings,
+  saveNoteHistory,
   saveReportComment,
   saveReportFile,
   saveXReportFile,
@@ -52,6 +53,7 @@ import {
 import { MetaCreativeFilterModal, type MetaCreativeSelection } from '../components/MetaCreativeFilterModal';
 import { MetaFilterModal } from '../components/MetaFilterModal';
 import { SettingsModal, type SettingsMode } from '../components/SettingsModal';
+import { NoteHistoryButton } from '../components/NoteHistoryModal';
 import { RichText, RichTextEditor } from '../components/RichText';
 import type {
   NormalizedReportRow,
@@ -119,6 +121,8 @@ export default function ReportLabPage() {
   const [creativeAssets, setCreativeAssets] = useState<Record<string, CreativeAssetDoc>>({});
   const [commentEditing, setCommentEditing] = useState(false);
   const [commentBusy, setCommentBusy] = useState('');
+  // 저장할 때마다 올려서 캘린더 이력을 다시 읽게 한다.
+  const [commentHistoryKey, setCommentHistoryKey] = useState(0);
   const [metaImportOpen, setMetaImportOpen] = useState(false);
   const [imageImportSourceOpen, setImageImportSourceOpen] = useState(false);
   const [metaImageImportOpen, setMetaImageImportOpen] = useState(false);
@@ -805,8 +809,14 @@ export default function ReportLabPage() {
         periodStart,
         periodEnd
       });
+      await saveNoteHistory(brand.id, dashboardTab.id, 'comment', {
+        text: nextText,
+        periodStart,
+        periodEnd
+      });
       const saved = await getReportComment(brand.id, dashboardTab.id, selectedReportFileId);
       setReportComment(saved);
+      setCommentHistoryKey(key => key + 1);
       setCommentEditing(false);
     } catch (err) {
       alert(errorMessage(err));
@@ -1126,6 +1136,9 @@ export default function ReportLabPage() {
                   view={reportView}
                   allRows={filteredRows}
                   kpi={kpi}
+                  brandId={brand.id}
+                  tabId={dashboardTab.id}
+                  historyKey={commentHistoryKey}
                   comment={reportComment}
                   editing={commentEditing}
                   setEditing={setCommentEditing}
@@ -1444,6 +1457,9 @@ function TotalPerformance({
   view,
   allRows,
   kpi,
+  brandId,
+  tabId,
+  historyKey,
   comment,
   editing,
   setEditing,
@@ -1456,6 +1472,9 @@ function TotalPerformance({
   view: ReportView;
   allRows: NormalizedReportRow[];
   kpi: Kpi;
+  brandId: string;
+  tabId: string;
+  historyKey: number;
   comment: ReportCommentDoc | null;
   editing: boolean;
   setEditing: (value: boolean) => void;
@@ -1474,6 +1493,9 @@ function TotalPerformance({
     <>
       <SummaryCards total={view.current.total} kpi={kpi} />
       <ReportCommentSection
+        brandId={brandId}
+        tabId={tabId}
+        historyKey={historyKey}
         comment={comment}
         editing={editing}
         setEditing={setEditing}
@@ -1719,6 +1741,9 @@ function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
 }
 
 function ReportCommentSection({
+  brandId,
+  tabId,
+  historyKey,
   comment,
   editing,
   setEditing,
@@ -1727,6 +1752,9 @@ function ReportCommentSection({
   onGenerate,
   onSave
 }: {
+  brandId: string;
+  tabId: string;
+  historyKey: number;
   comment: ReportCommentDoc | null;
   editing: boolean;
   setEditing: (value: boolean) => void;
@@ -1740,7 +1768,10 @@ function ReportCommentSection({
   return (
     <section className="section report-comment-section">
       <div className="section-head">
-        <b>Comment</b>
+        <b>
+          Comment
+          <NoteHistoryButton brandId={brandId} tabId={tabId} kind="comment" title="Comment" refreshKey={historyKey} />
+        </b>
         {isAdmin && !editing && (
           <div className="report-comment-actions">
             <button className="btn outline" disabled={Boolean(busy)} onClick={onGenerate}>

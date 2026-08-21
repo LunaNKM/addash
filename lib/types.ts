@@ -242,3 +242,18 @@ export type InsightDoc = {
   periodStart: string;
   periodEnd: string;
 };
+
+/** 인사이트 / Comment를 작성한 날짜별로 남기는 기록. 같은 날 다시 저장하면 그날 것을 갱신한다. */
+export type NoteHistoryKind = 'insight' | 'comment';
+
+export type NoteHistoryDoc = {
+  id: string;
+  kind: NoteHistoryKind;
+  /** 작성한 날짜(KST) yyyy-mm-dd */
+  date: string;
+  text: string;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: number;
+  updatedAt: number;
+};

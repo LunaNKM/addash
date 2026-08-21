@@ -6,7 +6,7 @@ import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWi
 import {
   addAdmin, createBrand, createTab, deleteBrand, deleteFile, deleteTab, emptyKpi,
   findBrandByShareToken, getKpi, isAdminEmail, listAdmins, listBrandsForAdmin,
-  listFiles, listInsights, listTabs, removeAdmin, renameTab, saveFile, saveInsight,
+  listFiles, listInsights, listTabs, removeAdmin, renameTab, saveFile, saveInsight, saveNoteHistory,
   saveKpi, updateBrand
 } from '@/lib/store';
 import { parseAdFile, type ParseReport } from '@/lib/parser';
@@ -47,6 +47,8 @@ export default function Page() {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [kpi, setKpi] = useState<Kpi>(emptyKpi);
   const [insights, setInsights] = useState<InsightDoc[]>([]);
+  // 저장할 때마다 올려서 캘린더 이력을 다시 읽게 한다.
+  const [insightHistoryKey, setInsightHistoryKey] = useState(0);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
   const [campaignFilter, setCampaignFilter] = useState('');
@@ -401,8 +403,14 @@ export default function Page() {
         periodEnd
       };
       await saveInsight(brand.id, tab.id, insight);
+      await saveNoteHistory(brand.id, tab.id, 'insight', {
+        text: insight.text,
+        periodStart,
+        periodEnd
+      });
       const loadedInsights = await listInsights(brand.id, tab.id);
       setInsights(loadedInsights);
+      setInsightHistoryKey(key => key + 1);
       tabCacheRef.current.delete(`${brand.id}:${tab.id}`);
     } catch (err) {
       alert(errorMessage(err));
@@ -539,7 +547,7 @@ export default function Page() {
             </div>
 
             <KpiGrid total={total} kpi={kpi} />
-            <InsightSection insights={insights} isAdmin={isAdmin} busy={busy} onSave={saveInsightText} />
+            <InsightSection insights={insights} isAdmin={isAdmin} busy={busy} brandId={brand.id} tabId={tab.id} historyKey={insightHistoryKey} onSave={saveInsightText} />
             <DailyTrendSection rows={filtered.dailyStats} activeMetrics={activeMetrics} setActiveMetrics={setActiveMetrics} dailySort={dailySort} setDailySort={setDailySort} openDaily={openDaily} setOpenDaily={setOpenDaily} />
             <DailyDetailSection rows={filtered.detailStats} sort={detailSort} setSort={setDetailSort} open={openDetail} setOpen={setOpenDetail} />
             {countUnique(filtered.campaignDailyStats.map(row => row.campaignName || '')) > 1 && <CompareSection title="캠페인별 비교" rows={filtered.campaignDailyStats} groupKey="campaignName" metric={campaignMetric} setMetric={setCampaignMetric} />}

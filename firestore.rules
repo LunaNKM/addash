@@ -33,6 +33,7 @@ service cloud.firestore {
             'xReportFiles',
             'reportComments',
             'insights',
+            'noteHistory',
             'creativeAssets'
           ];
           allow write: if isAdmin();
