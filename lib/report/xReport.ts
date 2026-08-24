@@ -9,6 +9,8 @@ export type XReportRow = {
   date: string;
   adId: string;
   adName: string;
+  /** export의 Ad Group name 열. 광고 이름 열이 없는 파일에서 이름표로 쓴다. */
+  adGroupName: string;
   impressions: number;
   /** export의 Reach 열. 열이 없던 시절에 저장한 파일에는 비어 있을 수 있다. */
   reach: number;
@@ -58,6 +60,7 @@ const X_COLUMN_ALIASES = {
   date: ['time period', 'date', 'day', '날짜', '일자'],
   adId: ['ad id'],
   adName: ['ad name'],
+  adGroupName: ['ad group name'],
   impressions: ['impressions'],
   reach: ['reach'],
   spend: ['spend'],
@@ -105,6 +108,7 @@ function toXReportRow(row: unknown[], columns: Partial<Record<XColumnKey, number
     date,
     adId: String(cell('adId') ?? '').trim(),
     adName: String(cell('adName') ?? '').trim() || '이름 없는 소재',
+    adGroupName: String(cell('adGroupName') ?? '').trim(),
     impressions: parseNumber(cell('impressions')),
     reach: parseNumber(cell('reach')),
     spend,

@@ -478,16 +478,37 @@ export default function ReportLabPage() {
     [dates.max, dates.min, periodEnd, periodStart]
   );
 
+  /**
+   * SingleOne RAW에 X가 없을 때만, X RAW를 보고서 행으로 바꿔 합계·일자별·비교표에 합친다.
+   * (RAW에 X 행이 있으면 그 광고비가 이미 들어 있어 이중 계산이 된다)
+   * 캠페인·광고그룹·광고 필터가 걸린 동안에는 그 선택에 없는 매체라 더하지 않는다.
+   */
+  const xViewRows = useMemo<NormalizedReportRow[]>(() => {
+    if (!xReportResult || !result || result.rows.some(isXMediaRow)) return [];
+    if (campaignFilter.length || adgroupFilter.length || adFilter.length) return [];
+    return xReportResult.rows.map((row, index) => toReportRowFromX(
+      row,
+      index,
+      spendBasis === 'gross' ? toGrossCostKrw(row.spend, row.date, commissionSetting) : row.spend
+    ));
+  }, [adFilter.length, adgroupFilter.length, campaignFilter.length, commissionSetting, result, spendBasis, xReportResult]);
+
+  /** 보고서 표·차트가 함께 보는 행. RAW 행 + (합산 조건을 만족하는) X 행. */
+  const viewRows = useMemo(
+    () => (xViewRows.length ? [...filteredRows, ...xViewRows] : filteredRows),
+    [filteredRows, xViewRows]
+  );
+
   const reportView = useMemo(() => {
     if (!result) return null;
     return buildReportView(
-      filteredRows,
+      viewRows,
       periodStart || dates.min,
       periodEnd || dates.max,
       comparisonStart,
       comparisonEnd
     );
-  }, [comparisonEnd, comparisonStart, dates.max, dates.min, filteredRows, periodEnd, periodStart, result]);
+  }, [comparisonEnd, comparisonStart, dates.max, dates.min, periodEnd, periodStart, result, viewRows]);
 
   const xReportRows = useMemo<XReportRow[]>(() => {
     if (!xReportResult) return [];
@@ -509,14 +530,11 @@ export default function ReportLabPage() {
     return result?.rows.some(isXMediaRow) ? [] : xReportRows;
   }, [filteredRows, result, xReportRows]);
 
-  /**
-   * 상단 KPI 카드에 더할 X 합계.
-   * SingleOne RAW에 X 행이 있으면 그 광고비가 이미 합계에 들어 있어 더하지 않는다.
-   */
+  /** 상단 KPI에 X가 더해졌을 때 그 사실을 밝히는 데 쓰는 X 합계. */
   const xKpiTotal = useMemo<XReportSummary | null>(() => {
-    if (!xSectionRows.length || filteredRows.some(isXMediaRow)) return null;
+    if (!xViewRows.length || !xSectionRows.length) return null;
     return summarizeXReportRows('x-kpi', 'X', xSectionRows);
-  }, [filteredRows, xSectionRows]);
+  }, [xSectionRows, xViewRows.length]);
 
   const creativeUploadTargets = useMemo<CreativeUploadTarget[]>(() => {
     const targets = new Map<string, CreativeUploadTarget>();
@@ -1143,7 +1161,7 @@ export default function ReportLabPage() {
               {activeTab === 'total' && (
                 <TotalPerformance
                   view={reportView}
-                  allRows={filteredRows}
+                  allRows={viewRows}
                   kpi={kpi}
                   xTotal={xKpiTotal}
                   brandId={brand.id}
@@ -1165,7 +1183,7 @@ export default function ReportLabPage() {
                 <PromotionDetailReport
                   title={activeMarketplaceTitle}
                   view={reportView}
-                  allRows={filteredRows}
+                  allRows={viewRows}
                   marketplace={activeMarketplace.id}
                   marketplaceRows={marketplaceRows}
                   activeSubTab={activeSubTab}
@@ -1505,7 +1523,7 @@ function TotalPerformance({
 
   return (
     <>
-      <SummaryCards total={withXTotals(view.current.total, xTotal)} kpi={kpi} />
+      <SummaryCards total={view.current.total} kpi={kpi} />
       {xTotal && <p className="muted report-x-kpi-note">X RAW 광고비 {formatCurrency(xTotal.spend)} · 노출 {formatInteger(xTotal.impressions)} 포함</p>}
       <ReportCommentSection
         brandId={brandId}
@@ -1610,7 +1628,7 @@ function PromotionDetailReport({
           <b>{title} 성과</b>
           <span className="muted">최신 {latestDate || '-'}</span>
         </div>
-        <PromotionKpiCards total={withXTotals(view.current.total, xTotal)} showRegistration={marketplace === 'owned'} />
+        <PromotionKpiCards total={view.current.total} showRegistration={marketplace === 'owned'} />
         {xTotal && <p className="muted report-x-kpi-note">X RAW 광고비 {formatCurrency(xTotal.spend)} · 노출 {formatInteger(xTotal.impressions)} 포함</p>}
       </section>
       <DailyToplineChart rows={view.current.byDaily} metrics={dailyToplineMetrics} />
@@ -3429,25 +3447,40 @@ function toIsoDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-/** X RAW 광고비·노출·클릭을 보고서 합계에 더한다. 비율은 더한 값 기준으로 다시 계산한다. */
-function withXTotals(total: ReportSummary, x: XReportSummary | null): ReportSummary {
-  if (!x) return total;
-  const spend = total.spend + x.spend;
-  const impressions = total.impressions + x.impressions;
-  const clicks = total.clicks + x.linkClicks;
+/** X RAW 한 줄을 보고서 행으로 바꾼다. media를 X로 두어 캠페인별 성과에서는 지금처럼 빠진다. */
+function toReportRowFromX(row: XReportRow, index: number, costKrw: number): NormalizedReportRow {
+  // 광고 이름 열이 없는 export가 많아 광고그룹 이름을, 그것도 없으면 매체명을 이름표로 쓴다.
+  const named = [row.adName, row.adGroupName].map(value => (value || '').trim()).find(value => value && value !== '이름 없는 소재');
+  const label = named || 'X 광고';
   return {
-    ...total,
-    spend,
-    grossSpend: total.grossSpend + x.spend,
-    impressions,
-    clicks,
-    ctr: safeRatio(clicks, impressions),
-    cpm: safeRatio(spend * 1000, impressions),
-    cpc: safeRatio(spend, clicks),
-    cvr: safeRatio(total.conversions, clicks),
-    cpa: safeRatio(spend, total.conversions),
-    cartCpa: safeRatio(spend, total.addToCart),
-    roas: safeRatio(total.sales, spend)
+    sourceRowNumber: -(index + 1),
+    date: row.date,
+    brand: '',
+    media: 'X',
+    promotion: '',
+    campaignName: label,
+    adgroupName: label,
+    adName: label,
+    impressions: row.impressions,
+    clicks: row.linkClicks,
+    conversions: 0,
+    costJpy: 0,
+    costKrw,
+    grossCostKrw: costKrw,
+    salesJpy: 0,
+    salesKrw: 0,
+    addToCart: 0,
+    registration: 0,
+    lead: 0,
+    order: 0,
+    ctr: safeRatio(row.linkClicks, row.impressions),
+    cpm: safeRatio(costKrw * 1000, row.impressions),
+    cpc: safeRatio(costKrw, row.linkClicks),
+    cvr: 0,
+    cpa: 0,
+    cartCpa: 0,
+    roas: 0,
+    raw: {}
   };
 }
 
