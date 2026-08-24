@@ -18,6 +18,8 @@ export type XReportRow = {
   replies: number;
   reposts: number;
   follows: number;
+  /** export의 Profile visits 열. 열을 읽기 전에 저장한 파일에는 비어 있을 수 있다. */
+  profileVisits: number;
   /** export에 인게이지먼트 수 열이 없어 광고비 ÷ CPE로 역산한 값. */
   engagements: number;
 };
@@ -40,11 +42,14 @@ export type XReportSummary = {
   replies: number;
   reposts: number;
   follows: number;
+  profileVisits: number;
   engagements: number;
   ctr: number;
   cpm: number;
   cpc: number;
   cpe: number;
+  /** 인게이지먼트 발생률(ER). 인게이지먼트 ÷ 노출. */
+  engagementRate: number;
   /** 노출 ÷ 도달. export의 Average frequency 열과 같은 정의라 합계 행에서도 일관되게 나온다. */
   frequency: number;
 };
@@ -61,6 +66,7 @@ const X_COLUMN_ALIASES = {
   replies: ['replies'],
   reposts: ['reposts'],
   follows: ['follows'],
+  profileVisits: ['profile visits'],
   costPerEngagement: ['cost per engagement']
 } as const;
 
@@ -107,6 +113,7 @@ function toXReportRow(row: unknown[], columns: Partial<Record<XColumnKey, number
     replies: parseNumber(cell('replies')),
     reposts: parseNumber(cell('reposts')),
     follows: parseNumber(cell('follows')),
+    profileVisits: parseNumber(cell('profileVisits')),
     engagements: costPerEngagement > 0 ? Math.round(spend / costPerEngagement) : 0
   };
 }
@@ -158,10 +165,12 @@ export function summarizeXReportRows(key: string, label: string, rows: XReportRo
       acc.replies += row.replies;
       acc.reposts += row.reposts;
       acc.follows += row.follows;
+      // Profile visits 열을 읽기 전에 저장한 X RAW 파일에는 값이 없어 그대로 더하면 NaN이 된다.
+      acc.profileVisits += Number.isFinite(row.profileVisits) ? row.profileVisits : 0;
       acc.engagements += row.engagements;
       return acc;
     },
-    { key, label, impressions: 0, reach: 0, spend: 0, linkClicks: 0, likes: 0, replies: 0, reposts: 0, follows: 0, engagements: 0 }
+    { key, label, impressions: 0, reach: 0, spend: 0, linkClicks: 0, likes: 0, replies: 0, reposts: 0, follows: 0, profileVisits: 0, engagements: 0 }
   );
 
   return {
@@ -171,6 +180,7 @@ export function summarizeXReportRows(key: string, label: string, rows: XReportRo
     cpm: safeRatio(summary.spend * 1000, summary.impressions),
     cpc: safeRatio(summary.spend, summary.linkClicks),
     cpe: safeRatio(summary.spend, summary.engagements),
+    engagementRate: safeRatio(summary.engagements, summary.impressions),
     frequency: safeRatio(summary.impressions, summary.reach)
   };
 }

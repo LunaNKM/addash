@@ -3288,6 +3288,12 @@ td[title], .legend-row[title], .donut-legend div[title] {
   background: linear-gradient(90deg, var(--brand-400), var(--brand));
 }
 
+/* 상단 KPI 카드에 X RAW가 더해졌을 때 그 사실을 밝히는 한 줄. */
+.report-x-kpi-note {
+  margin: -8px 0 16px;
+  font-size: 11.5px;
+}
+
 .report-comment-section {
   margin-bottom: 16px;
 }

@@ -509,6 +509,15 @@ export default function ReportLabPage() {
     return result?.rows.some(isXMediaRow) ? [] : xReportRows;
   }, [filteredRows, result, xReportRows]);
 
+  /**
+   * 상단 KPI 카드에 더할 X 합계.
+   * SingleOne RAW에 X 행이 있으면 그 광고비가 이미 합계에 들어 있어 더하지 않는다.
+   */
+  const xKpiTotal = useMemo<XReportSummary | null>(() => {
+    if (!xSectionRows.length || filteredRows.some(isXMediaRow)) return null;
+    return summarizeXReportRows('x-kpi', 'X', xSectionRows);
+  }, [filteredRows, xSectionRows]);
+
   const creativeUploadTargets = useMemo<CreativeUploadTarget[]>(() => {
     const targets = new Map<string, CreativeUploadTarget>();
     for (const row of reportView?.currentRows || []) {
@@ -1136,6 +1145,7 @@ export default function ReportLabPage() {
                   view={reportView}
                   allRows={filteredRows}
                   kpi={kpi}
+                  xTotal={xKpiTotal}
                   brandId={brand.id}
                   tabId={dashboardTab.id}
                   historyKey={commentHistoryKey}
@@ -1161,6 +1171,7 @@ export default function ReportLabPage() {
                   activeSubTab={activeSubTab}
                   dailyToplineMetrics={brand.dailyToplineMetrics}
                   xRows={xSectionRows}
+                  xTotal={xKpiTotal}
                 />
               )}
             </>
@@ -1457,6 +1468,7 @@ function TotalPerformance({
   view,
   allRows,
   kpi,
+  xTotal,
   brandId,
   tabId,
   historyKey,
@@ -1472,6 +1484,8 @@ function TotalPerformance({
   view: ReportView;
   allRows: NormalizedReportRow[];
   kpi: Kpi;
+  /** SingleOne RAW에 없는 X RAW 합계. 있으면 상단 KPI에 더한다. */
+  xTotal: XReportSummary | null;
   brandId: string;
   tabId: string;
   historyKey: number;
@@ -1491,7 +1505,8 @@ function TotalPerformance({
 
   return (
     <>
-      <SummaryCards total={view.current.total} kpi={kpi} />
+      <SummaryCards total={withXTotals(view.current.total, xTotal)} kpi={kpi} />
+      {xTotal && <p className="muted report-x-kpi-note">X RAW 광고비 {formatCurrency(xTotal.spend)} · 노출 {formatInteger(xTotal.impressions)} 포함</p>}
       <ReportCommentSection
         brandId={brandId}
         tabId={tabId}
@@ -1562,7 +1577,8 @@ function PromotionDetailReport({
   marketplaceRows,
   activeSubTab,
   dailyToplineMetrics,
-  xRows
+  xRows,
+  xTotal
 }: {
   title: string;
   view: ReportView;
@@ -1572,6 +1588,8 @@ function PromotionDetailReport({
   activeSubTab: PromotionSubTab;
   dailyToplineMetrics: DailyToplineMetric[];
   xRows: XReportRow[];
+  /** SingleOne RAW에 없는 X RAW 합계. 있으면 상단 KPI에 더한다. */
+  xTotal: XReportSummary | null;
 }) {
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
   const dailyData = buildYearDailyGroups(allRows, latestDate);
@@ -1592,7 +1610,8 @@ function PromotionDetailReport({
           <b>{title} 성과</b>
           <span className="muted">최신 {latestDate || '-'}</span>
         </div>
-        <PromotionKpiCards total={view.current.total} showRegistration={marketplace === 'owned'} />
+        <PromotionKpiCards total={withXTotals(view.current.total, xTotal)} showRegistration={marketplace === 'owned'} />
+        {xTotal && <p className="muted report-x-kpi-note">X RAW 광고비 {formatCurrency(xTotal.spend)} · 노출 {formatInteger(xTotal.impressions)} 포함</p>}
       </section>
       <DailyToplineChart rows={view.current.byDaily} metrics={dailyToplineMetrics} />
       {historicalRows.length > 0 && historicalTitle && <HistoricalPerformanceTable title={historicalTitle} rows={historicalRows} />}
@@ -1622,19 +1641,13 @@ function XPerformanceSection({ rows }: { rows: XReportRow[] }) {
           <thead>
             <tr>
               <th>일자</th>
-              <th>노출</th>
-              <th>도달</th>
-              <th>평균 빈도</th>
-              <th>광고비</th>
-              <th>클릭</th>
-              <th>좋아요</th>
-              <th>댓글</th>
-              <th>리포스트</th>
-              <th>팔로우</th>
-              <th>CTR</th>
-              <th>CPM</th>
-              <th>CPC</th>
-              <th>CPE</th>
+              <th title="Spend">광고비</th>
+              <th title="Impressions (노출)">IMP</th>
+              <th title="Engagements (인게이지먼트, 광고비 ÷ Cost per engagement)">ENG</th>
+              <th title="Engagement rate (ENG ÷ IMP)">ER</th>
+              <th title="CPM">CPM</th>
+              <th title="Cost per engagement">CPE</th>
+              <th title="Profile visits">프로필방문</th>
             </tr>
           </thead>
           <tbody>
@@ -1658,19 +1671,13 @@ function XPerformanceSection({ rows }: { rows: XReportRow[] }) {
 function XPerformanceCells({ row }: { row: XReportSummary }) {
   return (
     <>
-      <td>{formatInteger(row.impressions)}</td>
-      <td>{formatInteger(row.reach)}</td>
-      <td>{row.frequency.toFixed(2)}</td>
       <td>{formatCurrency(row.spend)}</td>
-      <td>{formatInteger(row.linkClicks)}</td>
-      <td>{formatInteger(row.likes)}</td>
-      <td>{formatInteger(row.replies)}</td>
-      <td>{formatInteger(row.reposts)}</td>
-      <td>{formatInteger(row.follows)}</td>
-      <td>{formatPercent(row.ctr)}</td>
+      <td>{formatInteger(row.impressions)}</td>
+      <td>{formatInteger(row.engagements)}</td>
+      <td>{formatPercent(row.engagementRate)}</td>
       <td>{formatCurrency(row.cpm)}</td>
-      <td>{formatCurrency(row.cpc)}</td>
       <td>{formatCurrency(row.cpe)}</td>
+      <td>{formatInteger(row.profileVisits)}</td>
     </>
   );
 }
@@ -3420,6 +3427,28 @@ function parseIsoDate(value: string): Date {
 
 function toIsoDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** X RAW 광고비·노출·클릭을 보고서 합계에 더한다. 비율은 더한 값 기준으로 다시 계산한다. */
+function withXTotals(total: ReportSummary, x: XReportSummary | null): ReportSummary {
+  if (!x) return total;
+  const spend = total.spend + x.spend;
+  const impressions = total.impressions + x.impressions;
+  const clicks = total.clicks + x.linkClicks;
+  return {
+    ...total,
+    spend,
+    grossSpend: total.grossSpend + x.spend,
+    impressions,
+    clicks,
+    ctr: safeRatio(clicks, impressions),
+    cpm: safeRatio(spend * 1000, impressions),
+    cpc: safeRatio(spend, clicks),
+    cvr: safeRatio(total.conversions, clicks),
+    cpa: safeRatio(spend, total.conversions),
+    cartCpa: safeRatio(spend, total.addToCart),
+    roas: safeRatio(total.sales, spend)
+  };
 }
 
 function safeRatio(numerator: number, denominator: number): number {
