@@ -38,6 +38,10 @@ const defaultVisibleMetrics: MetricKey[] = ['spend', 'impression', 'ctr'];
 /** 표 머리글에 쓸 지표 열 이름만 추린다. (캠페인·광고그룹 같은 이름 열은 뺀다) */
 const SOURCE_LABEL_KEYS = ['spend', 'impression', 'click', 'ctr', 'cpm', 'cpc', 'cpv', 'reach', 'landing'];
 
+function sameNames(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((name, index) => name === right[index]);
+}
+
 function pickSourceLabels(detected: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
     SOURCE_LABEL_KEYS.filter(key => detected[key]).map(key => [key, detected[key]])
@@ -62,6 +66,7 @@ export default function Page() {
   const [periodEnd, setPeriodEnd] = useState('');
   const [campaignFilter, setCampaignFilter] = useState('');
   const [adsetFilter, setAdsetFilter] = useState('');
+  const [adFilter, setAdFilter] = useState('');
   const [activeMetrics, setActiveMetrics] = useState<MetricKey[]>(defaultVisibleMetrics);
   const [donutMetric, setDonutMetric] = useState<MetricKey>('spend');
   const [donutOrder, setDonutOrder] = useState<SortOrder>('desc');
@@ -112,6 +117,7 @@ export default function Page() {
       setPeriodEnd(cachedDates[cachedDates.length - 1] || '');
       setCampaignFilter('');
       setAdsetFilter('');
+      setAdFilter('');
       setActiveAdsets(new Set());
       return;
     }
@@ -133,6 +139,7 @@ export default function Page() {
       setPeriodEnd(dates[dates.length - 1] || '');
       setCampaignFilter('');
       setAdsetFilter('');
+      setAdFilter('');
       setActiveAdsets(new Set());
     } catch (err) {
       alert(errorMessage(err));
@@ -211,8 +218,8 @@ export default function Page() {
   }, [files, selectedFileIds]);
 
   const filtered = useMemo(
-    () => applyFilters(merged, periodStart, periodEnd, campaignFilter, adsetFilter),
-    [merged, periodStart, periodEnd, campaignFilter, adsetFilter]
+    () => applyFilters(merged, periodStart, periodEnd, campaignFilter, adsetFilter, adFilter),
+    [merged, periodStart, periodEnd, campaignFilter, adsetFilter, adFilter]
   );
 
   /** Meta·X·YouTube를 각각 따로 합쳐 매체별 섹션에 넘긴다. 위쪽 지표는 세 매체를 모두 합친 값이다. */
@@ -224,10 +231,10 @@ export default function Page() {
       return [{
         platform,
         files: list,
-        data: applyFilters(mergeStats(list), periodStart, periodEnd, campaignFilter, adsetFilter)
+        data: applyFilters(mergeStats(list), periodStart, periodEnd, campaignFilter, adsetFilter, adFilter)
       }];
     });
-  }, [files, selectedFileIds, periodStart, periodEnd, campaignFilter, adsetFilter]);
+  }, [files, selectedFileIds, periodStart, periodEnd, campaignFilter, adsetFilter, adFilter]);
 
   const total = useMemo(() => totalStat(filtered.dailyStats.length ? filtered.dailyStats : filtered.detailStats), [filtered]);
   /** 이 탭에 올라온 매체 목록. Meta·X·YouTube를 섞어 올려도 각각 한 번에 켜고 끌 수 있게 한다. */
@@ -251,6 +258,27 @@ export default function Page() {
 
   const campaigns = useMemo(() => Array.from(new Set(merged.detailStats.map(row => row.campaignName || '').filter(Boolean))).sort(), [merged]);
   const adsets = useMemo(() => Array.from(new Set(merged.detailStats.map(row => row.adsetName || '').filter(Boolean))).sort(), [merged]);
+  const ads = useMemo(() => Array.from(new Set(merged.creativeStats.map(row => row.adName || '').filter(Boolean))).sort(), [merged]);
+
+  /**
+   * 캠페인 / 광고세트 / 광고 선택.
+   * 값이 없는 층은 빼고, 앞의 층과 목록이 똑같은 층(예: 광고그룹만 있는 X 파일)은 하나로 합친다.
+   */
+  const levelSelects = useMemo(() => {
+    const levels = [
+      { key: 'campaign', label: '캠페인', values: campaigns, value: campaignFilter, set: setCampaignFilter },
+      { key: 'adset', label: '광고세트', values: adsets, value: adsetFilter, set: setAdsetFilter },
+      { key: 'ad', label: '광고', values: ads, value: adFilter, set: setAdFilter }
+    ].filter(level => level.values.length > 0);
+    return levels.filter((level, index) => !levels.slice(0, index).some(prev => sameNames(prev.values, level.values)));
+  }, [campaigns, adsets, ads, campaignFilter, adsetFilter, adFilter]);
+
+  // 파일 선택이 바뀌어 목록에서 사라진 필터는 풀어준다.
+  useEffect(() => {
+    if (campaignFilter && !campaigns.includes(campaignFilter)) setCampaignFilter('');
+    if (adsetFilter && !adsets.includes(adsetFilter)) setAdsetFilter('');
+    if (adFilter && !ads.includes(adFilter)) setAdFilter('');
+  }, [campaigns, adsets, ads, campaignFilter, adsetFilter, adFilter]);
 
   useEffect(() => { if (!activeAdsets.size && adsets.length) setActiveAdsets(new Set(adsets.slice(0, 5))); }, [adsets, activeAdsets.size]);
 
@@ -535,15 +563,14 @@ export default function Page() {
                   ))}
                 </>
               )}
-              <span className="filter-label" style={{ marginLeft: 8 }}>필터</span>
-              <select value={campaignFilter} onChange={event => setCampaignFilter(event.target.value)}>
-                <option value="">캠페인 전체</option>
-                {campaigns.map(name => <option key={name}>{name}</option>)}
-              </select>
-              <select value={adsetFilter} onChange={event => setAdsetFilter(event.target.value)}>
-                <option value="">광고세트 전체</option>
-                {adsets.map(name => <option key={name}>{name}</option>)}
-              </select>
+              {levelSelects.length > 0 && <span className="filter-label" style={{ marginLeft: 8 }}>필터</span>}
+              {levelSelects.map(level => (
+                <select key={level.key} value={level.value} onChange={event => level.set(event.target.value)}>
+                  <option value="">{level.label} 전체</option>
+                  {level.values.map(name => <option key={name}>{name}</option>)}
+                </select>
+              ))}
+              {adFilter && <span className="muted" style={{ fontSize: 11.5 }}>일자별 지표는 광고세트 단위까지 반영됩니다.</span>}
             </div>
             <div className="file-chips">
               {files.map(file => (

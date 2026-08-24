@@ -41,21 +41,15 @@ const metaColumns: Column[] = [
   { label: 'ROAS', value: row => formatRatio(row.roas) }
 ];
 
-/** 보고서 탭 'X 성과' 표와 같은 헤더 구성. */
+/** X 광고 관리자 export 기준. 인게이지먼트 중심으로 본다. */
 const xColumns: Column[] = [
-  { label: '노출', title: 'Impressions', value: row => formatCount(row.impression) },
-  { label: '도달', title: 'Reach', value: row => formatCount(row.reach || 0) },
-  { label: '평균 빈도', title: 'Average frequency', value: row => formatRatio(frequency(row)) },
   { label: '광고비', title: 'Spend', value: row => formatWon(row.spend) },
-  { label: '클릭', title: 'Link clicks', value: row => formatCount(row.click) },
-  { label: '좋아요', title: 'Likes', value: row => formatCount(row.likes || 0) },
-  { label: '댓글', title: 'Replies', value: row => formatCount(row.replies || 0) },
-  { label: '리포스트', title: 'Reposts', value: row => formatCount(row.reposts || 0) },
-  { label: '팔로우', title: 'Follows', value: row => formatCount(row.follows || 0) },
-  { label: 'CTR', title: 'CTR', value: row => formatRate(row.ctr) },
+  { label: 'IMP', title: 'Impressions (노출)', value: row => formatCount(row.impression) },
+  { label: 'ENG', title: 'Engagements (인게이지먼트, 광고비 ÷ Cost per engagement)', value: row => formatCount(row.engagements || 0) },
+  { label: 'ER', title: 'Engagement rate (ENG ÷ IMP)', value: row => formatRate(engagementRate(row)) },
   { label: 'CPM', title: 'CPM', value: row => formatWon(row.cpm) },
-  { label: 'CPC', title: 'Cost per link click', value: row => formatWon(row.cpc) },
-  { label: 'CPE', title: 'Cost per engagement', value: row => formatWon(cpe(row)) }
+  { label: 'CPE', title: 'Cost per engagement', value: row => formatWon(cpe(row)) },
+  { label: '프로필방문', title: 'Profile visits', value: row => formatCount(row.profileVisits || 0) }
 ];
 
 /** Google Ads 광고 보고서 헤더 기준. 기존 명칭이 있는 열(광고비·노출·CPM)만 기존 이름을 쓴다. */
@@ -78,13 +72,13 @@ const columnsByPlatform: Record<AdPlatform, Column[]> = {
 /** 매체별 요약 카드. 표의 앞쪽 지표를 그대로 쓴다. */
 const summaryByPlatform: Record<AdPlatform, string[]> = {
   meta: ['광고비', '노출', '링크클릭', 'CTR', 'CPM', 'CPC'],
-  x: ['광고비', '노출', '도달', '평균 빈도', 'CPM', 'CPE'],
+  x: ['광고비', 'IMP', 'ENG', 'ER', 'CPM', 'CPE'],
   youtube: ['광고비', '노출', '클릭수', 'CTR', 'CPM', 'TrueView 평균 CPV']
 };
 
-function frequency(row: StatRow): number {
-  const reach = Number(row.reach || 0);
-  return reach ? row.impression / reach : 0;
+/** 인게이지먼트 발생률. 노출 대비 인게이지먼트 비율을 퍼센트로 돌려준다. */
+function engagementRate(row: StatRow): number {
+  return row.impression ? (Number(row.engagements || 0) / row.impression) * 100 : 0;
 }
 
 function cpe(row: StatRow): number {
@@ -121,11 +115,12 @@ function derivedTotal(rows: StatRow[], fallback: StatRow): StatRow {
     acc.reposts += Number(row.reposts || 0);
     acc.follows += Number(row.follows || 0);
     acc.engagements += Number(row.engagements || 0);
+    acc.profileVisits += Number(row.profileVisits || 0);
     acc.cpvWeighted += Number(row.cpv || 0) * row.impression;
     return acc;
   }, {
     spend: 0, impression: 0, click: 0, landingPageView: 0,
-    reach: 0, likes: 0, replies: 0, reposts: 0, follows: 0, engagements: 0, cpvWeighted: 0
+    reach: 0, likes: 0, replies: 0, reposts: 0, follows: 0, engagements: 0, profileVisits: 0, cpvWeighted: 0
   });
 
   return {
@@ -144,6 +139,7 @@ function derivedTotal(rows: StatRow[], fallback: StatRow): StatRow {
     reposts: sum.reposts,
     follows: sum.follows,
     engagements: sum.engagements,
+    profileVisits: sum.profileVisits,
     cpv: ratio(sum.cpvWeighted, sum.impression)
   };
 }

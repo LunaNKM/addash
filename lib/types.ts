@@ -71,6 +71,8 @@ export type PlatformExtras = {
   follows?: number;
   /** X: 광고비 ÷ Cost per engagement로 역산한 인게이지먼트 수 */
   engagements?: number;
+  /** X: Profile visits */
+  profileVisits?: number;
   /** YouTube: TrueView 평균 CPV (노출 가중 평균) */
   cpv?: number;
 };

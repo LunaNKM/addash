@@ -1,7 +1,7 @@
 import type { ParsedRow, StatRow } from './types';
 
 /** 매체 전용 지표 중 단순 합산되는 것들. */
-const EXTRA_SUM_KEYS = ['reach', 'likes', 'replies', 'reposts', 'follows', 'engagements'] as const;
+const EXTRA_SUM_KEYS = ['reach', 'likes', 'replies', 'reposts', 'follows', 'engagements', 'profileVisits'] as const;
 type ExtraSumKey = typeof EXTRA_SUM_KEYS[number];
 
 type Bucket = {
@@ -102,7 +102,8 @@ export function aggregateRows(rows: ParsedRow[], getKey: (row: ParsedRow) => Par
         replies: 0,
         reposts: 0,
         follows: 0,
-        engagements: 0
+        engagements: 0,
+        profileVisits: 0
       };
       map.set(base.key, bucket);
     }
@@ -137,7 +138,8 @@ export function totalStat(rows: ParsedRow[] | StatRow[], key = 'total'): StatRow
     replies: Number(r.replies || 0),
     reposts: Number(r.reposts || 0),
     follows: Number(r.follows || 0),
-    engagements: Number(r.engagements || 0)
+    engagements: Number(r.engagements || 0),
+    profileVisits: Number(r.profileVisits || 0)
   })) as ParsedRow[];
   return aggregateRows(converted, () => ({ key }))[0] || emptyStat(key);
 }
@@ -199,7 +201,8 @@ function aggregateStats(rows: StatRow[], getKey: (row: StatRow) => Partial<Bucke
     replies: Number(r.replies || 0),
     reposts: Number(r.reposts || 0),
     follows: Number(r.follows || 0),
-    engagements: Number(r.engagements || 0)
+    engagements: Number(r.engagements || 0),
+    profileVisits: Number(r.profileVisits || 0)
   })) as ParsedRow[];
   return aggregateRows(parsed, getKey as unknown as (row: ParsedRow) => Partial<Bucket> & { key: string });
 }

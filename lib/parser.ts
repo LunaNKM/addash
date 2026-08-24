@@ -47,6 +47,7 @@ const X_ALIASES = {
   replies: ['replies'],
   reposts: ['reposts'],
   follows: ['follows'],
+  profileVisits: ['profilevisits'],
   ctr: ['ctr'],
   cpm: ['cpm'],
   cpc: ['costperlinkclick', 'cpc'],
@@ -202,14 +203,15 @@ function toXRow(row: unknown[], columns: Partial<Record<XKey, number>>): ParsedR
   // export에 인게이지먼트 수 열이 없으면 광고비 ÷ CPE로 역산한다. (보고서 탭 X 파서와 동일)
   const engagements = engagementsColumn || (cpe > 0 ? Math.round(spend / cpe) : 0);
 
-  const adsetName = cleanText(cellAt(row, columns.adset));
-  const campaignName = cleanText(cellAt(row, columns.campaign)) || adsetName || 'X 캠페인';
-  const adName = cleanText(cellAt(row, columns.ad)) || adsetName || '이름 없는 소재';
+  // export에 있는 층만 채운다. (광고그룹만 있는 파일에서 캠페인·광고 이름을 지어내지 않는다)
+  const campaignName = cleanText(cellAt(row, columns.campaign));
+  const adName = cleanText(cellAt(row, columns.ad));
+  const adsetName = cleanText(cellAt(row, columns.adset)) || (campaignName || adName ? '' : 'X 광고');
 
   return {
     date,
     campaignName,
-    adsetName: adsetName || campaignName,
+    adsetName,
     adName,
     spend,
     impression,
@@ -224,6 +226,7 @@ function toXRow(row: unknown[], columns: Partial<Record<XKey, number>>): ParsedR
     replies: parseNumber(cellAt(row, columns.replies)),
     reposts: parseNumber(cellAt(row, columns.reposts)),
     follows: parseNumber(cellAt(row, columns.follows)),
+    profileVisits: parseNumber(cellAt(row, columns.profileVisits)),
     engagements,
     ctrWeight: columns.ctr !== undefined ? impression : 0,
     cpmWeight: columns.cpm !== undefined ? impression : 0,

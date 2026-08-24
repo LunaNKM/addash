@@ -16,15 +16,21 @@ export type FilteredBundle = DashboardBundle;
 
 export const metricKeys: MetricKey[] = ['spend', 'impression', 'click', 'landingPageView', 'ctr', 'cpm', 'cpc', 'roas'];
 
-export function applyFilters(data: DashboardBundle, start: string, end: string, campaign: string, adset: string): FilteredBundle {
+export function applyFilters(data: DashboardBundle, start: string, end: string, campaign: string, adset: string, ad = ''): FilteredBundle {
   const byDate = (row: StatRow) => (!start || !row.date || row.date >= start) && (!end || !row.date || row.date <= end);
   const full = (row: StatRow) => byDate(row) && (!campaign || row.campaignName === campaign) && (!adset || row.adsetName === adset);
   const dailyStats = data.dailyStats.filter(byDate);
   const campaignDailyStats = data.campaignDailyStats.filter(full);
   const adsetDailyStats = data.adsetDailyStats.filter(full);
   const detailStats = data.detailStats.filter(full);
-  const creativeStats = data.creativeStats.filter(row => (!campaign || row.campaignName === campaign) && (!adset || row.adsetName === adset));
-  return { dailyStats, campaignDailyStats, adsetDailyStats, detailStats, creativeStats, total: totalStat(detailStats.length ? detailStats : dailyStats) };
+  const creativeStats = data.creativeStats.filter(row =>
+    (!campaign || row.campaignName === campaign)
+    && (!adset || row.adsetName === adset)
+    && (!ad || row.adName === ad)
+  );
+  // 소재 단위 합계는 일자별 집계에 없으므로, 광고를 고른 경우에만 소재 집계에서 합친다.
+  const base = ad ? creativeStats : (detailStats.length ? detailStats : dailyStats);
+  return { dailyStats, campaignDailyStats, adsetDailyStats, detailStats, creativeStats, total: totalStat(base) };
 }
 
 export function metricValue(row: StatRow | undefined, key: MetricKey): number {
@@ -112,7 +118,8 @@ const extraLabels: Record<string, string> = {
   replies: '댓글',
   reposts: '리포스트',
   follows: '팔로우',
-  engagements: '인게이지먼트',
+  engagements: 'ENG',
+  profileVisits: '프로필방문',
   cpv: 'TrueView 평균 CPV'
 };
 
@@ -123,7 +130,7 @@ export function labelForColumn(column: string): string {
 
 export function cell(row: TableRow, column: string): string {
   if (column === 'date') return formatDateWithDay(row.date || '');
-  if (column === 'campaignAdsetAd') return `${row.campaignName || ''} / ${row.adsetName || ''} / ${row.adName || ''}`;
+  if (column === 'campaignAdsetAd') return [row.campaignName, row.adsetName, row.adName].filter(Boolean).join(' / ');
   if (metricKeys.includes(column as MetricKey)) return formatMetric(column as MetricKey, metricValue(asStatRow(row), column as MetricKey));
   if (extraLabels[column]) {
     const value = Number((row as Record<string, unknown>)[column] || 0);
