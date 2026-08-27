@@ -1708,7 +1708,8 @@ function PromotionKpiCards({ total, showRegistration = false }: { total: ReportS
     { label: 'CTR', value: formatPercent(total.ctr) },
     { label: 'CPM', value: formatCurrency(total.cpm) },
     { label: 'CVR', value: formatPercent(total.cvr) },
-    { label: '전환CPA', value: formatCurrency(total.cpa) }
+    { label: '전환CPA', value: formatCurrency(total.cpa) },
+    { label: '장바구니 CPA', value: formatCurrency(total.cartCpa) }
   ];
   if (showRegistration) {
     cards.push(
@@ -1737,7 +1738,8 @@ function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
     { label: 'CTR', value: formatPercent(total.ctr), current: total.ctr, goal: kpi.ctrGoal, goalValue: formatPercent(kpi.ctrGoal) },
     { label: 'CPM', value: formatCurrency(total.cpm), current: total.cpm, goal: kpi.cpmGoal, goalValue: formatCurrency(kpi.cpmGoal), inverse: true },
     { label: 'CVR', value: formatPercent(total.cvr) },
-    { label: '전환CPA', value: formatCurrency(total.cpa) }
+    { label: '전환CPA', value: formatCurrency(total.cpa) },
+    { label: '장바구니 CPA', value: formatCurrency(total.cartCpa) }
   ];
   return (
     <div className="report-stat-grid">
@@ -1989,7 +1991,7 @@ function ComparisonTable({ rows, comparisonLabel }: { rows: ReportComparisonMetr
     cpc: safeRatio(metric('spend')?.[prefix as 'current' | 'previous'] || 0, metric('clicks')?.[prefix as 'current' | 'previous'] || 0),
     cvr: metric('cvr')?.[prefix as 'current' | 'previous'] || 0,
     cpa: metric('cpa')?.[prefix as 'current' | 'previous'] || 0,
-    cartCpa: 0,
+    cartCpa: safeRatio(metric('spend')?.[prefix as 'current' | 'previous'] || 0, metric('addToCart')?.[prefix as 'current' | 'previous'] || 0),
     roas: metric('roas')?.[prefix as 'current' | 'previous'] || 0
   });
   const current = summary('current');
@@ -2234,6 +2236,7 @@ function PromotionComparisonHeaders({ showRegistration = false }: { showRegistra
       <th>클릭</th>
       <th>전환</th>
       <th>장바구니</th>
+      <th>장바구니 CPA</th>
       {showRegistration && (
         <>
           <th>회원가입수</th>
@@ -2259,6 +2262,7 @@ function PromotionComparisonCells({ row, showRegistration = false }: { row: Repo
       <td>{formatInteger(row.clicks)}</td>
       <td>{formatInteger(row.conversions)}</td>
       <td>{formatInteger(row.addToCart)}</td>
+      <td>{formatCurrency(row.cartCpa)}</td>
       {showRegistration && (
         <>
           <td>{formatInteger(row.registration)}</td>
@@ -2284,6 +2288,7 @@ function PromotionComparisonDiffCells({ current, previous, showRegistration = fa
       <PromotionDiffCell current={current.clicks} previous={previous.clicks} />
       <PromotionDiffCell current={current.conversions} previous={previous.conversions} />
       <PromotionDiffCell current={current.addToCart} previous={previous.addToCart} />
+      <PromotionDiffCell current={current.cartCpa} previous={previous.cartCpa} inverse />
       {showRegistration && (
         <>
           <PromotionDiffCell current={current.registration} previous={previous.registration} />
@@ -2524,6 +2529,7 @@ function MetricHeaders({ showRegistration = false }: { showRegistration?: boolea
       <th>클릭</th>
       <th>전환</th>
       <th>장바구니</th>
+      <th>장바구니 CPA</th>
       {showRegistration && (
         <>
           <th>회원가입수</th>
@@ -2549,6 +2555,7 @@ function MetricCells({ row, showRegistration = false }: { row: ReportSummary; sh
       <td>{formatInteger(row.clicks)}</td>
       <td>{formatInteger(row.conversions)}</td>
       <td>{formatInteger(row.addToCart)}</td>
+      <td>{formatCurrency(row.cartCpa)}</td>
       {showRegistration && (
         <>
           <td>{formatInteger(row.registration)}</td>
@@ -2678,6 +2685,7 @@ function SummaryTable({
               <th>클릭</th>
               <th>전환</th>
               <th>장바구니</th>
+              <th>장바구니 CPA</th>
               <th>CTR</th>
               <th>CPM</th>
               <th>CVR</th>
@@ -2741,6 +2749,7 @@ function SummaryTable({
                     <td>{formatInteger(row.clicks)}</td>
                     <td>{formatInteger(row.conversions)}</td>
                     <td>{formatInteger(row.addToCart)}</td>
+                    <td>{formatCurrency(row.cartCpa)}</td>
                     <td>{formatPercent(row.ctr)}</td>
                     <td>{formatCurrency(row.cpm)}</td>
                     <td>{formatPercent(row.cvr)}</td>
@@ -2757,6 +2766,7 @@ function SummaryTable({
                       <td>{formatInteger(previous.clicks)}</td>
                       <td>{formatInteger(previous.conversions)}</td>
                       <td>{formatInteger(previous.addToCart)}</td>
+                      <td>{formatCurrency(previous.cartCpa)}</td>
                       <td>{formatPercent(previous.ctr)}</td>
                       <td>{formatCurrency(previous.cpm)}</td>
                       <td>{formatPercent(previous.cvr)}</td>
@@ -2774,6 +2784,7 @@ function SummaryTable({
                       <DiffCell current={row.clicks} previous={previous.clicks} />
                       <DiffCell current={row.conversions} previous={previous.conversions} />
                       <DiffCell current={row.addToCart} previous={previous.addToCart} />
+                      <DiffCell current={row.cartCpa} previous={previous.cartCpa} inverse />
                       <DiffCell current={row.ctr} previous={previous.ctr} />
                       <DiffCell current={row.cpm} previous={previous.cpm} inverse />
                       <DiffCell current={row.cvr} previous={previous.cvr} />
