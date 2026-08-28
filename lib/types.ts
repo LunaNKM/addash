@@ -43,7 +43,7 @@ export const DAILY_TOPLINE_METRIC_LABELS: Record<DailyToplineMetric, string> = {
   roas: 'ROAS'
 };
 
-export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'cpm' | 'cpc' | 'roas';
+export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'linkCtr' | 'cpm' | 'cpc' | 'roas';
 
 /** 대시보드 파일 하나가 어느 매체 export에서 왔는지. 레거시 파일은 모두 meta로 본다. */
 export type AdPlatform = 'meta' | 'x' | 'youtube';

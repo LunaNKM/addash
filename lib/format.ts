@@ -6,6 +6,7 @@ export const metricLabels: Record<MetricKey, string> = {
   click: '링크클릭',
   landingPageView: 'LP 조회',
   ctr: 'CTR',
+  linkCtr: '링크클릭 CTR',
   cpm: 'CPM',
   cpc: 'CPC',
   roas: 'ROAS'
@@ -14,7 +15,7 @@ export const metricLabels: Record<MetricKey, string> = {
 export function formatMetric(key: MetricKey, value: number): string {
   const v = Number.isFinite(value) ? value : 0;
   if (key === 'spend' || key === 'cpm' || key === 'cpc') return '₩' + Math.round(v).toLocaleString();
-  if (key === 'ctr') return v.toFixed(2) + '%';
+  if (key === 'ctr' || key === 'linkCtr') return v.toFixed(2) + '%';
   if (key === 'roas') return v.toFixed(2);
   return Math.round(v).toLocaleString() + '회';
 }

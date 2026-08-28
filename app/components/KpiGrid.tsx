@@ -2,19 +2,21 @@ import { formatMetric, metricLabels } from '@/lib/format';
 import type { Kpi, MetricKey, StatRow } from '@/lib/types';
 import { metricValue } from '@/lib/dashUtils';
 
-const goalMap: Record<MetricKey, keyof Kpi> = {
+/** 목표가 있는 지표만 담는다. (링크클릭 CTR은 별도 목표가 없어 빠져 있다) */
+const goalMap: Partial<Record<MetricKey, keyof Kpi>> = {
   spend: 'spendGoal', impression: 'impressionGoal', click: 'clickGoal',
   landingPageView: 'landingPageViewGoal', ctr: 'ctrGoal', cpm: 'cpmGoal', cpc: 'cpcGoal', roas: 'roasGoal'
 };
 const metricIcons: Record<MetricKey, string> = {
-  spend: '₩', impression: '👁', click: '↗', landingPageView: '📄', ctr: '%', cpm: '📊', cpc: '🖱', roas: '×'
+  spend: '₩', impression: '👁', click: '↗', landingPageView: '📄', ctr: '%', linkCtr: '🔗', cpm: '📊', cpc: '🖱', roas: '×'
 };
-const topRow: MetricKey[] = ['spend', 'impression', 'click', 'landingPageView', 'ctr'];
+const topRow: MetricKey[] = ['spend', 'impression', 'click', 'landingPageView', 'ctr', 'linkCtr'];
 const bottomRow: MetricKey[] = ['cpm', 'cpc', 'roas'];
 
 function KpiCard({ metricKey, index, total, kpi }: { metricKey: MetricKey; index: number; total: StatRow; kpi: Kpi }) {
   const value = metricValue(total, metricKey);
-  const goal = Number(kpi[goalMap[metricKey]] || 0);
+  const goalKey = goalMap[metricKey];
+  const goal = goalKey ? Number(kpi[goalKey] || 0) : 0;
   const pct = goal > 0 ? Math.min((value / goal) * 100, 100) : 0;
   return (
     <div className="kpi-card">
@@ -51,7 +53,7 @@ export function KpiGrid({ total, kpi }: { total: StatRow; kpi: Kpi }) {
         {topRow.map((key, i) => <KpiCard key={key} metricKey={key} index={i} total={total} kpi={kpi} />)}
       </div>
       <div className="kpi-grid kpi-grid-bottom">
-        {bottomRow.map((key, i) => <KpiCard key={key} metricKey={key} index={i + 5} total={total} kpi={kpi} />)}
+        {bottomRow.map((key, i) => <KpiCard key={key} metricKey={key} index={i + 6} total={total} kpi={kpi} />)}
       </div>
     </div>
   );

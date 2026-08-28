@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import { colorForIndex, formatMetric } from '@/lib/format';
+import { metricValue } from '@/lib/dashUtils';
 import type { StatRow } from '@/lib/types';
 
 export function Scatter({ rows }: { rows: StatRow[] }) {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[] } | null>(null);
   const list = rows.slice().sort((a, b) => b.spend - a.spend).slice(0, 80);
 
-  const rawMaxX = Math.max(1, ...list.map(row => row.cpc));
+  const rawMaxX = Math.max(1, ...list.map(row => metricValue(row, 'cpc')));
   const rawMaxY = Math.max(1, ...list.map(row => row.ctr));
   const maxX = rawMaxX * 1.25;
   const maxY = rawMaxY * 1.25;
@@ -92,11 +93,11 @@ export function Scatter({ rows }: { rows: StatRow[] }) {
 
           {list.map((row, index) => {
             const r = 4 + (row.spend / maxSpend) * 10;
-            const cx = xAt(row.cpc);
+            const cx = xAt(metricValue(row, 'cpc'));
             const cy = yAt(row.ctr);
             const tooltipLines = [
               row.adName || row.key,
-              `CPC: ${formatMetric('cpc', row.cpc)}  CTR: ${formatMetric('ctr', row.ctr)}`,
+              `CPC: ${formatMetric('cpc', metricValue(row, 'cpc'))}  CTR: ${formatMetric('ctr', row.ctr)}`,
               `광고비: ${formatMetric('spend', row.spend)}`
             ];
             return (

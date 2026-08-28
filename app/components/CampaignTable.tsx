@@ -19,7 +19,7 @@ export function CampaignTable({ rows, open, setOpen, sort, setSort }: {
         </select>
       </div>
       <button className="collapse" onClick={() => setOpen(!open)}>{open ? '캠페인별 데이터 접기' : '캠페인별 데이터 펼치기'}</button>
-      {open && <SimpleTable rows={sorted} columns={['campaignAdsetAd', 'spend', 'impression', 'click', 'landingPageView', 'ctr', 'cpm', 'cpc', 'roas']} />}
+      {open && <SimpleTable rows={sorted} columns={['campaignAdsetAd', 'spend', 'impression', 'click', 'landingPageView', 'ctr', 'linkCtr', 'cpm', 'cpc', 'roas']} />}
     </section>
   );
 }

@@ -1,6 +1,6 @@
 import { formatDateWithDay, formatMetric } from '@/lib/format';
 import type { StatRow } from '@/lib/types';
-import { cpmColor, ctrColor } from '@/lib/dashUtils';
+import { cpmColor, ctrColor, metricValue } from '@/lib/dashUtils';
 
 export function DetailTable({ rows, maxCtr }: { rows: StatRow[]; maxCtr: number }) {
   const byDate = new Map<string, StatRow[]>();
@@ -22,6 +22,7 @@ export function DetailTable({ rows, maxCtr }: { rows: StatRow[]; maxCtr: number 
             <th>CPM</th>
             <th>CPC</th>
             <th>CTR</th>
+            <th>링크클릭 CTR</th>
             <th>ROAS</th>
           </tr>
         </thead>
@@ -36,8 +37,9 @@ export function DetailTable({ rows, maxCtr }: { rows: StatRow[]; maxCtr: number 
                 <td>{formatMetric('click', row.click)}</td>
                 <td>{formatMetric('landingPageView', row.landingPageView)}</td>
                 <td style={{ background: cpmColor(row.cpm) }} title={`CPM ${formatMetric('cpm', row.cpm)}\n1,000 미만은 낮을수록 진하게 표시됩니다.`}>{formatMetric('cpm', row.cpm)}</td>
-                <td>{formatMetric('cpc', row.cpc)}</td>
+                <td>{formatMetric('cpc', metricValue(row, 'cpc'))}</td>
                 <td style={{ background: ctrColor(row.ctr, maxCtr) }} title={`CTR ${formatMetric('ctr', row.ctr)}\n높을수록 진하게 표시됩니다.`}>{formatMetric('ctr', row.ctr)}</td>
+                <td>{formatMetric('linkCtr', metricValue(row, 'linkCtr'))}</td>
                 <td>{formatMetric('roas', row.roas)}</td>
               </tr>
             ))

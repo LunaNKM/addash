@@ -36,8 +36,9 @@ const metaColumns: Column[] = [
   { label: '링크클릭', value: row => formatCount(row.click) },
   { label: 'LP 조회', value: row => formatCount(row.landingPageView) },
   { label: 'CTR', value: row => formatRate(row.ctr) },
+  { label: '링크클릭 CTR', title: '링크클릭 ÷ 노출', value: row => formatRate(ratio(row.click * 100, row.impression)) },
   { label: 'CPM', value: row => formatWon(row.cpm) },
-  { label: 'CPC', value: row => formatWon(row.cpc) },
+  { label: 'CPC', title: '광고비 ÷ 링크클릭', value: row => formatWon(ratio(row.spend, row.click)) },
   { label: 'ROAS', value: row => formatRatio(row.roas) }
 ];
 
@@ -71,7 +72,7 @@ const columnsByPlatform: Record<AdPlatform, Column[]> = {
 
 /** 매체별 요약 카드. 표의 앞쪽 지표를 그대로 쓴다. */
 const summaryByPlatform: Record<AdPlatform, string[]> = {
-  meta: ['광고비', '노출', '링크클릭', 'CTR', 'CPM', 'CPC'],
+  meta: ['광고비', '노출', '링크클릭', 'CTR', '링크클릭 CTR', 'CPC'],
   x: ['광고비', 'IMP', 'ENG', 'ER', 'CPM', 'CPE'],
   youtube: ['광고비', '노출', '클릭수', 'CTR', 'CPM', 'TrueView 평균 CPV']
 };

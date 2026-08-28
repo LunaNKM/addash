@@ -57,7 +57,7 @@ export function DailyTrendSection({ rows, activeMetrics, setActiveMetrics, daily
       </div>
       <LineChart rows={rows} groupKey="date" metrics={activeMetrics} />
       <button className="collapse" onClick={() => setOpenDaily(!openDaily)}>{openDaily ? '일별 데이터 접기' : '일별 데이터 펼치기'}</button>
-      {openDaily && <SimpleTable rows={sorted} columns={['date', 'spend', 'impression', 'click', 'landingPageView', 'ctr', 'cpm', 'cpc', 'roas']} withDiff />}
+      {openDaily && <SimpleTable rows={sorted} columns={['date', 'spend', 'impression', 'click', 'landingPageView', 'ctr', 'linkCtr', 'cpm', 'cpc', 'roas']} withDiff />}
     </section>
   );
 }

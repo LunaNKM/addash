@@ -14,7 +14,7 @@ export type DashboardBundle = {
 };
 export type FilteredBundle = DashboardBundle;
 
-export const metricKeys: MetricKey[] = ['spend', 'impression', 'click', 'landingPageView', 'ctr', 'cpm', 'cpc', 'roas'];
+export const metricKeys: MetricKey[] = ['spend', 'impression', 'click', 'landingPageView', 'ctr', 'linkCtr', 'cpm', 'cpc', 'roas'];
 
 export function applyFilters(data: DashboardBundle, start: string, end: string, campaign: string, adset: string, ad = ''): FilteredBundle {
   const byDate = (row: StatRow) => (!start || !row.date || row.date >= start) && (!end || !row.date || row.date <= end);
@@ -35,6 +35,9 @@ export function applyFilters(data: DashboardBundle, start: string, end: string, 
 
 export function metricValue(row: StatRow | undefined, key: MetricKey): number {
   if (!row) return 0;
+  // 링크클릭 CTR·CPC는 원본 열(CTR(전체)·CPC 가중평균) 대신 링크클릭 수로 다시 계산한다.
+  if (key === 'linkCtr') return row.impression ? (Number(row.click || 0) / row.impression) * 100 : 0;
+  if (key === 'cpc') return row.click ? row.spend / Number(row.click) : 0;
   return Number(row[key] ?? 0);
 }
 

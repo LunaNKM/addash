@@ -42,7 +42,7 @@ export function LineChart({ rows, groupKey, metrics, metric, highlight, colorByN
         ? groupOrder.filter(name => rows.some(row => String(row[groupKey] || '') === name))
         : Array.from(new Set(rows.map(row => String(row[groupKey] || '')).filter(Boolean))));
   const groups = groupKey === 'date'
-    ? (metrics || []).map(key => ({ name: metricLabels[key], key, color: colorForIndex(['spend', 'impression', 'click', 'landingPageView', 'ctr', 'cpm', 'cpc', 'roas'].indexOf(key)), data: dates.map(date => metricValue(rows.find(row => row.date === date) || emptyStat(date), key)) }))
+    ? (metrics || []).map(key => ({ name: metricLabels[key], key, color: colorForIndex(['spend', 'impression', 'click', 'landingPageView', 'ctr', 'linkCtr', 'cpm', 'cpc', 'roas'].indexOf(key)), data: dates.map(date => metricValue(rows.find(row => row.date === date) || emptyStat(date), key)) }))
     : groupNames.map((groupName, index) => ({ name: groupName, key: groupName, color: colorByName?.[groupName] || colorForIndex(index), data: dates.map(date => metricValue(rows.find(row => row.date === date && String(row[groupKey] || '') === groupName) || emptyStat(date), metric || 'spend')) }));
 
   const max = Math.max(1, ...groups.flatMap(group => group.data));

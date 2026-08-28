@@ -7,7 +7,7 @@ import { SimpleTable } from './SimpleTable';
 
 /** 매체마다 의미 있는 열만 미리보기에 보여준다. */
 const previewColumns: Record<AdPlatform, string[]> = {
-  meta: ['date', 'campaignAdsetAd', 'spend', 'impression', 'click', 'landingPageView', 'ctr', 'cpm', 'cpc', 'roas'],
+  meta: ['date', 'campaignAdsetAd', 'spend', 'impression', 'click', 'landingPageView', 'ctr', 'linkCtr', 'cpm', 'cpc', 'roas'],
   x: ['date', 'campaignAdsetAd', 'spend', 'impression', 'engagements', 'profileVisits', 'reach', 'click', 'likes', 'replies', 'reposts', 'follows', 'cpm'],
   youtube: ['date', 'campaignAdsetAd', 'spend', 'impression', 'click', 'ctr', 'cpc', 'cpm', 'cpv']
 };
