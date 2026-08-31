@@ -1,4 +1,4 @@
-import { DEFAULT_EXCHANGE_RATE, detectColumns, getMissingColumns, scoreDetection, toGrossCostKrw } from './schema';
+import { DEFAULT_EXCHANGE_RATE, detectColumns, getMissingColumns, normalizeHeader, scoreDetection, toGrossCostKrw } from './schema';
 import type { NormalizedReportRow, ReportColumnKey, ReportParseResult, ReportRawRow, SheetDetection } from './reportTypes';
 import { validateReportRows } from './validate';
 
@@ -62,7 +62,44 @@ function detectSheet(sheetName: string, matrix: Matrix) {
     .filter(row => row.some(value => value !== null && value !== undefined && String(value).trim() !== ''))
     .map(row => toObject(best.headers, row));
 
-  return { detection: { ...best.detection, rowCount: rows.length }, rows, headers: best.headers };
+  const columns = reinterpretSingleOneAmounts(best.detection.columns, best.headers);
+  const detection: SheetDetection = {
+    ...best.detection,
+    rowCount: rows.length,
+    columns,
+    ...getMissingColumns(columns)
+  };
+  return { detection, rows, headers: best.headers };
+}
+
+/**
+ * SingleONE RAW의 cost·sales는 통화 표기 없이 엔화로 내려온다.
+ * (일일 보고서 환산 기준과 동일: 광고비 = 엔화 × 환율 × 1.15, 매출 = 엔화 × 환율)
+ * 원화로 읽으면 광고비·매출이 9배 넘게 작게 잡히므로 SingleONE 시트에서만 엔화 열로 되돌린다.
+ */
+function reinterpretSingleOneAmounts(columns: SheetDetection['columns'], headers: string[]): SheetDetection['columns'] {
+  if (!isSingleOneSheet(headers)) return columns;
+  const next = { ...columns };
+  moveToJpyColumn(next, 'costKrw', 'costJpy');
+  moveToJpyColumn(next, 'salesKrw', 'salesJpy');
+  return next;
+}
+
+/** cv_add_cart_conversion 은 SingleONE export에만 있는 열이라 시트 판별에 쓴다. (피벗본의 "합계 : ..." 형태도 포함) */
+function isSingleOneSheet(headers: string[]): boolean {
+  return headers.some(header => normalizeHeader(header).replace(/\s/g, '').includes('cvaddcartconversion'));
+}
+
+function moveToJpyColumn(
+  columns: SheetDetection['columns'],
+  from: 'costKrw' | 'salesKrw',
+  to: 'costJpy' | 'salesJpy'
+) {
+  const column = columns[from];
+  // 원화라고 적혀 있으면(직접 환산해 둔 시트) 건드리지 않는다.
+  if (!column || columns[to] || /krw|원화|won|₩/i.test(normalizeHeader(column.header))) return;
+  columns[to] = { ...column, key: to };
+  delete columns[from];
 }
 
 function toObject(headers: string[], row: unknown[]): ReportRawRow {
