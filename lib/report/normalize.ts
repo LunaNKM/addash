@@ -105,15 +105,20 @@ function normalizeRow(
 
   if (!date && !impressions && !clicks && !costKrw && !salesKrw) return null;
 
+  const campaignName = clean(value('campaignName')) || '미분류 캠페인';
+  const adgroupName = clean(value('adgroupName')) || '미분류 광고그룹';
+  const adName = clean(value('adName')) || '이름 없는 소재';
+  const identity = `${campaignName} ${adgroupName} ${adName}`;
+
   return {
     sourceRowNumber,
     date,
     brand: clean(value('brand')),
-    media: clean(value('media')),
-    promotion: clean(value('promotion')) || '미분류',
-    campaignName: clean(value('campaignName')) || '미분류 캠페인',
-    adgroupName: clean(value('adgroupName')) || '미분류 광고그룹',
-    adName: clean(value('adName')) || '이름 없는 소재',
+    media: resolveMedia(clean(value('media')), identity),
+    promotion: clean(value('promotion')) || inferPromotion(identity) || '미분류',
+    campaignName,
+    adgroupName,
+    adName,
     impressions,
     clicks,
     conversions,
@@ -135,6 +140,35 @@ function normalizeRow(
     roas: safeDivide(salesKrw, costKrw),
     raw: row
   };
+}
+
+/**
+ * SingleOne에서 직접 받은 RAW는 media 열이 S-META까지 전부 "meta"로 내려온다.
+ * 실제 구분은 캠페인·광고세트·광고 이름에 들어 있는 S-META / S-TIKTOK 같은 토큰에 있으므로 거기서 다시 읽는다.
+ * (x, s-line처럼 이미 구분된 매체 값은 그대로 둔다)
+ */
+const META_MEDIA_VALUES = new Set(['', 'meta', 's-meta', 'facebook', 'fb']);
+// 이름은 언더바로 이어 붙기 때문에(2608_Easydew_S-META_ATC) \b 대신 앞뒤 구분자를 직접 본다.
+const SINGLEONE_MEDIA_PATTERN = /(^|[^a-z0-9])s[-_ ]?(meta|tiktok|line)([^a-z0-9]|$)/i;
+
+function resolveMedia(media: string, identity: string): string {
+  const key = media.trim().toLowerCase();
+  if (!META_MEDIA_VALUES.has(key)) return media.trim();
+  const matched = identity.match(SINGLEONE_MEDIA_PATTERN);
+  if (matched) return `s-${matched[2].toLowerCase()}`;
+  // 이름에 단서가 없으면 원래 media 값을 그대로 둔다. (이미 s-meta로 내려온 예전 RAW는 그대로 유지)
+  return media.trim();
+}
+
+/** 캠페인 분류(promotion) 열이 없는 RAW는 이름에서 프로모션을 유추한다. 앞에 적힌 것이 우선한다. */
+const PROMOTION_PATTERNS: { pattern: RegExp; label: string }[] = [
+  { pattern: /mega[-_ ]?wari|메가와리/i, label: '메가와리' },
+  { pattern: /mega[-_ ]?po|메가포/i, label: '메가포' },
+  { pattern: /always[-_ ]?on|상시|(^|[^a-z0-9])bau([^a-z0-9]|$)/i, label: '상시' }
+];
+
+function inferPromotion(identity: string): string {
+  return PROMOTION_PATTERNS.find(item => item.pattern.test(identity))?.label || '';
 }
 
 export function parseNumber(value: unknown): number {

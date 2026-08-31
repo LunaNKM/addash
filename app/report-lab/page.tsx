@@ -569,7 +569,7 @@ export default function ReportLabPage() {
         'SingleOne Upload'
       );
       if (!parsed.rows.length) {
-        throw new Error('업로드 파일에서 media가 s-로 시작하거나 X인 SingleOne 행을 찾지 못했습니다.');
+        throw new Error('업로드 파일에서 media가 s- 계열이거나 META/X인 SingleOne 행을 찾지 못했습니다.');
       }
       const detectedDates = parsed.rows.map(row => row.date).filter(Boolean).sort();
       const createdAt = Date.now();
@@ -1466,7 +1466,7 @@ function EmptyUpload({ onFile, busy, exchangeRate, canUpload }: { onFile: (file:
           <span className="muted">현재 환율: {exchangeRate.toFixed(2)}</span>
         </div>
         <p>
-          XLSX RAW 파일을 업로드하면 media가 s-로 시작하거나 X인 SingleOne 행만 보고서 데이터로 변환합니다.
+          XLSX RAW 파일을 업로드하면 media가 s- 계열이거나 META/X인 SingleOne 행만 보고서 데이터로 변환합니다.
           Meta 데이터는 Meta API 가져오기 결과와 함께 반영됩니다.
         </p>
         {canUpload ? (
@@ -3582,8 +3582,8 @@ function adLandingText(row: NormalizedReportRow): string {
   return adIdentityText(row);
 }
 
-/** SingleOne RAW에서 s- 계열 외에 추가로 받아들이는 매체(media) 값. */
-const EXTRA_UPLOAD_MEDIA = new Set(['x']);
+/** SingleOne RAW에서 s- 계열 외에 추가로 받아들이는 매체(media) 값. SingleONE 직접 다운로드 RAW는 media가 meta로만 내려온다. */
+const EXTRA_UPLOAD_MEDIA = new Set(['x', 'meta']);
 
 function isSingleOneUploadRow(row: NormalizedReportRow): boolean {
   const media = row.media.trim().toLowerCase();

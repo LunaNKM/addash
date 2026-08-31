@@ -134,6 +134,16 @@ function compact(value: unknown): string {
   return normalizeHeader(value).replace(/\s/g, '');
 }
 
+/**
+ * 통화가 붙은 별칭(sales jpy 등)이 통화 표기 없는 헤더("sales", "cost")까지 가져가면
+ * 원화 값에 환율이 한 번 더 곱해진다. 부분 일치일 때는 통화 표기가 서로 맞을 때만 인정한다.
+ */
+const CURRENCY_TOKENS = ['jpy', '엔화', 'krw', '원화'];
+
+function currencyMismatch(aliasCompact: string, headerCompact: string): boolean {
+  return CURRENCY_TOKENS.some(token => aliasCompact.includes(token) && !headerCompact.includes(token));
+}
+
 export function detectColumns(headers: unknown[]): SheetDetection['columns'] {
   const result: SheetDetection['columns'] = {};
   const normalized = headers.map(header => ({
@@ -155,7 +165,8 @@ export function detectColumns(headers: unknown[]): SheetDetection['columns'] {
         const fuzzy =
           aliasCompact.length >= 4 &&
           item.compact.length >= 4 &&
-          (item.compact.includes(aliasCompact) || aliasCompact.includes(item.compact));
+          (item.compact.includes(aliasCompact) || aliasCompact.includes(item.compact)) &&
+          !currencyMismatch(aliasCompact, item.compact);
         if (!exact && !compactExact && !fuzzy) continue;
 
         const confidence = exact ? 'exact' : compactExact ? 'alias' : 'fuzzy';
