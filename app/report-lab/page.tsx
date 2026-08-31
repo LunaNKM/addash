@@ -398,10 +398,32 @@ export default function ReportLabPage() {
   }, [combinedResult, commissionSetting, spendBasis]);
   const selectedReportFileId = selectedXlsxReportFileId || selectedMetaReportFileId;
 
+  /** 그로스/넷 토글과 브랜드 수수료율을 적용한 X RAW 행. X 성과 섹션과 보고서 행이 같은 값을 본다. */
+  const xRows = useMemo<XReportRow[]>(() => {
+    if (!xReportResult) return [];
+    return xReportResult.rows.map(row => ({
+      ...row,
+      spend: spendBasis === 'gross' ? toGrossCostKrw(row.spend, row.date, commissionSetting) : row.spend
+    }));
+  }, [commissionSetting, spendBasis, xReportResult]);
+
+  /**
+   * 보고서 전체가 보는 원본 행. X RAW 파일이 올라와 있으면 그 파일이 X의 기준이므로
+   * SingleOne RAW의 media=X 행을 빼고 X RAW 행을 캠페인으로 바꿔 넣는다.
+   */
+  const sourceRows = useMemo<NormalizedReportRow[]>(() => {
+    const rawRows = result?.rows || [];
+    if (!xRows.length) return rawRows;
+    return [
+      ...rawRows.filter(row => !isXMediaRow(row)),
+      ...xRows.map((row, index) => toReportRowFromX(row, index, row.spend))
+    ];
+  }, [result, xRows]);
+
   const dates = useMemo(() => {
-    const list = result?.rows.map(row => row.date).filter(Boolean).sort() || [];
+    const list = sourceRows.map(row => row.date).filter(Boolean).sort();
     return { min: list[0] || '', max: list[list.length - 1] || '' };
-  }, [result]);
+  }, [sourceRows]);
 
   const activeMarketplace = useMemo(() => marketplaceTabs.find(tab => tab.id === activeTab), [activeTab]);
   const visibleTabs = useMemo(
@@ -424,8 +446,8 @@ export default function ReportLabPage() {
 
   const periodRows = useMemo(() => {
     if (!result) return [];
-    return filterRowsByPeriod(result.rows.filter(row => !isExcludedAmazonRow(row)), periodStart || dates.min, periodEnd || dates.max);
-  }, [dates.max, dates.min, periodEnd, periodStart, result]);
+    return filterRowsByPeriod(sourceRows.filter(row => !isExcludedAmazonRow(row)), periodStart || dates.min, periodEnd || dates.max);
+  }, [dates.max, dates.min, periodEnd, periodStart, result, sourceRows]);
 
   const optionRows = useMemo(() => {
     if (!activeMarketplace) return periodRows;
@@ -451,7 +473,7 @@ export default function ReportLabPage() {
 
   const filteredRows = useMemo(() => {
     if (!result) return [];
-    return result.rows.filter(row => {
+    return sourceRows.filter(row => {
       if (isExcludedAmazonRow(row)) return false;
       if (activeMarketplace && (!matchesMarketplaceTab(row, activeMarketplace.id) || !matchesPromotionSubTab(row, activeMarketplace.id, activeSubTab))) return false;
       if (!matchesSelectedValues(row.campaignName, campaignFilter)) return false;
@@ -459,11 +481,11 @@ export default function ReportLabPage() {
       if (!matchesSelectedValues(row.adName, adFilter)) return false;
       return true;
     });
-  }, [activeMarketplace, activeSubTab, adFilter, adgroupFilter, campaignFilter, result]);
+  }, [activeMarketplace, activeSubTab, adFilter, adgroupFilter, campaignFilter, result, sourceRows]);
 
   const marketplaceRows = useMemo(() => {
     if (!result || !activeMarketplace) return [];
-    return result.rows.filter(row => {
+    return sourceRows.filter(row => {
       if (isExcludedAmazonRow(row)) return false;
       if (!matchesMarketplaceTab(row, activeMarketplace.id)) return false;
       if (!matchesSelectedValues(row.campaignName, campaignFilter)) return false;
@@ -471,33 +493,15 @@ export default function ReportLabPage() {
       if (!matchesSelectedValues(row.adName, adFilter)) return false;
       return true;
     });
-  }, [activeMarketplace, adFilter, adgroupFilter, campaignFilter, result]);
+  }, [activeMarketplace, adFilter, adgroupFilter, campaignFilter, result, sourceRows]);
 
   const defaultComparison = useMemo(
     () => previousMatchingPeriod(periodStart || dates.min, periodEnd || dates.max),
     [dates.max, dates.min, periodEnd, periodStart]
   );
 
-  /**
-   * SingleOne RAW에 X가 없을 때만, X RAW를 보고서 행으로 바꿔 합계·일자별·비교표에 합친다.
-   * (RAW에 X 행이 있으면 그 광고비가 이미 들어 있어 이중 계산이 된다)
-   * 캠페인·광고그룹·광고 필터가 걸린 동안에는 그 선택에 없는 매체라 더하지 않는다.
-   */
-  const xViewRows = useMemo<NormalizedReportRow[]>(() => {
-    if (!xReportResult || !result || result.rows.some(isXMediaRow)) return [];
-    if (campaignFilter.length || adgroupFilter.length || adFilter.length) return [];
-    return xReportResult.rows.map((row, index) => toReportRowFromX(
-      row,
-      index,
-      spendBasis === 'gross' ? toGrossCostKrw(row.spend, row.date, commissionSetting) : row.spend
-    ));
-  }, [adFilter.length, adgroupFilter.length, campaignFilter.length, commissionSetting, result, spendBasis, xReportResult]);
-
-  /** 보고서 표·차트가 함께 보는 행. RAW 행 + (합산 조건을 만족하는) X 행. */
-  const viewRows = useMemo(
-    () => (xViewRows.length ? [...filteredRows, ...xViewRows] : filteredRows),
-    [filteredRows, xViewRows]
-  );
+  /** 보고서 표·차트가 함께 보는 행. X RAW는 sourceRows 단계에서 이미 합쳐져 있다. */
+  const viewRows = filteredRows;
 
   const reportView = useMemo(() => {
     if (!result) return null;
@@ -510,31 +514,24 @@ export default function ReportLabPage() {
     );
   }, [comparisonEnd, comparisonStart, dates.max, dates.min, periodEnd, periodStart, result, viewRows]);
 
-  const xReportRows = useMemo<XReportRow[]>(() => {
-    if (!xReportResult) return [];
+  /** X 성과 섹션은 지금 화면에 들어와 있는 X 행만 보여준다. (탭·드롭다운·기간 선택을 그대로 따른다) */
+  const xSectionRows = useMemo<XReportRow[]>(() => {
+    if (!xRows.length) return [];
     const start = periodStart || dates.min;
     const end = periodEnd || dates.max;
-    return xReportResult.rows
-      .filter(row => (!start || row.date >= start) && (!end || row.date <= end))
-      .map(row => ({
-        ...row,
-        // 보고서의 다른 표와 동일하게 그로스/넷 토글과 브랜드 수수료율을 적용한다.
-        spend: spendBasis === 'gross' ? toGrossCostKrw(row.spend, row.date, commissionSetting) : row.spend
-      }));
-  }, [commissionSetting, dates.max, dates.min, periodEnd, periodStart, spendBasis, xReportResult]);
-
-  /** X 성과 섹션은 X RAW 행이 속한 탭에만 노출한다. RAW에 X가 전혀 없으면 모든 프로모션 탭에 노출한다. */
-  const xSectionRows = useMemo(() => {
-    if (!xReportRows.length) return [];
-    if (filteredRows.some(isXMediaRow)) return xReportRows;
-    return result?.rows.some(isXMediaRow) ? [] : xReportRows;
-  }, [filteredRows, result, xReportRows]);
+    const selected = new Set(
+      (reportView?.currentRows || []).filter(isXMediaRow).map(row => -row.sourceRowNumber - 1)
+    );
+    return xRows.filter((row, index) =>
+      selected.has(index) && (!start || row.date >= start) && (!end || row.date <= end)
+    );
+  }, [dates.max, dates.min, periodEnd, periodStart, reportView, xRows]);
 
   /** 상단 KPI에 X가 더해졌을 때 그 사실을 밝히는 데 쓰는 X 합계. */
   const xKpiTotal = useMemo<XReportSummary | null>(() => {
-    if (!xViewRows.length || !xSectionRows.length) return null;
+    if (!xSectionRows.length) return null;
     return summarizeXReportRows('x-kpi', 'X', xSectionRows);
-  }, [xSectionRows, xViewRows.length]);
+  }, [xSectionRows]);
 
   const creativeUploadTargets = useMemo<CreativeUploadTarget[]>(() => {
     const targets = new Map<string, CreativeUploadTarget>();
@@ -3458,18 +3455,23 @@ function toIsoDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-/** X RAW 한 줄을 보고서 행으로 바꾼다. media를 X로 두어 캠페인별 성과에서는 지금처럼 빠진다. */
+/**
+ * X RAW 한 줄을 보고서 행으로 바꾼다.
+ * export의 Campaign name을 캠페인명으로 써서 다른 매체와 똑같이 드롭다운에서 고를 수 있게 하고,
+ * 광고세트명과 광고명은 Ad name으로 똑같이 채운다.
+ */
 function toReportRowFromX(row: XReportRow, index: number, costKrw: number): NormalizedReportRow {
   // 광고 이름 열이 없는 export가 많아 광고그룹 이름을, 그것도 없으면 매체명을 이름표로 쓴다.
   const named = [row.adName, row.adGroupName].map(value => (value || '').trim()).find(value => value && value !== '이름 없는 소재');
   const label = named || 'X 광고';
+  const campaignName = (row.campaignName || '').trim() || label;
   return {
     sourceRowNumber: -(index + 1),
     date: row.date,
     brand: '',
     media: 'X',
     promotion: '',
-    campaignName: label,
+    campaignName,
     adgroupName: label,
     adName: label,
     impressions: row.impressions,
