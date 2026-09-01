@@ -24,7 +24,7 @@ export type XReportRow = {
   follows: number;
   /** export의 Profile visits 열. 열을 읽기 전에 저장한 파일에는 비어 있을 수 있다. */
   profileVisits: number;
-  /** export에 인게이지먼트 수 열이 없어 광고비 ÷ CPE로 역산한 값. */
+  /** export의 Engagements 열. 열이 없으면 광고비 ÷ CPE로 역산한다. */
   engagements: number;
 };
 
@@ -62,8 +62,9 @@ const X_COLUMN_ALIASES = {
   date: ['time period', 'date', 'day', '날짜', '일자'],
   adId: ['ad id'],
   adName: ['ad name'],
-  campaignName: ['campaign name'],
-  adGroupName: ['ad group name'],
+  // export 설정에 따라 'Campaign name'으로도, 'Campaign'으로도 내려온다. (ID 열과 헷갈리지 않게 완전 일치로만 찾는다)
+  campaignName: ['campaign name', 'campaign'],
+  adGroupName: ['ad group name', 'ad group'],
   impressions: ['impressions'],
   reach: ['reach'],
   spend: ['spend'],
@@ -73,6 +74,7 @@ const X_COLUMN_ALIASES = {
   reposts: ['reposts'],
   follows: ['follows'],
   profileVisits: ['profile visits'],
+  engagements: ['engagements'],
   costPerEngagement: ['cost per engagement']
 } as const;
 
@@ -106,6 +108,8 @@ function toXReportRow(row: unknown[], columns: Partial<Record<XColumnKey, number
 
   const spend = parseNumber(cell('spend'));
   const costPerEngagement = parseNumber(cell('costPerEngagement'));
+  // Engagements 열이 없는 export는 광고비 ÷ CPE로 역산한다.
+  const engagements = parseNumber(cell('engagements')) || (costPerEngagement > 0 ? Math.round(spend / costPerEngagement) : 0);
 
   return {
     date,
@@ -122,7 +126,7 @@ function toXReportRow(row: unknown[], columns: Partial<Record<XColumnKey, number
     reposts: parseNumber(cell('reposts')),
     follows: parseNumber(cell('follows')),
     profileVisits: parseNumber(cell('profileVisits')),
-    engagements: costPerEngagement > 0 ? Math.round(spend / costPerEngagement) : 0
+    engagements
   };
 }
 

@@ -3457,14 +3457,15 @@ function toIsoDate(date: Date): string {
 
 /**
  * X RAW 한 줄을 보고서 행으로 바꾼다.
- * export의 Campaign name을 캠페인명으로 써서 다른 매체와 똑같이 드롭다운에서 고를 수 있게 하고,
- * 광고세트명과 광고명은 Ad name으로 똑같이 채운다.
+ * export의 Campaign / Ad group / Ad name을 그대로 써서 다른 매체와 똑같이 드롭다운에서 고를 수 있게 한다.
+ * 열이 없는 export는 있는 이름으로 대신 채운다.
  */
 function toReportRowFromX(row: XReportRow, index: number, costKrw: number): NormalizedReportRow {
   // 광고 이름 열이 없는 export가 많아 광고그룹 이름을, 그것도 없으면 매체명을 이름표로 쓴다.
   const named = [row.adName, row.adGroupName].map(value => (value || '').trim()).find(value => value && value !== '이름 없는 소재');
   const label = named || 'X 광고';
   const campaignName = (row.campaignName || '').trim() || label;
+  const adgroupName = (row.adGroupName || '').trim() || label;
   return {
     sourceRowNumber: -(index + 1),
     date: row.date,
@@ -3472,7 +3473,7 @@ function toReportRowFromX(row: XReportRow, index: number, costKrw: number): Norm
     media: 'X',
     promotion: '',
     campaignName,
-    adgroupName: label,
+    adgroupName,
     adName: label,
     impressions: row.impressions,
     clicks: row.linkClicks,
