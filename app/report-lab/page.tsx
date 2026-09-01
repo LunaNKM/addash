@@ -3021,9 +3021,16 @@ function combineReportResults(singleOneResult: ReportParseResult | null, metaRes
   const base = metaResult || singleOneResult;
   if (!base) return null;
 
+  // Meta API 결과가 있으면 그것이 META의 기준이다. SingleOne RAW에도 같은 META 캠페인이 들어 있어
+  // 그대로 이어붙이면 광고비·노출·클릭이 두 번 더해지므로 SingleOne 쪽 META 행은 뺀다.
+  // (SingleOne이 단독으로 집행하는 S-META는 Meta API가 커버하지 않으므로 그대로 둔다)
+  const singleOneRows = metaResult
+    ? (singleOneResult?.rows || []).filter(row => !isMetaMediaRow(row))
+    : (singleOneResult?.rows || []);
+
   const rows = [
     ...(metaResult?.rows || []),
-    ...(singleOneResult?.rows || [])
+    ...singleOneRows
   ];
   if (!rows.length) return null;
 
@@ -3248,6 +3255,7 @@ type MediaCampaignGroup = {
 };
 
 const X_MEDIA_KEY = 'x';
+const META_MEDIA_KEY = 'meta';
 
 function mediaGroupKey(row: NormalizedReportRow): string {
   return row.media.trim().toLowerCase() || '미분류';
@@ -3255,6 +3263,10 @@ function mediaGroupKey(row: NormalizedReportRow): string {
 
 function isXMediaRow(row: NormalizedReportRow): boolean {
   return mediaGroupKey(row) === X_MEDIA_KEY;
+}
+
+function isMetaMediaRow(row: NormalizedReportRow): boolean {
+  return mediaGroupKey(row) === META_MEDIA_KEY;
 }
 
 function mediaGroupLabel(key: string): string {
