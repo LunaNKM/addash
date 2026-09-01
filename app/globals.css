@@ -3738,7 +3738,9 @@ td[title], .legend-row[title], .donut-legend div[title] {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  aspect-ratio: 1 / 1;
+  /* aspect-ratio는 1fr 열의 자동 최소 크기와 맞물려 칸이 부풀어 오른다. 높이를 직접 준다. */
+  height: 42px;
+  min-width: 0;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
@@ -3746,7 +3748,7 @@ td[title], .legend-row[title], .donut-legend div[title] {
   font-size: 12.5px;
   cursor: default;
 }
-.note-history-cell.empty { border: 0; }
+.note-history-cell.blank { border: 0; }
 .note-history-cell em { font-style: normal; }
 .note-history-cell.today { border-color: var(--c-border-vivid); }
 .note-history-cell.has {

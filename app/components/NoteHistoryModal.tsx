@@ -100,7 +100,7 @@ function NoteHistoryModal({ brandId, tabId, kind, title, refreshKey, onClose }: 
         <div className="note-history-grid">
           {WEEKDAYS.map(day => <span className="note-history-weekday" key={day}>{day}</span>)}
           {cells.map((date, index) => {
-            if (!date) return <span className="note-history-cell empty" key={`blank-${index}`} />;
+            if (!date) return <span className="note-history-cell blank" key={`blank-${index}`} />;
             const has = byDate.has(date);
             const classes = ['note-history-cell'];
             if (has) classes.push('has');
