@@ -47,6 +47,8 @@ export type NormalizedReportRow = {
   campaignName: string;
   adgroupName: string;
   adName: string;
+  /** 행 금액의 실제 통화. 없으면 JPY로 본다(기존에 저장된 행 호환). */
+  currency?: string;
   impressions: number;
   clicks: number;
   conversions: number;

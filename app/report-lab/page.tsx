@@ -3012,8 +3012,10 @@ function applyExchangeRate(result: ReportParseResult | null, exchangeRate: numbe
   const revalueCost = forceJpy || Boolean(result.sheet.columns.costJpy && !result.sheet.columns.costKrw);
   const revalueSales = forceJpy || Boolean(result.sheet.columns.salesJpy && !result.sheet.columns.salesKrw);
   const rows = result.rows.map(row => {
-    const costKrw = revalueCost ? row.costJpy * safeRate : row.costKrw;
-    const salesKrw = revalueSales ? row.salesJpy * safeRate : row.salesKrw;
+    // 통화를 아는 행(Meta API)은 그 통화를 따른다. KRW 계정 금액에 환율을 곱하면 광고비가 10배로 뛴다.
+    const isJpyRow = !row.currency || row.currency.toUpperCase() === 'JPY';
+    const costKrw = revalueCost && isJpyRow ? row.costJpy * safeRate : row.costKrw;
+    const salesKrw = revalueSales && isJpyRow ? row.salesJpy * safeRate : row.salesKrw;
     return {
       ...row,
       costKrw,

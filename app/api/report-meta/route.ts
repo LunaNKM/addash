@@ -33,6 +33,7 @@ type MetaInsightRow = {
   adset_name?: string;
   ad_name?: string;
   spend?: string;
+  account_currency?: string;
   impressions?: string;
   inline_link_clicks?: string;
   clicks?: string;
@@ -386,6 +387,7 @@ async function fetchAllInsightsWindow(adAccountId: string, dateStart: string, da
     'adset_name',
     'ad_name',
     'spend',
+    'account_currency',
     'impressions',
     'inline_link_clicks',
     'clicks',
@@ -558,8 +560,13 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
   const registration = actionValue(row.actions, ['omni_complete_registration', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration']);
   const lead = actionValue(row.actions, ['omni_lead', 'lead', 'offsite_conversion.fb_pixel_lead']);
   const date = row.date_start || row.date_stop || '';
-  const costKrw = spend * exchangeRate;
-  const salesKrw = sales * exchangeRate;
+  // 광고 계정 통화가 JPY가 아니면(예: KRW 계정) 환율을 곱하면 안 된다.
+  const currency = normalizeCurrency(row.account_currency);
+  const isJpy = currency === 'JPY';
+  const costKrw = isJpy ? spend * exchangeRate : spend;
+  const salesKrw = isJpy ? sales * exchangeRate : sales;
+  const costJpy = isJpy ? spend : 0;
+  const salesJpy = isJpy ? sales : 0;
   const identityText = `${row.campaign_name || ''} ${row.adset_name || ''} ${row.ad_name || ''}`;
 
   return {
@@ -571,13 +578,14 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
     campaignName: row.campaign_name || 'Meta 캠페인',
     adgroupName: row.adset_name || 'Meta 광고세트',
     adName: row.ad_name || 'Meta 광고',
+    currency,
     impressions,
     clicks,
     conversions,
-    costJpy: spend,
+    costJpy,
     costKrw,
     grossCostKrw: toGrossCostKrw(costKrw, date),
-    salesJpy: sales,
+    salesJpy,
     salesKrw,
     addToCart,
     registration,
@@ -592,6 +600,17 @@ function toReportRow(row: MetaInsightRow, sourceRowNumber: number, exchangeRate:
     roas: ratio(salesKrw, costKrw),
     raw: row as Record<string, unknown>
   };
+}
+
+/** 조회 결과에 섞여 있는 광고 계정 통화 목록. 파일명에 붙여 어떤 통화로 들어왔는지 보여준다. */
+function insightCurrencies(insights: MetaInsightRow[]): string[] {
+  return [...new Set(insights.map(row => normalizeCurrency(row.account_currency)))].sort();
+}
+
+/** Meta 계정 통화. 값이 없는 응답은 기존 동작(JPY 계정)을 유지한다. */
+function normalizeCurrency(value: unknown): string {
+  const currency = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(currency) ? currency : 'JPY';
 }
 
 function inferMetaPromotion(value: string): string {
@@ -1035,7 +1054,8 @@ export async function POST(req: Request) {
     }
 
     const safeExchangeRate = Number(exchangeRate || 1) || 1;
-    const filename = `Meta API${adAccountIds.length > 1 ? ` ${adAccountIds.length} accounts` : ''} ${dateStart}~${dateEnd}`;
+    const currencies = insightCurrencies(insights);
+    const filename = `Meta API${adAccountIds.length > 1 ? ` ${adAccountIds.length} accounts` : ''} ${dateStart}~${dateEnd} · ${currencies.join('+')}`;
     const result = toReportResult(insights, filename, safeExchangeRate);
     const range = dateRange(result.rows);
     const createdAt = Date.now();
