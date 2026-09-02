@@ -2639,6 +2639,13 @@ function SummaryTable({
     .sort((a, b) => sortByLabel ? a.key.localeCompare(b.key) : b.spend - a.spend || a.label.localeCompare(b.label));
   const visibleRows = displayRows.slice(0, limit);
   const expandableKeys = visibleRows.filter(row => dailyRowsByKey?.[row.key]?.length).map(row => row.key);
+  // 저장된 이미지가 있는데도 표에 안 붙는 경우를 바로 알아볼 수 있게 연결 현황을 함께 보여준다.
+  const creativeImageStatus = creativeAssets
+    ? {
+      saved: new Set(Object.values(creativeAssets).map(asset => asset.key)).size,
+      linked: visibleRows.filter(row => findCreativeAsset(creativeAssets, row.key)).length
+    }
+    : null;
   const allDailyExpanded = expandableKeys.length > 0 && expandableKeys.every(key => expandedDailyKeys.has(key));
 
   function toggleDailyRows(key: string) {
@@ -2665,6 +2672,9 @@ function SummaryTable({
         <PeriodBadge label={comparisonLabel || ''} />
         <b>{title}</b>
         <span className="muted">총 {displayRows.length.toLocaleString()}개 그룹 중 {Math.min(displayRows.length, limit).toLocaleString()}개 표시</span>
+        {creativeImageStatus && (
+          <span className="muted">이미지 연결 {creativeImageStatus.linked.toLocaleString()}/{visibleRows.length.toLocaleString()} · 저장된 소재 이미지 {creativeImageStatus.saved.toLocaleString()}개</span>
+        )}
         {expandableKeys.length > 0 && (
           <button type="button" className="btn outline compact creative-daily-all-toggle" onClick={toggleAllDailyRows}>
             {allDailyExpanded ? '일별 전체 접기' : '일별 전체 펼치기'}
@@ -2916,49 +2926,60 @@ function isMetaReportFile(file: ReportFileDoc): boolean {
 
 function indexCreativeAssets(assets: CreativeAssetDoc[]): Record<string, CreativeAssetDoc> {
   const index: Record<string, CreativeAssetDoc> = {};
-  const nameOwners = new Map<string, CreativeAssetDoc>();
-  const ambiguousNames = new Set<string>();
+  const fallbacks = new Map<string, CreativeAssetDoc>();
 
   for (const asset of assets) {
     if (!asset.key) continue;
     index[asset.key] = asset;
-    index[creativeIdentityIndexKey(asset.key)] ||= asset;
-
-    const nameKey = creativeNameIndexKey(asset.key);
-    if (!nameKey) continue;
-    const owner = nameOwners.get(nameKey);
-    if (owner && owner !== asset) ambiguousNames.add(nameKey);
-    else nameOwners.set(nameKey, asset);
+    for (const fallbackKey of creativeFallbackIndexKeys(asset.key)) {
+      // 열쇠 앞부분이 겹치는 소재가 여럿이면 가장 최근에 저장한 이미지를 쓴다.
+      const owner = fallbacks.get(fallbackKey);
+      if (!owner || creativeAssetFreshness(asset) > creativeAssetFreshness(owner)) {
+        fallbacks.set(fallbackKey, asset);
+      }
+    }
   }
 
-  // 이름만 같은 소재가 둘 이상이면 어느 이미지인지 정할 수 없어 이름 색인에서 뺀다.
-  for (const [nameKey, asset] of nameOwners.entries()) {
-    if (!ambiguousNames.has(nameKey)) index[nameKey] ||= asset;
+  for (const [fallbackKey, asset] of fallbacks.entries()) {
+    index[fallbackKey] ||= asset;
   }
 
   return index;
 }
 
-function creativeIdentityIndexKey(key: string): string {
-  return `identity|||${key.split('|||').slice(1).join('|||')}`;
+function creativeAssetFreshness(asset: CreativeAssetDoc): number {
+  return Number(asset.updatedAt || 0) || Number(asset.capturedAt || 0);
 }
 
 /**
- * 소재 이름만 남긴 색인 열쇠.
- * X RAW는 export 형식에 따라 캠페인·광고그룹 열이 있기도 없기도 해서, 예전에 저장한 이미지의 열쇠와
- * 지금 만드는 열쇠의 앞부분이 달라진다. 이름이 겹치지 않는 소재는 이 열쇠로 이미지를 다시 찾는다.
+ * 정확한 열쇠가 안 맞을 때 순서대로 시도하는 느슨한 열쇠들.
+ *
+ * 소재 이미지는 `매체|||캠페인|||광고그룹|||소재명` 열쇠로 저장돼 있는데, X RAW는 export 형식마다
+ * Campaign·Ad group·Ad name 열이 있기도 없기도 해서 같은 소재라도 앞부분이 달라진다.
+ * 그래서 매체 → 광고그룹 → 캠페인 순으로 조건을 하나씩 풀어가며 저장된 이미지를 찾는다.
  */
-function creativeNameIndexKey(key: string): string {
-  const adName = key.split('|||').at(-1) || '';
-  return adName ? `name|||${adName}` : '';
+function creativeFallbackIndexKeys(key: string): string[] {
+  const parts = key.split('|||');
+  const adName = parts.at(-1) || '';
+  if (!adName) return [];
+  const [, campaignName = '', adgroupName = ''] = parts;
+  return [
+    `identity|||${campaignName}|||${adgroupName}|||${adName}`,
+    `campaign-ad|||${campaignName}|||${adName}`,
+    `name|||${adName}`
+  ];
 }
 
-/** 정확한 열쇠 → 매체를 뺀 열쇠 → 소재 이름 순으로 저장된 이미지를 찾는다. */
+/** 정확한 열쇠 → 매체 무시 → 광고그룹 무시 → 소재 이름 순으로 저장된 이미지를 찾는다. */
 function findCreativeAsset(
   index: Record<string, CreativeAssetDoc>,
   key: string
 ): CreativeAssetDoc | undefined {
-  return index[key] || index[creativeIdentityIndexKey(key)] || index[creativeNameIndexKey(key)];
+  if (index[key]) return index[key];
+  for (const fallbackKey of creativeFallbackIndexKeys(key)) {
+    if (index[fallbackKey]) return index[fallbackKey];
+  }
+  return undefined;
 }
 
 function makeCollectorToken(): string {
