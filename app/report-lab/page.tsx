@@ -680,7 +680,7 @@ export default function ReportLabPage() {
           adgroupName: ad.adgroupName,
           adName: ad.adName
         });
-        return !creativeAssets[key] && !creativeAssets[creativeIdentityIndexKey(key)];
+        return !findCreativeAsset(creativeAssets, key);
       });
       const imageStats = {
         total: ads.length,
@@ -2707,7 +2707,7 @@ function SummaryTable({
                           <div className="creative-summary-cell">
                             <CreativeGroupCell
                               row={row}
-                              asset={creativeAssets[row.key] || creativeAssets[creativeIdentityIndexKey(row.key)]}
+                              asset={findCreativeAsset(creativeAssets, row.key)}
                               onPreview={(src, label) => {
                                 setCreativeHover(null);
                                 setCreativePreview({ src, label });
@@ -2915,17 +2915,50 @@ function isMetaReportFile(file: ReportFileDoc): boolean {
 }
 
 function indexCreativeAssets(assets: CreativeAssetDoc[]): Record<string, CreativeAssetDoc> {
-  return assets.reduce<Record<string, CreativeAssetDoc>>((acc, asset) => {
-    if (asset.key) {
-      acc[asset.key] = asset;
-      acc[creativeIdentityIndexKey(asset.key)] ||= asset;
-    }
-    return acc;
-  }, {});
+  const index: Record<string, CreativeAssetDoc> = {};
+  const nameOwners = new Map<string, CreativeAssetDoc>();
+  const ambiguousNames = new Set<string>();
+
+  for (const asset of assets) {
+    if (!asset.key) continue;
+    index[asset.key] = asset;
+    index[creativeIdentityIndexKey(asset.key)] ||= asset;
+
+    const nameKey = creativeNameIndexKey(asset.key);
+    if (!nameKey) continue;
+    const owner = nameOwners.get(nameKey);
+    if (owner && owner !== asset) ambiguousNames.add(nameKey);
+    else nameOwners.set(nameKey, asset);
+  }
+
+  // 이름만 같은 소재가 둘 이상이면 어느 이미지인지 정할 수 없어 이름 색인에서 뺀다.
+  for (const [nameKey, asset] of nameOwners.entries()) {
+    if (!ambiguousNames.has(nameKey)) index[nameKey] ||= asset;
+  }
+
+  return index;
 }
 
 function creativeIdentityIndexKey(key: string): string {
   return `identity|||${key.split('|||').slice(1).join('|||')}`;
+}
+
+/**
+ * 소재 이름만 남긴 색인 열쇠.
+ * X RAW는 export 형식에 따라 캠페인·광고그룹 열이 있기도 없기도 해서, 예전에 저장한 이미지의 열쇠와
+ * 지금 만드는 열쇠의 앞부분이 달라진다. 이름이 겹치지 않는 소재는 이 열쇠로 이미지를 다시 찾는다.
+ */
+function creativeNameIndexKey(key: string): string {
+  const adName = key.split('|||').at(-1) || '';
+  return adName ? `name|||${adName}` : '';
+}
+
+/** 정확한 열쇠 → 매체를 뺀 열쇠 → 소재 이름 순으로 저장된 이미지를 찾는다. */
+function findCreativeAsset(
+  index: Record<string, CreativeAssetDoc>,
+  key: string
+): CreativeAssetDoc | undefined {
+  return index[key] || index[creativeIdentityIndexKey(key)] || index[creativeNameIndexKey(key)];
 }
 
 function makeCollectorToken(): string {
