@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { buildFileStats } from '@/lib/aggregation';
-import { AdminCheckError, isAdminEmailServer } from '@/lib/server/firestoreRest';
+import { AdminCheckError, firestoreFetch, isAdminEmailServer } from '@/lib/server/firestoreRest';
 import type { ParsedRow } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -239,9 +239,9 @@ async function saveToFirestore(brandId: string, tabId: string, fileDoc: Record<s
   const filename = fileDoc.filename as string;
   const colPath = `projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/files`;
 
-  const listResp = await fetch(
+  const listResp = await firestoreFetch(
     `https://firestore.googleapis.com/v1/${colPath}?pageSize=100`,
-    { headers: { Authorization: `Bearer ${idToken}` }, cache: 'no-store' }
+    { headers: { Authorization: `Bearer ${idToken}` } }
   );
   if (listResp.ok) {
     const listData = await listResp.json();
@@ -249,7 +249,7 @@ async function saveToFirestore(brandId: string, tabId: string, fileDoc: Record<s
     for (const doc of existing) {
       const docFilename = (doc.fields?.filename as { stringValue?: string })?.stringValue;
       if (docFilename?.startsWith('Meta API ')) {
-        await fetch(`https://firestore.googleapis.com/v1/${doc.name}`, {
+        await firestoreFetch(`https://firestore.googleapis.com/v1/${doc.name}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${idToken}` }
         });
@@ -278,7 +278,7 @@ async function saveToFirestore(brandId: string, tabId: string, fileDoc: Record<s
     if (val !== undefined) fields[key] = toFirestoreValue(val);
   }
 
-  const createResp = await fetch(
+  const createResp = await firestoreFetch(
     `https://firestore.googleapis.com/v1/${colPath}`,
     {
       method: 'POST',

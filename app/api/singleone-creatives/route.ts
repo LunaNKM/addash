@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AdminCheckError, isAdminEmailServer } from '@/lib/server/firestoreRest';
+import { AdminCheckError, firestoreFetch, isAdminEmailServer } from '@/lib/server/firestoreRest';
 import { creativeAssetId, makeCreativeKey } from '@/lib/report/creativeKey';
 import { adminDb } from '@/lib/firebaseAdmin';
 
@@ -162,7 +162,7 @@ async function saveWithUserToken(brandId: string, tabId: string, assets: Array<R
 }
 
 async function writeFirestoreDocument(path: string, data: Record<string, unknown>, idToken: string) {
-  const resp = await fetch(`https://firestore.googleapis.com/v1/${path}`, {
+  const resp = await firestoreFetch(`https://firestore.googleapis.com/v1/${path}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
     body: JSON.stringify({ fields: toFirestoreFields(data) })

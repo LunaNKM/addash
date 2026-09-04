@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isAdminEmailServer } from '@/lib/server/firestoreRest';
 
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || 'kangmin.j@gfutures.co').toLowerCase();
 
@@ -22,21 +23,7 @@ async function verifyFirebaseToken(idToken: string): Promise<{ email: string } |
 }
 
 async function isInsightAdmin(email: string, idToken: string): Promise<boolean> {
-  const normalized = email.toLowerCase();
-  if (normalized === primaryAdminEmail) return true;
-
-  const { projectId } = webConfig();
-  if (!projectId) throw new Error('FIREBASE_WEB_CONFIG.projectId is missing.');
-
-  const adminDocUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/admins/${encodeURIComponent(normalized)}`;
-  const resp = await fetch(adminDocUrl, {
-    headers: { Authorization: `Bearer ${idToken}` },
-    cache: 'no-store'
-  });
-
-  if (resp.status === 404) return false;
-  if (resp.ok) return true;
-  throw new Error('관리자 권한 확인에 실패했습니다.');
+  return isAdminEmailServer(email, idToken, primaryAdminEmail);
 }
 
 function extractText(data: any): string {
