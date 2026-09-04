@@ -712,10 +712,11 @@ export default function ReportLabPage() {
           imageStats.skippedExisting += Number(batchStats.skippedExisting || 0);
           imageStats.saved += Number(batchStats.saved || 0);
           imageStats.failed += Number(batchStats.failed || 0);
+          if (batchStats.error && !imageError) imageError = String(batchStats.error);
         } catch (err) {
           imageStats.failed += batch.length;
           imageError = err instanceof Error ? err.message : String(err);
-          if (/quota exceeded/i.test(imageError)) {
+          if (/quota exceeded|429|resource[- ]exhausted/i.test(imageError)) {
             const remaining = pendingAds.length - ((index + 1) * 25);
             imageStats.failed += Math.max(remaining, 0);
             break;

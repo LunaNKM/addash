@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { AdminCheckError, isAdminEmailServer } from '@/lib/server/firestoreRest';
 import { creativeAssetId, makeCreativeKey } from '@/lib/report/creativeKey';
 import { adminDb } from '@/lib/firebaseAdmin';
 
@@ -17,7 +18,7 @@ type CreativeAssetPayload = {
   capturedAt?: number;
 };
 
-const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
+const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || 'kangmin.j@gfutures.co').toLowerCase();
 const MAX_IMAGE_DATA_LENGTH = 240_000;
 type AuthResult = { idToken: string } | { collector: true } | { error: NextResponse };
 
@@ -41,11 +42,7 @@ async function verifyFirebaseToken(idToken: string): Promise<{ email: string } |
 }
 
 async function isAdmin(email: string, idToken: string): Promise<boolean> {
-  if (email === primaryAdminEmail) return true;
-  const { projectId } = webConfig();
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/admins/${encodeURIComponent(email)}`;
-  const resp = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` }, cache: 'no-store' });
-  return resp.ok;
+  return isAdminEmailServer(email, idToken, primaryAdminEmail);
 }
 
 async function requireAdmin(req: Request) {
@@ -56,7 +53,14 @@ async function requireAdmin(req: Request) {
   const user = await verifyFirebaseToken(idToken);
   if (!user) return { error: NextResponse.json({ error: 'Invalid auth token.' }, { status: 401 }) };
 
-  const allowed = await isAdmin(user.email, idToken);
+  let allowed = false;
+  try {
+    allowed = await isAdmin(user.email, idToken);
+  } catch (err) {
+    const status = err instanceof AdminCheckError ? err.status : 503;
+    const message = err instanceof Error ? err.message : 'Admin check failed.';
+    return { error: NextResponse.json({ error: message }, { status }) };
+  }
   if (!allowed) return { error: NextResponse.json({ error: 'Admin access is required.' }, { status: 403 }) };
 
   return { idToken };

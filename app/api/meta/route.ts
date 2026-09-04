@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { buildFileStats } from '@/lib/aggregation';
+import { AdminCheckError, isAdminEmailServer } from '@/lib/server/firestoreRest';
 import type { ParsedRow } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -8,7 +9,7 @@ export const maxDuration = 300;
 
 const META_API_VERSION = 'v20.0';
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
-const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
+const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || 'kangmin.j@gfutures.co').toLowerCase();
 
 function webConfig() {
   const raw = process.env.FIREBASE_WEB_CONFIG;
@@ -30,11 +31,7 @@ async function verifyFirebaseToken(idToken: string): Promise<{ email: string } |
 }
 
 async function isAdmin(email: string, idToken: string): Promise<boolean> {
-  if (email === primaryAdminEmail) return true;
-  const { projectId } = webConfig();
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/admins/${encodeURIComponent(email)}`;
-  const resp = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` }, cache: 'no-store' });
-  return resp.ok;
+  return isAdminEmailServer(email, idToken, primaryAdminEmail);
 }
 
 // ── Meta API helpers ────────────────────────────────────────────
@@ -307,7 +304,14 @@ export async function GET(req: Request) {
     const user = await verifyFirebaseToken(idToken);
     if (!user) return NextResponse.json({ error: '유효하지 않은 토큰입니다.' }, { status: 401 });
 
-    const allowed = await isAdmin(user.email, idToken);
+    let allowed = false;
+    try {
+      allowed = await isAdmin(user.email, idToken);
+    } catch (err) {
+      const status = err instanceof AdminCheckError ? err.status : 503;
+      const message = err instanceof Error ? err.message : '관리자 확인에 실패했습니다.';
+      return NextResponse.json({ error: message }, { status });
+    }
     if (!allowed) return NextResponse.json({ error: '관리자만 사용할 수 있습니다.' }, { status: 403 });
 
     const url = new URL(req.url);
@@ -337,7 +341,14 @@ export async function POST(req: Request) {
     const user = await verifyFirebaseToken(idToken);
     if (!user) return NextResponse.json({ error: '유효하지 않은 토큰입니다.' }, { status: 401 });
 
-    const allowed = await isAdmin(user.email, idToken);
+    let allowed = false;
+    try {
+      allowed = await isAdmin(user.email, idToken);
+    } catch (err) {
+      const status = err instanceof AdminCheckError ? err.status : 503;
+      const message = err instanceof Error ? err.message : '관리자 확인에 실패했습니다.';
+      return NextResponse.json({ error: message }, { status });
+    }
     if (!allowed) return NextResponse.json({ error: '관리자만 사용할 수 있습니다.' }, { status: 403 });
 
     const { brandId, tabId, adAccountId, dateStart, dateEnd, adsetIds } = await req.json() as {

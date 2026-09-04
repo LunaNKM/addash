@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
+import { AdminCheckError, firestoreFetch, isAdminEmailServer } from '@/lib/server/firestoreRest';
 import { creativeAssetId, makeCreativeKey } from '@/lib/report/creativeKey';
 import { toGrossCostKrw } from '@/lib/report/schema';
 import type { NormalizedReportRow, ReportParseResult } from '@/lib/report/reportTypes';
@@ -15,13 +16,13 @@ const REPORT_FILE_ROWS_PER_CHUNK = 200;
 const META_DATE_CHUNK_DAYS = 7;
 const META_ADSET_FILTER_CHUNK_SIZE = 50;
 const META_AD_CREATIVE_CHUNK_SIZE = 50;
-const META_CREATIVE_WRITE_CONCURRENCY = 6;
+const META_CREATIVE_WRITE_CONCURRENCY = 3;
 const META_CREATIVE_REQUEST_BATCH_SIZE = 25;
 const MAX_META_IMAGE_DATA_LENGTH = 240_000;
 /** Meta Graph API 요청은 전역으로 이만큼만 동시에 나간다(rate limit 회피). */
 const META_REQUEST_CONCURRENCY = 6;
 const REPORT_CHUNK_WRITE_CONCURRENCY = 12;
-const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || '').toLowerCase();
+const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || 'kangmin.j@gfutures.co').toLowerCase();
 
 type MetaAction = { action_type: string; value: string };
 
@@ -74,6 +75,8 @@ type MetaCreativeSyncStats = {
   skippedExisting: number;
   saved: number;
   failed: number;
+  /** 실패한 소재가 있을 때 첫 번째 실패 사유(원인 파악용). */
+  error?: string;
 };
 
 type MetaApiErrorBody = {
@@ -106,11 +109,7 @@ async function verifyFirebaseToken(idToken: string): Promise<{ email: string } |
 }
 
 async function isAdmin(email: string, idToken: string): Promise<boolean> {
-  if (email === primaryAdminEmail) return true;
-  const { projectId } = webConfig();
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/admins/${encodeURIComponent(email)}`;
-  const resp = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` }, cache: 'no-store' });
-  return resp.ok;
+  return isAdminEmailServer(email, idToken, primaryAdminEmail);
 }
 
 async function requireAdmin(req: Request) {
@@ -121,7 +120,14 @@ async function requireAdmin(req: Request) {
   const user = await verifyFirebaseToken(idToken);
   if (!user) return { error: NextResponse.json({ error: '유효하지 않은 토큰입니다.' }, { status: 401 }) };
 
-  const allowed = await isAdmin(user.email, idToken);
+  let allowed = false;
+  try {
+    allowed = await isAdmin(user.email, idToken);
+  } catch (err) {
+    const status = err instanceof AdminCheckError ? err.status : 503;
+    const message = err instanceof Error ? err.message : '관리자 확인에 실패했습니다.';
+    return { error: NextResponse.json({ error: message }, { status }) };
+  }
   if (!allowed) return { error: NextResponse.json({ error: '관리자만 사용할 수 있습니다.' }, { status: 403 }) };
 
   return { idToken };
@@ -657,6 +663,7 @@ async function syncMetaCreativeCandidates(
   const downloadedByAdId = new Map<string, Promise<DownloadedMetaImage>>();
   let saved = 0;
   let failed = 0;
+  let firstError = '';
 
   await runWithConcurrency(missing, META_CREATIVE_WRITE_CONCURRENCY, async candidate => {
     try {
@@ -690,8 +697,9 @@ async function syncMetaCreativeCandidates(
         updatedAt: now
       }, idToken);
       saved += 1;
-    } catch {
+    } catch (err) {
       failed += 1;
+      if (!firstError) firstError = err instanceof Error ? err.message : String(err);
     }
   });
 
@@ -700,7 +708,8 @@ async function syncMetaCreativeCandidates(
     requested: missing.length,
     skippedExisting: candidates.length - missing.length,
     saved,
-    failed
+    failed,
+    ...(firstError ? { error: firstError } : {})
   };
 }
 
@@ -737,7 +746,7 @@ async function listExistingCreativeDocumentIds(
 ): Promise<Set<string>> {
   const { projectId } = webConfig();
   const documentPrefix = `projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/creativeAssets`;
-  const resp = await fetch(
+  const resp = await firestoreFetch(
     `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:batchGet`,
     {
       method: 'POST',
@@ -748,14 +757,17 @@ async function listExistingCreativeDocumentIds(
       body: JSON.stringify({
         documents: candidates.map(candidate => `${documentPrefix}/${candidate.documentId}`),
         mask: { fieldPaths: ['key'] }
-      }),
-      cache: 'no-store'
+      })
     }
   );
   const data = await resp.json().catch(() => ({})) as Array<{ found?: { name?: string } }> | { error?: { message?: string } };
   if (!resp.ok || !Array.isArray(data)) {
+    // 중복 확인은 저장 비용을 아끼기 위한 최적화일 뿐이다. 여기서 실패했다고
+    // 배치 전체를 실패 처리하면 429 한 번에 선택한 소재가 통째로 날아간다.
+    // 저장은 PATCH(upsert)이므로 확인을 건너뛰고 그대로 진행한다.
     const message = !Array.isArray(data) ? data.error?.message : '';
-    throw new Error(`Firestore 기존 이미지 확인 실패: ${message || `HTTP ${resp.status}`}`);
+    console.warn(`Firestore 기존 이미지 확인 실패, 중복 확인을 건너뜁니다: ${message || `HTTP ${resp.status}`}`);
+    return new Set<string>();
   }
 
   return new Set(data.flatMap(item => {
@@ -868,7 +880,7 @@ async function saveReportFileToFirestore(brandId: string, tabId: string, fileDoc
 }
 
 async function writeFirestoreDocument(path: string, data: Record<string, unknown>, idToken: string) {
-  const resp = await fetch(`https://firestore.googleapis.com/v1/${path}`, {
+  const resp = await firestoreFetch(`https://firestore.googleapis.com/v1/${path}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
     body: JSON.stringify({ fields: toFirestoreFields(data) })
