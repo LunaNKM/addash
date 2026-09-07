@@ -22,6 +22,7 @@ import {
   findBrandByShareToken,
   getKpi,
   getReportComment,
+  getReportCommentForFile,
   getReportFile,
   getSingleOneCollectorSettings,
   getXReportFile,
@@ -256,7 +257,7 @@ export default function ReportLabPage() {
     const [loadedXlsx, loadedMeta, loadedComment] = await Promise.all([
       firstXlsx ? getReportFile(target.id, nextTab.id, firstXlsx.id) : Promise.resolve(null),
       firstMeta ? getReportFile(target.id, nextTab.id, firstMeta.id) : Promise.resolve(null),
-      firstXlsx ? getReportComment(target.id, nextTab.id, firstXlsx.id) : firstMeta ? getReportComment(target.id, nextTab.id, firstMeta.id) : Promise.resolve(null)
+      getReportCommentForFile(target.id, nextTab.id, firstXlsx?.id || firstMeta?.id || '')
     ]);
 
     if (loadedXlsx) {
@@ -311,7 +312,7 @@ export default function ReportLabPage() {
     const [loadedXlsx, loadedMeta, loadedComment] = await Promise.all([
       selectedXlsx ? getReportFile(brand.id, dashboardTab.id, selectedXlsx.id) : Promise.resolve(null),
       selectedMeta ? getReportFile(brand.id, dashboardTab.id, selectedMeta.id) : Promise.resolve(null),
-      currentFile ? getReportComment(brand.id, dashboardTab.id, currentFile.id) : Promise.resolve(null)
+      getReportCommentForFile(brand.id, dashboardTab.id, currentFile?.id || '')
     ]);
 
     if (loadedXlsx) applyReportResult(loadedXlsx.result, loadedXlsx.createdAt || selectedXlsx?.createdAt, 'xlsx', { activate: false, updatePeriod: Boolean(selectedXlsx) });
@@ -581,7 +582,7 @@ export default function ReportLabPage() {
         createdAt
       });
       setSelectedXlsxReportFileId(savedId);
-      setReportComment(null);
+      setReportComment(await getReportCommentForFile(brand.id, dashboardTab.id, savedId));
       setCommentEditing(false);
       applyReportResult(parsed, createdAt, 'xlsx');
     } catch (err) {
@@ -648,7 +649,7 @@ export default function ReportLabPage() {
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
       setSelectedMetaReportFileId(saved?.id || '');
-      setReportComment(null);
+      setReportComment(await getReportCommentForFile(brand.id, dashboardTab.id, saved?.id || ''));
       setCommentEditing(false);
 
       if (saved) {

@@ -394,6 +394,20 @@ export async function getReportComment(brandId: string, tabId: string, fileId: s
   return snap.exists() ? normalizeReportComment(snap.id, snap.data()) : null;
 }
 
+/**
+ * Comment는 보고서 파일 문서 id를 키로 저장한다. 그런데 Meta 재수집이나 같은 이름
+ * 재업로드는 파일 문서를 새로 만들기 때문에, 어제 쓴 Comment가 새 파일에는 붙어 있지
+ * 않아 화면에서 사라진 것처럼 보인다. 현재 파일에 Comment가 없으면 그 탭에서 가장
+ * 최근에 쓴 Comment를 이어서 보여준다. (저장은 항상 현재 파일 id로 나가므로
+ * 한 번 수정하면 새 파일로 옮겨 붙는다.)
+ */
+export async function getReportCommentForFile(brandId: string, tabId: string, fileId: string): Promise<ReportCommentDoc | null> {
+  const own = fileId ? await getReportComment(brandId, tabId, fileId) : null;
+  if (own?.text) return own;
+  const previous = await listReportComments(brandId, tabId);
+  return previous.find(item => item.text) || own;
+}
+
 export async function saveReportComment(
   brandId: string,
   tabId: string,

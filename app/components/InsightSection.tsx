@@ -16,7 +16,9 @@ export function InsightSection({ insights, isAdmin, busy, brandId, tabId, histor
   historyKey: number;
   onSave: (text: string) => Promise<void> | void;
 }) {
-  const latest = insights[0];
+  // 빈 글이 저장되면 그게 최신 문서가 되어 이전 인사이트가 통째로 가려진다.
+  // 화면에는 내용이 있는 가장 최근 글을 보여준다.
+  const latest = insights.find(item => item.text.trim()) || insights[0];
   const [editing, setEditing] = useState(false);
 
   // 탭을 옮기면 편집 상태를 닫고 그 탭에 저장된 내용으로 되돌린다.

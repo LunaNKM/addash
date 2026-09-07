@@ -431,6 +431,11 @@ export default function Page() {
 
   async function saveInsightText(text: string) {
     if (!brand || !tab) return;
+    // 빈 글을 저장하면 그게 최신 인사이트가 되어 앞서 쓴 글이 화면에서 사라진다.
+    if (!text.trim()) {
+      alert('인사이트 내용을 입력해주세요.');
+      return;
+    }
     setBusy('인사이트 저장 중...');
     try {
       const insight: Omit<InsightDoc, 'id'> = {
