@@ -291,7 +291,15 @@ export async function getReportFile(brandId: string, tabId: string, fileId: stri
 
 export async function saveReportFile(brandId: string, tabId: string, file: Omit<ReportFileDoc, 'id'>) {
   const sameName = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles'), where('filename', '==', file.filename), limit(1)));
-  for (const d of sameName.docs) await deleteReportFile(brandId, tabId, d.id);
+  // 같은 이름 재업로드는 파일 교체지 Comment 삭제가 아니다. 지우기 전에 들고 있다가
+  // 새 파일 문서로 옮겨 붙인다.
+  let carried: ReportCommentDoc | null = null;
+  const replacedIds: string[] = [];
+  for (const d of sameName.docs) {
+    if (!carried) carried = await getReportComment(brandId, tabId, d.id);
+    await deleteReportFile(brandId, tabId, d.id, { keepComment: true });
+    replacedIds.push(d.id);
+  }
 
   const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles'));
   const rows = stripReportRows(file.result.rows);
@@ -312,6 +320,12 @@ export async function saveReportFile(brandId: string, tabId: string, file: Omit<
     }
 
     await setDoc(ref, cleanFirestoreData({ ...file, result: resultMeta, chunkCount: chunks.length }));
+    // 새 파일에 Comment를 옮겨 붙인 뒤에야 옛 문서를 지운다. 중간에 실패하면
+    // 옛 Comment가 그대로 남아 있어야 한 줄도 잃지 않는다.
+    if (carried?.text) await writeCarriedComment(brandId, tabId, ref.id, carried);
+    for (const oldId of replacedIds) {
+      await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', oldId)).catch(() => undefined);
+    }
 
     return ref.id;
   } catch (err) {
@@ -320,7 +334,7 @@ export async function saveReportFile(brandId: string, tabId: string, file: Omit<
   }
 }
 
-export async function deleteReportFile(brandId: string, tabId: string, fileId: string) {
+export async function deleteReportFile(brandId: string, tabId: string, fileId: string, opts: { keepComment?: boolean } = {}) {
   const chunks = await getDocs(collection(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId, 'chunks'));
   for (let index = 0; index < chunks.docs.length; index += 450) {
     const batch = writeBatch(db);
@@ -328,7 +342,9 @@ export async function deleteReportFile(brandId: string, tabId: string, fileId: s
     await batch.commit();
   }
   await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportFiles', fileId));
-  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', fileId)).catch(() => undefined);
+  if (!opts.keepComment) {
+    await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', fileId)).catch(() => undefined);
+  }
 }
 
 export async function listXReportFiles(brandId: string, tabId: string): Promise<XReportFileDoc[]> {
@@ -406,6 +422,37 @@ export async function getReportCommentForFile(brandId: string, tabId: string, fi
   if (own?.text) return own;
   const previous = await listReportComments(brandId, tabId);
   return previous.find(item => item.text) || own;
+}
+
+/**
+ * 새로 만들어진 보고서 파일 문서에 이전 Comment를 그대로 옮겨 붙인다.
+ * 작성 시각(createdAt)은 원래 쓴 때를 유지한다.
+ */
+async function writeCarriedComment(brandId: string, tabId: string, fileId: string, source: ReportCommentDoc) {
+  const now = Date.now();
+  await setDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'reportComments', fileId), cleanFirestoreData({
+    text: source.text,
+    periodStart: source.periodStart,
+    periodEnd: source.periodEnd,
+    fileId,
+    createdAt: source.createdAt || now,
+    updatedAt: source.updatedAt || now
+  }));
+}
+
+/**
+ * Meta 재수집처럼 새 파일 문서가 생긴 뒤에 부른다. 그 파일에 Comment가 없으면
+ * 탭에서 가장 최근에 쓴 Comment를 새 파일 id로 승계해 저장하고 돌려준다.
+ * (쓰기가 필요하므로 관리자 경로에서만 부를 것 — 보기 전용 세션은 getReportCommentForFile를 쓴다.)
+ */
+export async function ensureReportCommentForFile(brandId: string, tabId: string, fileId: string): Promise<ReportCommentDoc | null> {
+  if (!fileId) return null;
+  const own = await getReportComment(brandId, tabId, fileId);
+  if (own?.text) return own;
+  const previous = (await listReportComments(brandId, tabId)).find(item => item.text);
+  if (!previous) return own;
+  await writeCarriedComment(brandId, tabId, fileId, previous);
+  return getReportComment(brandId, tabId, fileId);
 }
 
 export async function saveReportComment(

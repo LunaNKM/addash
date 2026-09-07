@@ -23,6 +23,7 @@ import {
   getKpi,
   getReportComment,
   getReportCommentForFile,
+  ensureReportCommentForFile,
   getReportFile,
   getSingleOneCollectorSettings,
   getXReportFile,
@@ -582,7 +583,7 @@ export default function ReportLabPage() {
         createdAt
       });
       setSelectedXlsxReportFileId(savedId);
-      setReportComment(await getReportCommentForFile(brand.id, dashboardTab.id, savedId));
+      setReportComment(await ensureReportCommentForFile(brand.id, dashboardTab.id, savedId));
       setCommentEditing(false);
       applyReportResult(parsed, createdAt, 'xlsx');
     } catch (err) {
@@ -649,7 +650,7 @@ export default function ReportLabPage() {
       const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
       const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
       setSelectedMetaReportFileId(saved?.id || '');
-      setReportComment(await getReportCommentForFile(brand.id, dashboardTab.id, saved?.id || ''));
+      setReportComment(await ensureReportCommentForFile(brand.id, dashboardTab.id, saved?.id || ''));
       setCommentEditing(false);
 
       if (saved) {
