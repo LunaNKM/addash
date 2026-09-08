@@ -14,6 +14,8 @@
  *  3) 관리자 판정 결과를 짧게 캐시해 같은 사람이 연달아 눌러도 읽기가 늘지 않게 한다.
  */
 
+import { isCompanyAdminEmail } from '../adminDomains';
+
 const RETRIABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 const ADMIN_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -84,6 +86,7 @@ export async function isAdminEmailServer(email: string, idToken: string, primary
   const normalized = (email || '').toLowerCase();
   if (!normalized) return false;
   if (normalized === primaryAdminEmail) return true;
+  if (isCompanyAdminEmail(normalized)) return true;
   if (envAdminEmails().has(normalized)) return true;
 
   const cached = adminCache.get(normalized);

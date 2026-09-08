@@ -4,8 +4,11 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function email() { return request.auth.token.email.lower(); }
     function isPrimaryAdmin() { return signedIn() && email() == 'kangmin.j@gfutures.co'; }
+    // 회사 도메인 구글 계정은 admins에 등록하지 않아도 관리자로 본다.
+    // (도메인을 바꾸면 lib/adminDomains.ts도 같이 고칠 것)
+    function isCompanyAdmin() { return signedIn() && email().matches('.*@gfutures[.]co'); }
     function isAdmin() {
-      return isPrimaryAdmin() ||
+      return isPrimaryAdmin() || isCompanyAdmin() ||
         (signedIn() && exists(/databases/$(database)/documents/admins/$(email())));
     }
 

@@ -12,6 +12,7 @@ import {
   where,
   writeBatch
 } from 'firebase/firestore';
+import { isCompanyAdminEmail } from './adminDomains';
 import { db, primaryAdminEmail } from './firebase';
 import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type NoteHistoryDoc, type NoteHistoryKind, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type XReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
@@ -45,6 +46,7 @@ export async function isAdminEmail(email: string | null): Promise<boolean> {
   if (!email) return false;
   const lower = email.toLowerCase();
   if (lower === primaryAdminEmail) return true;
+  if (isCompanyAdminEmail(lower)) return true;
   const snap = await getDoc(doc(db, 'admins', lower));
   return snap.exists();
 }
