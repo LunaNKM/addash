@@ -151,7 +151,7 @@ function normalizeRow(
     sourceRowNumber,
     date,
     brand: clean(value('brand')),
-    media: resolveMedia(clean(value('media')), identity),
+    media: resolveMedia(clean(value('media')), campaignName),
     promotion: clean(value('promotion')) || inferPromotion(identity) || '미분류',
     campaignName,
     adgroupName,
@@ -181,17 +181,19 @@ function normalizeRow(
 
 /**
  * SingleOne에서 직접 받은 RAW는 media 열이 S-META까지 전부 "meta"로 내려온다.
- * 실제 구분은 캠페인·광고세트·광고 이름에 들어 있는 S-META / S-TIKTOK 같은 토큰에 있으므로 거기서 다시 읽는다.
+ * 실제 구분은 캠페인 이름에 들어 있는 S-META / S-TIKTOK 같은 토큰에 있으므로 거기서 다시 읽는다.
+ * 광고세트·광고명은 보지 않는다. S-META 소재를 그대로 복사해 쓴 META(PA) 캠페인이
+ * 소재명 때문에 s-meta로 넘어가 Meta API 결과와 이중 계상됐던 적이 있다.
  * (x, s-line처럼 이미 구분된 매체 값은 그대로 둔다)
  */
 const META_MEDIA_VALUES = new Set(['', 'meta', 's-meta', 'facebook', 'fb']);
 // 이름은 언더바로 이어 붙기 때문에(2608_Easydew_S-META_ATC) \b 대신 앞뒤 구분자를 직접 본다.
 const SINGLEONE_MEDIA_PATTERN = /(^|[^a-z0-9])s[-_ ]?(meta|tiktok|line)([^a-z0-9]|$)/i;
 
-function resolveMedia(media: string, identity: string): string {
+function resolveMedia(media: string, campaignName: string): string {
   const key = media.trim().toLowerCase();
   if (!META_MEDIA_VALUES.has(key)) return media.trim();
-  const matched = identity.match(SINGLEONE_MEDIA_PATTERN);
+  const matched = campaignName.match(SINGLEONE_MEDIA_PATTERN);
   if (matched) return `s-${matched[2].toLowerCase()}`;
   // 이름에 단서가 없으면 원래 media 값을 그대로 둔다. (이미 s-meta로 내려온 예전 RAW는 그대로 유지)
   return media.trim();
