@@ -1,7 +1,8 @@
+import { randomBytes } from 'crypto';
 import { NextResponse } from 'next/server';
-import { buildFileStats } from '@/lib/aggregation';
+import { buildCreativeDailyStats, buildFileStats, chunkCreativeDaily } from '@/lib/aggregation';
 import { AdminCheckError, firestoreFetch, isAdminEmailServer } from '@/lib/server/firestoreRest';
-import type { ParsedRow } from '@/lib/types';
+import type { ParsedRow, StatRow } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -234,63 +235,108 @@ function toRows(insights: MetaInsightRow[]): ParsedRow[] {
 
 // ── Firestore save via REST (서버 사이드, 서비스 계정 없음) ──────
 
-async function saveToFirestore(brandId: string, tabId: string, fileDoc: Record<string, unknown>, idToken: string) {
+/**
+ * 새 파일(광고×일 청크 → 파일 문서)을 끝까지 쓴 뒤에 옛 "Meta API" 파일을 지운다.
+ * 저장이 중간에 실패하면 새로 쓴 것만 되돌리고 옛 파일은 그대로 둔다.
+ * 옛 파일을 못 지우면 새 파일과 함께 합산되므로, 조용히 넘기지 않고 경고로 돌려준다.
+ * (청크 id 규칙 0000~은 lib/store.ts와 같다)
+ */
+async function saveToFirestore(brandId: string, tabId: string, fileDoc: Record<string, unknown>, creativeDaily: StatRow[], idToken: string): Promise<string> {
   const { projectId } = webConfig();
-  const filename = fileDoc.filename as string;
   const colPath = `projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/files`;
+  const docPath = `${colPath}/${firestoreAutoId()}`;
+  const chunks = chunkCreativeDaily(creativeDaily);
+
+  try {
+    for (const [index, rows] of chunks.entries()) {
+      await writeDocument(chunkPath(docPath, index), { index, rows }, idToken);
+    }
+    await writeDocument(docPath, { ...fileDoc, creativeDailyChunks: chunks.length }, idToken);
+  } catch (err) {
+    await deleteFileWithChunks(docPath, chunks.length, idToken).catch(() => undefined);
+    throw err;
+  }
 
   const listResp = await firestoreFetch(
     `https://firestore.googleapis.com/v1/${colPath}?pageSize=100`,
     { headers: { Authorization: `Bearer ${idToken}` } }
   );
-  if (listResp.ok) {
-    const listData = await listResp.json();
-    const existing = (listData.documents || []) as Array<{ name: string; fields: Record<string, unknown> }>;
-    for (const doc of existing) {
-      const docFilename = (doc.fields?.filename as { stringValue?: string })?.stringValue;
-      if (docFilename?.startsWith('Meta API ')) {
-        await firestoreFetch(`https://firestore.googleapis.com/v1/${doc.name}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${idToken}` }
-        });
-      }
+  if (!listResp.ok) return '이전 Meta API 파일 목록을 읽지 못해 지우지 못했습니다. 설정 > 파일에서 이전 파일을 지워주세요.';
+  const listData = await listResp.json();
+  const existing = (listData.documents || []) as Array<{ name: string; fields: Record<string, unknown> }>;
+  const failed: string[] = [];
+  for (const doc of existing) {
+    if (doc.name === docPath) continue;
+    const docFilename = (doc.fields?.filename as { stringValue?: string })?.stringValue;
+    if (!docFilename?.startsWith('Meta API ')) continue;
+    const chunkCount = Number((doc.fields?.creativeDailyChunks as { integerValue?: string })?.integerValue || 0);
+    try {
+      await deleteFileWithChunks(doc.name, chunkCount, idToken);
+    } catch {
+      failed.push(docFilename);
     }
   }
+  return failed.length ? `이전 Meta API 파일을 지우지 못했습니다(${failed.join(', ')}). 새 파일과 함께 합산되니 설정 > 파일에서 지워주세요.` : '';
+}
 
-  function toFirestoreValue(v: unknown): unknown {
-    if (v === null || v === undefined) return { nullValue: null };
-    if (typeof v === 'boolean') return { booleanValue: v };
-    if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
-    if (typeof v === 'string') return { stringValue: v };
-    if (Array.isArray(v)) return { arrayValue: { values: v.map(toFirestoreValue) } };
-    if (typeof v === 'object') {
-      const fields: Record<string, unknown> = {};
-      for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
-        if (val !== undefined) fields[key] = toFirestoreValue(val);
-      }
-      return { mapValue: { fields } };
-    }
-    return { stringValue: String(v) };
+function chunkPath(docPath: string, index: number): string {
+  return `${docPath}/creativeDaily/${String(index).padStart(4, '0')}`;
+}
+
+/** 파일 문서를 먼저 지운다. 청크 삭제가 중간에 실패해도 화면에는 남은 청크가 잡히지 않는다. */
+async function deleteFileWithChunks(docPath: string, chunkCount: number, idToken: string) {
+  await deleteDocument(docPath, idToken);
+  for (let index = 0; index < chunkCount; index += 1) {
+    await deleteDocument(chunkPath(docPath, index), idToken);
   }
+}
 
+async function deleteDocument(path: string, idToken: string) {
+  const resp = await firestoreFetch(`https://firestore.googleapis.com/v1/${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${idToken}` }
+  });
+  if (!resp.ok && resp.status !== 404) {
+    throw new Error(`Firestore 삭제 실패(HTTP ${resp.status})`);
+  }
+}
+
+async function writeDocument(path: string, data: Record<string, unknown>, idToken: string) {
   const fields: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(fileDoc)) {
+  for (const [key, val] of Object.entries(data)) {
     if (val !== undefined) fields[key] = toFirestoreValue(val);
   }
-
-  const createResp = await firestoreFetch(
-    `https://firestore.googleapis.com/v1/${colPath}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ fields })
-    }
-  );
-
-  if (!createResp.ok) {
-    const err = await createResp.text();
+  const resp = await firestoreFetch(`https://firestore.googleapis.com/v1/${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify({ fields })
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
     throw new Error(`Firestore 저장 실패: ${err}`);
   }
+}
+
+/** Firestore 클라이언트 SDK의 자동 id와 같은 모양(영숫자 20자). */
+function firestoreAutoId(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from(randomBytes(20), byte => chars[byte % chars.length]).join('');
+}
+
+function toFirestoreValue(v: unknown): unknown {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === 'string') return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(toFirestoreValue) } };
+  if (typeof v === 'object') {
+    const fields: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
+      if (val !== undefined) fields[key] = toFirestoreValue(val);
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(v) };
 }
 
 // ── Route handlers ───────────────────────────────────────────────
@@ -378,9 +424,9 @@ export async function POST(req: Request) {
       ...stats
     };
 
-    await saveToFirestore(brandId, tabId, fileDoc, idToken);
+    const warning = await saveToFirestore(brandId, tabId, fileDoc, buildCreativeDailyStats(rows), idToken);
 
-    return NextResponse.json({ ok: true, rowCount: rows.length, dateStart: stats.dateStart, dateEnd: stats.dateEnd });
+    return NextResponse.json({ ok: true, rowCount: rows.length, dateStart: stats.dateStart, dateEnd: stats.dateEnd, warning });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : '알 수 없는 오류';
     return NextResponse.json({ error: msg }, { status: 500 });

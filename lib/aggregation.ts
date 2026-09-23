@@ -165,6 +165,53 @@ export function buildFileStats(rows: ParsedRow[]) {
   };
 }
 
+/**
+ * 광고×일 집계. 파일 문서에 넣으면 1MB 한도에 걸릴 수 있어 files/{id}/creativeDaily 청크로 따로 저장한다.
+ * 광고를 고른 상태에서 기간 필터를 지키려면 이 층이 있어야 한다. (creativeStats에는 날짜가 없다)
+ */
+export function buildCreativeDailyStats(rows: ParsedRow[]): StatRow[] {
+  return aggregateRows(rows, r => ({
+    key: `${r.date}|||${r.campaignName}|||${r.adsetName}|||${r.adName}`,
+    date: r.date,
+    campaignName: r.campaignName,
+    adsetName: r.adsetName,
+    adName: r.adName
+  }));
+}
+
+const CREATIVE_DAILY_MAX_ROWS_PER_CHUNK = 500;
+/** 문서 한도는 1MiB. 이름이 아주 긴 계정도 넘지 않게 바이트로도 끊는다. */
+const CREATIVE_DAILY_MAX_BYTES_PER_CHUNK = 600_000;
+
+/**
+ * 광고×일 행을 청크로 나눈다. 업로드(클라이언트)와 Meta 가져오기(서버)가 같은 규칙을 쓴다.
+ * key는 이름을 한 번 더 담아 크기만 키우므로 빼고 저장한다. (읽을 때 쓰지 않는다)
+ */
+export function chunkCreativeDaily(rows: StatRow[]): Omit<StatRow, 'key'>[][] {
+  const encoder = new TextEncoder();
+  const chunks: Omit<StatRow, 'key'>[][] = [];
+  let current: Omit<StatRow, 'key'>[] = [];
+  let bytes = 0;
+  for (const { key: _key, ...row } of rows) {
+    const size = encoder.encode(JSON.stringify(row)).length;
+    if (current.length && (current.length >= CREATIVE_DAILY_MAX_ROWS_PER_CHUNK || bytes + size > CREATIVE_DAILY_MAX_BYTES_PER_CHUNK)) {
+      chunks.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(row);
+    bytes += size;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+/** 이미 집계된 행을 날짜별로 다시 합친다. 날짜순으로 돌려준다. */
+export function dailyTotals(rows: StatRow[]): StatRow[] {
+  return aggregateStats(rows, r => ({ key: r.date || '', date: r.date }))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+}
+
 export function mergeStats(files: { dailyStats: StatRow[]; campaignDailyStats: StatRow[]; adsetDailyStats: StatRow[]; detailStats: StatRow[]; creativeStats: StatRow[]; total: StatRow }[]) {
   return {
     dailyStats: aggregateStats(files.flatMap(f => f.dailyStats), r => ({ key: r.date || '', date: r.date })),

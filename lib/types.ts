@@ -178,6 +178,11 @@ export type FileDoc = {
   adsetDailyStats: StatRow[];
   detailStats: StatRow[];
   creativeStats: StatRow[];
+  /**
+   * 광고×일 집계(files/{id}/creativeDaily)를 몇 개 청크로 나눠 저장했는지.
+   * 이 필드가 생기기 전에 올린 파일은 undefined — 광고 단위 일자 데이터가 없다.
+   */
+  creativeDailyChunks?: number;
   createdAt: number;
 };
 

@@ -41,8 +41,9 @@ service cloud.firestore {
           ];
           allow write: if isAdmin();
 
+          // reportFiles/{id}/chunks, files/{id}/creativeDaily
           match /{nestedCollection}/{nestedId} {
-            allow read: if publicCollection in ['reportFiles'];
+            allow read: if publicCollection in ['reportFiles', 'files'];
             allow write: if isAdmin();
           }
         }

@@ -6,16 +6,16 @@ import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWi
 import {
   addAdmin, createBrand, createTab, deleteBrand, deleteFile, deleteTab, emptyKpi,
   findBrandByShareToken, getKpi, isAdminEmail, listAdmins, listBrandsForAdmin,
-  listFiles, listInsights, listTabs, removeAdmin, renameTab, saveFile, saveInsight, saveNoteHistory,
+  listFiles, listInsights, listTabs, loadCreativeDaily, removeAdmin, renameTab, saveFile, saveInsight, saveNoteHistory,
   saveKpi, updateBrand
 } from '@/lib/store';
 import { parseAdFile, type ParseReport } from '@/lib/parser';
-import { buildFileStats, mergeStats, totalStat } from '@/lib/aggregation';
+import { buildCreativeDailyStats, buildFileStats, mergeStats } from '@/lib/aggregation';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { AD_PLATFORMS, AD_PLATFORM_LABELS, type AdPlatform, type Brand, type BrandPatch, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type MetricKey } from '@/lib/types';
 import {
-  applyFilters, countUnique, errorMessage, toggleSet,
-  type DashboardBundle, type SortOrder
+  applyFilters, buildTopline, countUnique, errorMessage, toggleSet,
+  type CreativeDailyState, type DashboardBundle, type SortOrder
 } from '@/lib/dashUtils';
 import { AnimatedChip } from './components/AnimatedChip';
 import { Empty } from './components/Empty';
@@ -88,6 +88,8 @@ export default function Page() {
   const [authError, setAuthError] = useState('');
   const pdfRef = useRef<HTMLDivElement | null>(null);
   const tabCacheRef = useRef(new Map<string, { files: FileDoc[]; kpi: Kpi; insights: InsightDoc[] }>());
+  // 광고×일 청크는 광고를 골랐을 때만 읽는다. 파일 id는 재업로드 때마다 새로 생기므로 id로 캐시한다.
+  const [creativeDaily, setCreativeDaily] = useState<Record<string, CreativeDailyState>>({});
   const [metaImportOpen, setMetaImportOpen] = useState(false);
 
   useEffect(() => {
@@ -236,7 +238,54 @@ export default function Page() {
     });
   }, [files, selectedFileIds, periodStart, periodEnd, campaignFilter, adsetFilter, adFilter]);
 
-  const total = useMemo(() => totalStat(filtered.dailyStats.length ? filtered.dailyStats : filtered.detailStats), [filtered]);
+  const selectedFiles = useMemo(() => files.filter(file => selectedFileIds.has(file.id)), [files, selectedFileIds]);
+
+  // 읽기에 실패한 파일은 광고를 다시 고를 때 한 번 더 시도한다. (규칙 배포 직후·일시 오류)
+  useEffect(() => {
+    setCreativeDaily(prev => {
+      const failed = Object.keys(prev).filter(id => prev[id] === 'error');
+      if (!failed.length) return prev;
+      const next = { ...prev };
+      for (const id of failed) delete next[id];
+      return next;
+    });
+  }, [adFilter]);
+
+  useEffect(() => {
+    if (!adFilter || !brand || !tab) return;
+    const targets = selectedFiles.filter(file =>
+      Number(file.creativeDailyChunks) > 0
+      && !(file.id in creativeDaily)
+      && file.creativeStats.some(row => row.adName === adFilter)
+    );
+    if (!targets.length) return;
+    setCreativeDaily(prev => ({ ...prev, ...Object.fromEntries(targets.map(file => [file.id, 'loading' as const])) }));
+    for (const file of targets) {
+      loadCreativeDaily(brand.id, tab.id, file.id, Number(file.creativeDailyChunks))
+        .then(rows => setCreativeDaily(prev => ({ ...prev, [file.id]: rows })))
+        .catch(err => {
+          console.error('광고×일 데이터를 읽지 못했습니다.', err);
+          setCreativeDaily(prev => ({ ...prev, [file.id]: 'error' }));
+        });
+    }
+  }, [adFilter, brand, tab, selectedFiles, creativeDaily]);
+
+  /** 상단 KPI와 일별 추세. 캠페인·광고세트·광고 필터와 기간을 함께 따른다. */
+  const topline = useMemo(
+    () => buildTopline(selectedFiles, filtered, creativeDaily, periodStart, periodEnd, campaignFilter, adsetFilter, adFilter),
+    [selectedFiles, filtered, creativeDaily, periodStart, periodEnd, campaignFilter, adsetFilter, adFilter]
+  );
+  const undatedNotice = useMemo(() => {
+    if (!topline.undated.length) return '';
+    if (topline.undated.some(item => item.reason === 'loading')) return '광고별 일자 데이터를 불러오는 중입니다. 잠시 기간과 상관없는 광고 합계가 보입니다.';
+    const legacy = topline.undated.filter(item => item.reason === 'legacy').length;
+    const failed = topline.undated.length - legacy;
+    const parts = [
+      legacy ? `이전에 올린 파일 ${legacy}개는 광고별 일자 데이터가 없어` : '',
+      failed ? `파일 ${failed}개는 광고별 일자 데이터를 읽지 못해` : ''
+    ].filter(Boolean).join(', ');
+    return `${parts} 상단 KPI에 기간과 상관없이 전체 합계로 들어갑니다(일별 추세에는 빠짐). 파일을 다시 올리거나 Meta를 다시 가져오면 기간이 반영됩니다.`;
+  }, [topline.undated]);
   /** 이 탭에 올라온 매체 목록. Meta·X·YouTube를 섞어 올려도 각각 한 번에 켜고 끌 수 있게 한다. */
   const platformsInTab = useMemo(
     () => AD_PLATFORMS.filter(platform => files.some(file => file.platform === platform)),
@@ -300,7 +349,7 @@ export default function Page() {
     setBusy('업로드 저장 중...');
     try {
       const stats = buildFileStats(parseReport.rows);
-      const doc: Omit<FileDoc, 'id'> = {
+      const doc: Omit<FileDoc, 'id' | 'creativeDailyChunks'> = {
         platform: parseReport.platform,
         sourceLabels: pickSourceLabels(parseReport.detected),
         filename: pendingFile.name,
@@ -308,11 +357,13 @@ export default function Page() {
         createdAt: Date.now(),
         ...stats
       };
-      await saveFile(brand.id, tab.id, doc);
+      await saveFile(brand.id, tab.id, doc, buildCreativeDailyStats(parseReport.rows));
       tabCacheRef.current.delete(`${brand.id}:${tab.id}`);
       await selectTab(brand, tab, true);
     } catch (err) {
       alert(errorMessage(err));
+      // 새 파일은 저장됐는데 옛 파일 삭제만 실패한 경우에도 화면이 실제 상태를 보여주게 다시 읽는다.
+      await refreshCurrentTab().catch(() => undefined);
     } finally {
       setParseReport(null);
       setPendingFile(null);
@@ -421,7 +472,7 @@ export default function Page() {
       if (!resp.ok) throw new Error(data.error || 'Meta 가져오기 실패');
       tabCacheRef.current.delete(`${brand.id}:${tab.id}`);
       await selectTab(brand, tab, true);
-      alert(`완료! ${data.rowCount}개 행, ${data.dateStart} ~ ${data.dateEnd}`);
+      alert(`완료! ${data.rowCount}개 행, ${data.dateStart} ~ ${data.dateEnd}${data.warning ? `\n\n${data.warning}` : ''}`);
     } catch (err) {
       alert(errorMessage(err));
     } finally {
@@ -575,8 +626,9 @@ export default function Page() {
                   {level.values.map(name => <option key={name}>{name}</option>)}
                 </select>
               ))}
-              {adFilter && <span className="muted" style={{ fontSize: 11.5 }}>일자별 지표는 광고세트 단위까지 반영됩니다.</span>}
+              {adFilter && <span className="muted" style={{ fontSize: 11.5 }}>일별 상세·비교 차트는 광고세트 단위까지 반영됩니다.</span>}
             </div>
+            {undatedNotice && <p className="muted" style={{ fontSize: 11.5, margin: '4px 0 0', color: 'var(--c-warn)' }}>{undatedNotice}</p>}
             <div className="file-chips">
               {files.map(file => (
                 <AnimatedChip
@@ -588,9 +640,9 @@ export default function Page() {
               ))}
             </div>
 
-            <KpiGrid total={total} kpi={kpi} />
+            <KpiGrid total={topline.total} kpi={kpi} />
             <InsightSection insights={insights} isAdmin={isAdmin} busy={busy} brandId={brand.id} tabId={tab.id} historyKey={insightHistoryKey} onSave={saveInsightText} />
-            <DailyTrendSection rows={filtered.dailyStats} activeMetrics={activeMetrics} setActiveMetrics={setActiveMetrics} dailySort={dailySort} setDailySort={setDailySort} openDaily={openDaily} setOpenDaily={setOpenDaily} />
+            <DailyTrendSection rows={topline.daily} activeMetrics={activeMetrics} setActiveMetrics={setActiveMetrics} dailySort={dailySort} setDailySort={setDailySort} openDaily={openDaily} setOpenDaily={setOpenDaily} />
             <DailyDetailSection rows={filtered.detailStats} sort={detailSort} setSort={setDetailSort} open={openDetail} setOpen={setOpenDetail} />
             {countUnique(filtered.campaignDailyStats.map(row => row.campaignName || '')) > 1 && <CompareSection title="캠페인별 비교" rows={filtered.campaignDailyStats} groupKey="campaignName" metric={campaignMetric} setMetric={setCampaignMetric} />}
             <AdsetCompare rows={filtered.adsetDailyStats} metric={adsetMetric} setMetric={setAdsetMetric} allAdsets={adsets} active={activeAdsets} setActive={setActiveAdsets} search={adsetSearch} setSearch={setAdsetSearch} hover={hoverAdset} setHover={setHoverAdset} />

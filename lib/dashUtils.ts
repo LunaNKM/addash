@@ -1,6 +1,6 @@
-import { totalStat } from './aggregation';
+import { dailyTotals, totalStat } from './aggregation';
 import { formatCount, formatDateWithDay, formatMetric, formatWon, metricLabels } from './format';
-import type { Kpi, MetricKey, ParsedRow, StatRow } from './types';
+import type { FileDoc, Kpi, MetricKey, ParsedRow, StatRow } from './types';
 
 export type SortOrder = 'asc' | 'desc';
 export type TableRow = StatRow | ParsedRow;
@@ -31,6 +31,65 @@ export function applyFilters(data: DashboardBundle, start: string, end: string, 
   // 소재 단위 합계는 일자별 집계에 없으므로, 광고를 고른 경우에만 소재 집계에서 합친다.
   const base = ad ? creativeStats : (detailStats.length ? detailStats : dailyStats);
   return { dailyStats, campaignDailyStats, adsetDailyStats, detailStats, creativeStats, total: totalStat(base) };
+}
+
+/** 파일별 광고×일 데이터 상태. 배열이면 불러온 행이다. */
+export type CreativeDailyState = StatRow[] | 'loading' | 'error';
+/** 광고×일 데이터를 못 써서 기간과 무관한 소재 합계로 대신한 까닭. */
+export type UndatedReason = 'legacy' | 'loading' | 'error';
+
+export type Topline = {
+  /** 일별 추세 차트·표에 쓰는 날짜별 합계. */
+  daily: StatRow[];
+  /** 상단 KPI 합계. */
+  total: StatRow;
+  /** 광고를 골랐는데 광고×일 데이터가 없어 기간을 무시하고 합친 파일. */
+  undated: { fileId: string; reason: UndatedReason }[];
+};
+
+/**
+ * 상단 KPI와 일별 추세가 함께 보는 값. 캠페인·광고세트·광고 필터와 기간을 모두 따른다.
+ * - 필터 없음: 날짜별 집계(dailyStats). 광고비 0인 행도 들어간다.
+ * - 캠페인·광고세트: 날짜가 있는 캠페인별/광고세트별 집계. 겹치는 행이 없으면 0이다.
+ * - 광고: 파일마다 광고×일 청크로 계산한다. 청크가 없는 파일만 기간 없는 소재 합계로 대신하고 undated에 남긴다.
+ * (detailStats는 광고비 0인 행을 빼므로 합계 기준으로 쓰지 않는다)
+ */
+export function buildTopline(
+  selectedFiles: FileDoc[],
+  filtered: FilteredBundle,
+  creativeDaily: Record<string, CreativeDailyState>,
+  start: string,
+  end: string,
+  campaign: string,
+  adset: string,
+  ad: string
+): Topline {
+  if (!campaign && !adset && !ad) {
+    return { daily: filtered.dailyStats, total: totalStat(filtered.dailyStats.length ? filtered.dailyStats : filtered.detailStats), undated: [] };
+  }
+  if (!ad) {
+    const daily = dailyTotals(adset ? filtered.adsetDailyStats : filtered.campaignDailyStats);
+    return { daily, total: totalStat(daily), undated: [] };
+  }
+
+  const byDate = (row: StatRow) => (!start || !row.date || row.date >= start) && (!end || !row.date || row.date <= end);
+  const byLevel = (row: StatRow) => (!campaign || row.campaignName === campaign) && (!adset || row.adsetName === adset) && row.adName === ad;
+  const dated: StatRow[] = [];
+  const undatedRows: StatRow[] = [];
+  const undated: Topline['undated'] = [];
+  for (const file of selectedFiles) {
+    const state: CreativeDailyState | undefined = file.creativeDailyChunks === 0 ? [] : creativeDaily[file.id];
+    if (Array.isArray(state)) {
+      dated.push(...state.filter(row => byDate(row) && byLevel(row)));
+      continue;
+    }
+    const fallback = file.creativeStats.filter(byLevel);
+    if (!fallback.length) continue;
+    undatedRows.push(...fallback);
+    undated.push({ fileId: file.id, reason: file.creativeDailyChunks === undefined ? 'legacy' : state === 'error' ? 'error' : 'loading' });
+  }
+  const daily = dailyTotals(dated);
+  return { daily, total: totalStat([...daily, ...undatedRows]), undated };
 }
 
 export function metricValue(row: StatRow | undefined, key: MetricKey): number {

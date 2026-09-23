@@ -14,10 +14,11 @@ import {
 } from 'firebase/firestore';
 import { isCompanyAdminEmail } from './adminDomains';
 import { db, primaryAdminEmail } from './firebase';
-import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type NoteHistoryDoc, type NoteHistoryKind, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type XReportFileDoc } from './types';
+import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type NoteHistoryDoc, type NoteHistoryKind, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type StatRow, type XReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import type { XReportParseResult, XReportRow } from './report/xReport';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
+import { chunkCreativeDaily } from './aggregation';
 import {
   DEFAULT_COMMISSION_PERCENT,
   DEFAULT_EXCHANGE_RATE,
@@ -237,7 +238,7 @@ export async function deleteTab(brandId: string, tabId: string, opts: { allowLas
   const tabs = await listTabs(brandId);
   if (!opts.allowLast && tabs.length <= 1) throw new Error('마지막 탭은 삭제할 수 없습니다.');
   const files = await listFiles(brandId, tabId);
-  for (const file of files) await deleteFile(brandId, tabId, file.id);
+  for (const file of files) await deleteFile(brandId, tabId, file.id, file.creativeDailyChunks ?? 0);
   const reportFiles = await listReportFiles(brandId, tabId);
   for (const file of reportFiles) await deleteReportFile(brandId, tabId, file.id);
   const xReportFiles = await listXReportFiles(brandId, tabId);
@@ -268,16 +269,76 @@ export async function listFiles(brandId: string, tabId: string): Promise<FileDoc
   return snap.docs.map(d => normalizeFile(d.id, d.data()));
 }
 
-export async function saveFile(brandId: string, tabId: string, file: Omit<FileDoc, 'id'>) {
-  const sameName = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'files'), where('filename', '==', file.filename), limit(1)));
-  for (const d of sameName.docs) await deleteDoc(d.ref);
-  const ref = doc(collection(db, 'brands', brandId, 'tabs', tabId, 'files'));
-  await setDoc(ref, cleanFirestoreData(file));
+/**
+ * 파일 문서와 광고×일 청크를 함께 저장한다.
+ * 새 파일을 끝까지 쓴 뒤에야 같은 이름의 옛 파일을 지운다. 저장이 중간에 실패해도 옛 파일은 남는다.
+ */
+export async function saveFile(brandId: string, tabId: string, file: Omit<FileDoc, 'id' | 'creativeDailyChunks'>, creativeDaily: StatRow[]) {
+  const filesCol = collection(db, 'brands', brandId, 'tabs', tabId, 'files');
+  const sameName = await getDocs(query(filesCol, where('filename', '==', file.filename)));
+  const ref = doc(filesCol);
+  const chunks = chunkCreativeDaily(creativeDaily);
+
+  try {
+    for (let index = 0; index < chunks.length; index += REPORT_FILE_CHUNKS_PER_COMMIT) {
+      const batch = writeBatch(db);
+      chunks.slice(index, index + REPORT_FILE_CHUNKS_PER_COMMIT).forEach((rowsChunk, offset) => {
+        const chunkIndex = index + offset;
+        batch.set(creativeDailyChunkRef(brandId, tabId, ref.id, chunkIndex), cleanFirestoreData({ index: chunkIndex, rows: rowsChunk }));
+      });
+      await batch.commit();
+    }
+    await setDoc(ref, cleanFirestoreData({ ...file, creativeDailyChunks: chunks.length }));
+  } catch (err) {
+    await deleteFile(brandId, tabId, ref.id, chunks.length).catch(() => undefined);
+    throw err;
+  }
+
+  try {
+    for (const d of sameName.docs) await deleteFile(brandId, tabId, d.id, storedChunkCount(d.data()));
+  } catch {
+    throw new Error('새 파일은 저장했지만 같은 이름의 이전 파일을 지우지 못했습니다. 설정 > 파일에서 이전 파일을 지워주세요.');
+  }
   return ref.id;
 }
 
-export async function deleteFile(brandId: string, tabId: string, fileId: string) {
-  await deleteDoc(doc(db, 'brands', brandId, 'tabs', tabId, 'files', fileId));
+/**
+ * 파일 문서와 그 아래 광고×일 청크를 지운다. Firestore는 하위 문서를 같이 지워주지 않는다.
+ * 청크 id는 0000부터 차례로 붙이므로 개수만 알면 목록을 읽지 않고 지울 수 있다.
+ * 파일 문서를 먼저 지운다. 청크 삭제가 중간에 실패해도 화면에는 남은 청크가 잡히지 않는다.
+ */
+export async function deleteFile(brandId: string, tabId: string, fileId: string, chunkCount?: number) {
+  const fileRef = doc(db, 'brands', brandId, 'tabs', tabId, 'files', fileId);
+  const count = chunkCount ?? storedChunkCount((await getDoc(fileRef)).data());
+  await deleteDoc(fileRef);
+  for (let index = 0; index < count; index += 450) {
+    const batch = writeBatch(db);
+    for (let chunkIndex = index; chunkIndex < Math.min(count, index + 450); chunkIndex += 1) {
+      batch.delete(creativeDailyChunkRef(brandId, tabId, fileId, chunkIndex));
+    }
+    await batch.commit();
+  }
+}
+
+/**
+ * 광고를 골랐을 때만 부른다. 청크가 없는 옛 파일은 부르지 말 것.
+ * 청크 수가 파일 문서에 적힌 수와 다르면 일부가 빠진 것이라 틀린 합계를 내지 않게 오류로 돌린다.
+ */
+export async function loadCreativeDaily(brandId: string, tabId: string, fileId: string, expectedChunks: number): Promise<StatRow[]> {
+  const snap = await getDocs(query(collection(db, 'brands', brandId, 'tabs', tabId, 'files', fileId, 'creativeDaily'), orderBy('index', 'asc')));
+  if (snap.size !== expectedChunks) {
+    throw new Error(`광고×일 청크가 ${expectedChunks}개여야 하는데 ${snap.size}개입니다.`);
+  }
+  return snap.docs.flatMap(chunkDoc => normalizeStats((chunkDoc.data() as { rows?: unknown }).rows));
+}
+
+function creativeDailyChunkRef(brandId: string, tabId: string, fileId: string, index: number) {
+  return doc(db, 'brands', brandId, 'tabs', tabId, 'files', fileId, 'creativeDaily', String(index).padStart(4, '0'));
+}
+
+function storedChunkCount(data: Record<string, unknown> | undefined): number {
+  const count = Number(data?.creativeDailyChunks || 0);
+  return Number.isInteger(count) && count > 0 ? count : 0;
 }
 
 export async function listReportFiles(brandId: string, tabId: string): Promise<ReportFileDoc[]> {
@@ -689,6 +750,7 @@ function normalizeFile(id: string, data: Record<string, unknown>): FileDoc {
     adsetDailyStats: normalizeStats(data.adsetDailyStats),
     detailStats: normalizeStats(data.detailStats),
     creativeStats: normalizeStats(data.creativeStats),
+    ...(typeof data.creativeDailyChunks === 'number' ? { creativeDailyChunks: storedChunkCount(data) } : {}),
     createdAt: Number(data.createdAt || 0)
   };
 }
@@ -760,7 +822,7 @@ function normalizeNoteHistory(id: string, data: Record<string, unknown>): NoteHi
   };
 }
 
-function normalizeStats(value: unknown): import('./types').StatRow[] {
+function normalizeStats(value: unknown): StatRow[] {
   return Array.isArray(value) ? value.map((v, index) => normalizeStat(v as Record<string, unknown>, String(index))) : [];
 }
 
