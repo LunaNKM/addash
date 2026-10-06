@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
-import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type Brand, type BrandPatch, type CommissionRule, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportTabKey } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, REPORT_SUMMARY_CARD_KEYS, REPORT_SUMMARY_CARD_LABELS, type Brand, type BrandPatch, type CommissionRule, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportSummaryCard, type ReportTabKey } from '@/lib/types';
 import { isValidCommissionPercent, isValidCommissionStartDate, sortCommissionRules } from '@/lib/report/schema';
 import { darken, kpiLabel } from '@/lib/dashUtils';
 
@@ -43,6 +43,7 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   const [commissionRules, setCommissionRules] = useState<CommissionRule[]>(brand.commissionRules);
   const [visibleReportTabs, setVisibleReportTabs] = useState<ReportTabKey[]>(brand.visibleReportTabs);
   const [dailyToplineMetrics, setDailyToplineMetrics] = useState<DailyToplineMetric[]>(brand.dailyToplineMetrics);
+  const [reportSummaryCards, setReportSummaryCards] = useState<ReportSummaryCard[]>(brand.reportSummaryCards);
   useEffect(() => {
     setName(brand.name);
     setColor(brand.color);
@@ -51,11 +52,13 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
     setCommissionRules(brand.commissionRules);
     setVisibleReportTabs(brand.visibleReportTabs);
     setDailyToplineMetrics(brand.dailyToplineMetrics);
-  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.commissionRules, brand.visibleReportTabs, brand.dailyToplineMetrics]);
+    setReportSummaryCards(brand.reportSummaryCards);
+  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.commissionRules, brand.visibleReportTabs, brand.dailyToplineMetrics, brand.reportSummaryCards]);
 
   const visibleTabsDirty = DEFAULT_VISIBLE_REPORT_TABS.some(tab => visibleReportTabs.includes(tab) !== brand.visibleReportTabs.includes(tab));
   const dailyToplineMetricsDirty = dailyToplineMetrics.length !== brand.dailyToplineMetrics.length
     || dailyToplineMetrics.some((metric, index) => metric !== brand.dailyToplineMetrics[index]);
+  const reportSummaryCardsDirty = REPORT_SUMMARY_CARD_KEYS.some(card => reportSummaryCards.includes(card) !== brand.reportSummaryCards.includes(card));
   const commissionRulesDirty = serializeCommissionRules(commissionRules) !== serializeCommissionRules(brand.commissionRules);
   const dirty = name !== brand.name
     || color.toLowerCase() !== brand.color.toLowerCase()
@@ -63,13 +66,15 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
     || commissionPercent !== brand.commissionPercent
     || commissionRulesDirty
     || visibleTabsDirty
-    || dailyToplineMetricsDirty;
+    || dailyToplineMetricsDirty
+    || reportSummaryCardsDirty;
   const validCommission = Number.isFinite(commissionPercent) && commissionPercent >= 0 && commissionPercent <= 100;
   const duplicatedRuleDate = new Set(commissionRules.map(rule => rule.startDate)).size !== commissionRules.length;
   const validCommissionRules = !duplicatedRuleDate
     && commissionRules.every(rule => isValidCommissionStartDate(rule.startDate) && isValidCommissionPercent(rule.percent));
   const validTabSelection = visibleReportTabs.length > 0;
   const validDailyToplineSelection = dailyToplineMetrics.length === 3 && new Set(dailyToplineMetrics).size === 3;
+  const validSummaryCardSelection = reportSummaryCards.length > 0;
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -193,6 +198,28 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
           </div>
 
           <div>
+            <label>보고서 상단 KPI 카드</label>
+            <div className="brand-tab-visibility">
+              {REPORT_SUMMARY_CARD_KEYS.map(card => (
+                <label className="brand-tab-option" key={card}>
+                  <input
+                    type="checkbox"
+                    checked={reportSummaryCards.includes(card)}
+                    onChange={event => {
+                      setReportSummaryCards(current => event.target.checked
+                        ? REPORT_SUMMARY_CARD_KEYS.filter(item => item === card || current.includes(item))
+                        : current.filter(item => item !== card));
+                    }}
+                  />
+                  <span>{REPORT_SUMMARY_CARD_LABELS[card]}</span>
+                </label>
+              ))}
+            </div>
+            <small className="muted">체크한 지표만 보고서 상단 카드에 표시되며, 관리자와 공유 화면에 똑같이 적용됩니다.</small>
+            {!validSummaryCardSelection && <small className="warn">최소 1개의 카드는 표시해야 합니다.</small>}
+          </div>
+
+          <div>
             <label>Daily Topline 표시 지표</label>
             <div className="brand-topline-slots">
               {(['막대 그래프 1', '막대 그래프 2', '선 그래프'] as const).map((slotLabel, index) => (
@@ -254,10 +281,11 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
               setCommissionRules(brand.commissionRules);
               setVisibleReportTabs(brand.visibleReportTabs);
               setDailyToplineMetrics(brand.dailyToplineMetrics);
+              setReportSummaryCards(brand.reportSummaryCards);
             }}>되돌리기</button>
             <button
               className="btn brand"
-              disabled={!dirty || !validCommission || !validCommissionRules || !validTabSelection || !validDailyToplineSelection}
+              disabled={!dirty || !validCommission || !validCommissionRules || !validTabSelection || !validDailyToplineSelection || !validSummaryCardSelection}
               onClick={async () => {
                 await onUpdate({
                   ...(name !== brand.name ? { name } : {}),
@@ -266,7 +294,8 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
                   ...(commissionPercent !== brand.commissionPercent ? { commissionPercent } : {}),
                   ...(commissionRulesDirty ? { commissionRules: sortCommissionRules(commissionRules) } : {}),
                   ...(visibleTabsDirty ? { visibleReportTabs } : {}),
-                  ...(dailyToplineMetricsDirty ? { dailyToplineMetrics } : {})
+                  ...(dailyToplineMetricsDirty ? { dailyToplineMetrics } : {}),
+                  ...(reportSummaryCardsDirty ? { reportSummaryCards } : {})
                 });
                 setExpanded(false);
               }}

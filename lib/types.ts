@@ -43,6 +43,40 @@ export const DAILY_TOPLINE_METRIC_LABELS: Record<DailyToplineMetric, string> = {
   roas: 'ROAS'
 };
 
+/** 보고서 상단 KPI 카드로 고를 수 있는 지표. 선택한 카드는 이 순서대로 표시된다. */
+export const REPORT_SUMMARY_CARD_KEYS = [
+  'spend',
+  'sales',
+  'roas',
+  'impressions',
+  'clicks',
+  'ctr',
+  'cpc',
+  'cpm',
+  'cvr',
+  'conversions',
+  'cpa',
+  'addToCart',
+  'cartCpa'
+] as const;
+export type ReportSummaryCard = typeof REPORT_SUMMARY_CARD_KEYS[number];
+export const DEFAULT_REPORT_SUMMARY_CARDS: ReportSummaryCard[] = ['spend', 'sales', 'roas', 'ctr', 'cpm', 'cvr', 'cpa', 'cartCpa'];
+export const REPORT_SUMMARY_CARD_LABELS: Record<ReportSummaryCard, string> = {
+  spend: '광고비',
+  sales: '매출',
+  roas: 'ROAS',
+  impressions: '노출',
+  clicks: '클릭',
+  ctr: 'CTR',
+  cpc: 'CPC',
+  cpm: 'CPM',
+  cvr: 'CVR',
+  conversions: '전환',
+  cpa: '전환CPA',
+  addToCart: '장바구니',
+  cartCpa: '장바구니 CPA'
+};
+
 export type MetricKey = 'spend' | 'impression' | 'click' | 'landingPageView' | 'ctr' | 'linkCtr' | 'cpm' | 'cpc' | 'roas';
 
 /** 대시보드 파일 하나가 어느 매체 export에서 왔는지. 레거시 파일은 모두 meta로 본다. */
@@ -90,6 +124,7 @@ export type Brand = {
   exchangeRate: number;
   visibleReportTabs: ReportTabKey[];
   dailyToplineMetrics: DailyToplineMetric[];
+  reportSummaryCards: ReportSummaryCard[];
   createdAt: number;
 };
 
@@ -103,6 +138,7 @@ export type BrandPatch = {
   exchangeRate?: number;
   visibleReportTabs?: ReportTabKey[];
   dailyToplineMetrics?: DailyToplineMetric[];
+  reportSummaryCards?: ReportSummaryCard[];
 };
 
 export type DashboardTab = {

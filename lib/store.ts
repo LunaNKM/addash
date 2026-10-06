@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { isCompanyAdminEmail } from './adminDomains';
 import { db, primaryAdminEmail } from './firebase';
-import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type NoteHistoryDoc, type NoteHistoryKind, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type StatRow, type XReportFileDoc } from './types';
+import { AD_PLATFORMS, DAILY_TOPLINE_METRIC_KEYS, DEFAULT_DAILY_TOPLINE_METRICS, DEFAULT_REPORT_SUMMARY_CARDS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, REPORT_SUMMARY_CARD_KEYS, type AdPlatform, type Brand, type BrandPatch, type CommissionRule, type CreativeAssetDoc, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type NoteHistoryDoc, type NoteHistoryKind, type ReportCommentDoc, type ReportFileDoc, type SingleOneCollectorSettings, type StatRow, type XReportFileDoc } from './types';
 import type { NormalizedReportRow, ReportParseResult } from './report/reportTypes';
 import type { XReportParseResult, XReportRow } from './report/xReport';
 import { creativeAssetId, makeCreativeKey } from './report/creativeKey';
@@ -103,6 +103,7 @@ export async function createBrand(name: string, color = '#1AB7B0'): Promise<Bran
     exchangeRate: DEFAULT_EXCHANGE_RATE,
     visibleReportTabs: [...DEFAULT_VISIBLE_REPORT_TABS],
     dailyToplineMetrics: [...DEFAULT_DAILY_TOPLINE_METRICS],
+    reportSummaryCards: [...DEFAULT_REPORT_SUMMARY_CARDS],
     createdAt: Date.now()
   };
   const tabRef = doc(collection(db, 'brands', brand.id, 'tabs'));
@@ -173,6 +174,11 @@ export async function updateBrand(brandId: string, patch: BrandPatch) {
       throw new Error('Daily Topline의 막대 2개와 선 1개에 서로 다른 지표를 선택해주세요.');
     }
     update.dailyToplineMetrics = dailyToplineMetrics;
+  }
+  if (patch.reportSummaryCards !== undefined) {
+    const reportSummaryCards = REPORT_SUMMARY_CARD_KEYS.filter(card => patch.reportSummaryCards?.includes(card));
+    if (!reportSummaryCards.length) throw new Error('보고서 상단 KPI 카드는 최소 1개를 표시해야 합니다.');
+    update.reportSummaryCards = reportSummaryCards;
   }
   if (Object.keys(update).length === 0) return;
   await updateDoc(doc(db, 'brands', brandId), update);
@@ -703,6 +709,8 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
   const dailyToplineMetrics = storedDailyToplineMetrics.length === 3 && new Set(storedDailyToplineMetrics).size === 3
     ? storedDailyToplineMetrics as Brand['dailyToplineMetrics']
     : [...DEFAULT_DAILY_TOPLINE_METRICS];
+  const storedReportSummaryCards = Array.isArray(data.reportSummaryCards) ? data.reportSummaryCards.map(String) : [];
+  const reportSummaryCards = REPORT_SUMMARY_CARD_KEYS.filter(card => storedReportSummaryCards.includes(card));
   return {
     id,
     name: String(data.name || ''),
@@ -719,6 +727,7 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
       : DEFAULT_EXCHANGE_RATE,
     visibleReportTabs: visibleReportTabs.length ? visibleReportTabs : [...DEFAULT_VISIBLE_REPORT_TABS],
     dailyToplineMetrics,
+    reportSummaryCards: reportSummaryCards.length ? reportSummaryCards : [...DEFAULT_REPORT_SUMMARY_CARDS],
     createdAt: Number(data.createdAt || 0)
   };
 }

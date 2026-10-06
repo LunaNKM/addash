@@ -44,7 +44,7 @@ import {
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
 import { errorMessage } from '@/lib/dashUtils';
-import { DAILY_TOPLINE_METRIC_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_LABELS, REPORT_SUMMARY_CARD_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportSummaryCard, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis } from '@/lib/types';
 import { Empty } from '../components/Empty';
 import {
   DirectCreativeUploadModal,
@@ -1175,10 +1175,11 @@ export default function ReportLabPage() {
                   onGenerate={generateReportComment}
                   onSave={saveReportCommentFlow}
                   dailyToplineMetrics={brand.dailyToplineMetrics}
+                  summaryCards={brand.reportSummaryCards}
                 />
               )}
-              {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} dailyToplineMetrics={brand.dailyToplineMetrics} />}
-              {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} creativeAssets={creativeAssets} />}
+              {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} summaryCards={brand.reportSummaryCards} dailyToplineMetrics={brand.dailyToplineMetrics} />}
+              {activeTab === 'creatives' && <CreativeReport view={reportView} kpi={kpi} summaryCards={brand.reportSummaryCards} creativeAssets={creativeAssets} />}
               {activeMarketplace && (
                 <PromotionDetailReport
                   title={activeMarketplaceTitle}
@@ -1188,6 +1189,7 @@ export default function ReportLabPage() {
                   marketplaceRows={marketplaceRows}
                   activeSubTab={activeSubTab}
                   dailyToplineMetrics={brand.dailyToplineMetrics}
+                  summaryCards={brand.reportSummaryCards}
                   xRows={xSectionRows}
                   xTotal={xKpiTotal}
                 />
@@ -1497,7 +1499,8 @@ function TotalPerformance({
   busy,
   onGenerate,
   onSave,
-  dailyToplineMetrics
+  dailyToplineMetrics,
+  summaryCards
 }: {
   view: ReportView;
   allRows: NormalizedReportRow[];
@@ -1515,6 +1518,7 @@ function TotalPerformance({
   onGenerate: () => void;
   onSave: (text: string) => void;
   dailyToplineMetrics: DailyToplineMetric[];
+  summaryCards: ReportSummaryCard[];
 }) {
   const comparisonLabel = formatComparisonLabel(view);
   const latestDate = latestReportDate(allRows) || view.currentPeriod.end;
@@ -1523,7 +1527,7 @@ function TotalPerformance({
 
   return (
     <>
-      <SummaryCards total={view.current.total} kpi={kpi} />
+      <SummaryCards total={view.current.total} kpi={kpi} cards={summaryCards} />
       {xTotal && <p className="muted report-x-kpi-note">X RAW 광고비 {formatCurrency(xTotal.spend)} · 노출 {formatInteger(xTotal.impressions)} 포함</p>}
       <ReportCommentSection
         brandId={brandId}
@@ -1556,10 +1560,10 @@ function DailyPerformanceDetails({ view, dailyToplineMetrics }: { view: ReportVi
   );
 }
 
-function CampaignReport({ view, kpi, dailyToplineMetrics }: { view: ReportView; kpi: Kpi; dailyToplineMetrics: DailyToplineMetric[] }) {
+function CampaignReport({ view, kpi, summaryCards, dailyToplineMetrics }: { view: ReportView; kpi: Kpi; summaryCards: ReportSummaryCard[]; dailyToplineMetrics: DailyToplineMetric[] }) {
   return (
     <>
-      <SummaryCards total={view.current.total} kpi={kpi} />
+      <SummaryCards total={view.current.total} kpi={kpi} cards={summaryCards} />
       <SummaryTable title="캠페인 성과" rows={view.current.byCampaign} previousRows={view.previous.byCampaign} limit={100} showComparisonRows />
       <DailyPerformanceDetails view={view} dailyToplineMetrics={dailyToplineMetrics} />
       <SummaryTable title="광고그룹 성과" rows={view.current.byAdgroup} previousRows={view.previous.byAdgroup} limit={100} showComparisonRows />
@@ -1567,12 +1571,12 @@ function CampaignReport({ view, kpi, dailyToplineMetrics }: { view: ReportView; 
   );
 }
 
-function CreativeReport({ view, kpi, creativeAssets }: { view: ReportView; kpi: Kpi; creativeAssets: Record<string, CreativeAssetDoc> }) {
+function CreativeReport({ view, kpi, summaryCards, creativeAssets }: { view: ReportView; kpi: Kpi; summaryCards: ReportSummaryCard[]; creativeAssets: Record<string, CreativeAssetDoc> }) {
   const creativeRows = view.current.byCreative.filter(hasReportPerformance);
   const dailyRowsByCreative = useMemo(() => buildCreativeDailyRows(view.currentRows), [view.currentRows]);
   return (
     <>
-      <SummaryCards total={view.current.total} kpi={kpi} />
+      <SummaryCards total={view.current.total} kpi={kpi} cards={summaryCards} />
       <SummaryTable
         title="소재 성과"
         rows={creativeRows}
@@ -1595,6 +1599,7 @@ function PromotionDetailReport({
   marketplaceRows,
   activeSubTab,
   dailyToplineMetrics,
+  summaryCards,
   xRows,
   xTotal
 }: {
@@ -1605,6 +1610,7 @@ function PromotionDetailReport({
   marketplaceRows: NormalizedReportRow[];
   activeSubTab: PromotionSubTab;
   dailyToplineMetrics: DailyToplineMetric[];
+  summaryCards: ReportSummaryCard[];
   xRows: XReportRow[];
   /** SingleOne RAW에 없는 X RAW 합계. 있으면 상단 KPI에 더한다. */
   xTotal: XReportSummary | null;
@@ -1628,7 +1634,7 @@ function PromotionDetailReport({
           <b>{title} 성과</b>
           <span className="muted">최신 {latestDate || '-'}</span>
         </div>
-        <PromotionKpiCards total={view.current.total} showRegistration={marketplace === 'owned'} />
+        <PromotionKpiCards total={view.current.total} cards={summaryCards} showRegistration={marketplace === 'owned'} />
         {xTotal && <p className="muted report-x-kpi-note">X RAW 광고비 {formatCurrency(xTotal.spend)} · 노출 {formatInteger(xTotal.impressions)} 포함</p>}
       </section>
       <DailyToplineChart rows={view.current.byDaily} metrics={dailyToplineMetrics} />
@@ -1700,17 +1706,41 @@ function XPerformanceCells({ row }: { row: XReportSummary }) {
   );
 }
 
-function PromotionKpiCards({ total, showRegistration = false }: { total: ReportSummary; showRegistration?: boolean }) {
-  const cards = [
-    { label: '광고비', value: formatCurrency(total.spend) },
-    { label: '매출', value: formatCurrency(total.sales) },
-    { label: 'ROAS', value: total.roas.toFixed(2) },
-    { label: 'CTR', value: formatPercent(total.ctr) },
-    { label: 'CPM', value: formatCurrency(total.cpm) },
-    { label: 'CVR', value: formatPercent(total.cvr) },
-    { label: '전환CPA', value: formatCurrency(total.cpa) },
-    { label: '장바구니 CPA', value: formatCurrency(total.cartCpa) }
-  ];
+function summaryCardValue(card: ReportSummaryCard, total: ReportSummary): string {
+  switch (card) {
+    case 'spend': return formatCurrency(total.spend);
+    case 'sales': return formatCurrency(total.sales);
+    case 'roas': return total.roas.toFixed(2);
+    case 'impressions': return formatInteger(total.impressions);
+    case 'clicks': return formatInteger(total.clicks);
+    case 'ctr': return formatPercent(total.ctr);
+    case 'cpc': return formatCurrency(total.cpc);
+    case 'cpm': return formatCurrency(total.cpm);
+    case 'cvr': return formatPercent(total.cvr);
+    case 'conversions': return formatInteger(total.conversions);
+    case 'cpa': return formatCurrency(total.cpa);
+    case 'addToCart': return formatInteger(total.addToCart);
+    case 'cartCpa': return formatCurrency(total.cartCpa);
+  }
+}
+
+/** KPI 목표가 있는 카드만 담는다. inverse는 낮을수록 좋은 단가 지표. */
+function summaryCardGoal(card: ReportSummaryCard, total: ReportSummary, kpi: Kpi): { current: number; goal: number; goalValue: string; inverse?: boolean } | null {
+  switch (card) {
+    case 'spend': return { current: total.spend, goal: kpi.spendGoal, goalValue: formatCurrency(kpi.spendGoal) };
+    case 'sales': return { current: total.sales, goal: kpi.salesGoal, goalValue: formatCurrency(kpi.salesGoal) };
+    case 'roas': return { current: total.roas, goal: kpi.roasGoal, goalValue: kpi.roasGoal.toLocaleString() };
+    case 'impressions': return { current: total.impressions, goal: kpi.impressionGoal, goalValue: formatInteger(kpi.impressionGoal) };
+    case 'clicks': return { current: total.clicks, goal: kpi.clickGoal, goalValue: formatInteger(kpi.clickGoal) };
+    case 'ctr': return { current: total.ctr, goal: kpi.ctrGoal, goalValue: formatPercent(kpi.ctrGoal) };
+    case 'cpc': return { current: total.cpc, goal: kpi.cpcGoal, goalValue: formatCurrency(kpi.cpcGoal), inverse: true };
+    case 'cpm': return { current: total.cpm, goal: kpi.cpmGoal, goalValue: formatCurrency(kpi.cpmGoal), inverse: true };
+    default: return null;
+  }
+}
+
+function PromotionKpiCards({ total, cards: selected, showRegistration = false }: { total: ReportSummary; cards: ReportSummaryCard[]; showRegistration?: boolean }) {
+  const cards = selected.map(card => ({ label: REPORT_SUMMARY_CARD_LABELS[card], value: summaryCardValue(card, total) }));
   if (showRegistration) {
     cards.push(
       { label: '회원가입수', value: formatInteger(total.registration) },
@@ -1730,34 +1760,25 @@ function PromotionKpiCards({ total, showRegistration = false }: { total: ReportS
   );
 }
 
-function SummaryCards({ total, kpi }: { total: ReportSummary; kpi: Kpi }) {
-  const cards: Array<{ label: string; value: string; current?: number; goal?: number; goalValue?: string; inverse?: boolean }> = [
-    { label: '광고비', value: formatCurrency(total.spend), current: total.spend, goal: kpi.spendGoal, goalValue: formatCurrency(kpi.spendGoal) },
-    { label: '매출', value: formatCurrency(total.sales), current: total.sales, goal: kpi.salesGoal, goalValue: formatCurrency(kpi.salesGoal) },
-    { label: 'ROAS', value: total.roas.toFixed(2), current: total.roas, goal: kpi.roasGoal, goalValue: kpi.roasGoal.toLocaleString() },
-    { label: 'CTR', value: formatPercent(total.ctr), current: total.ctr, goal: kpi.ctrGoal, goalValue: formatPercent(kpi.ctrGoal) },
-    { label: 'CPM', value: formatCurrency(total.cpm), current: total.cpm, goal: kpi.cpmGoal, goalValue: formatCurrency(kpi.cpmGoal), inverse: true },
-    { label: 'CVR', value: formatPercent(total.cvr) },
-    { label: '전환CPA', value: formatCurrency(total.cpa) },
-    { label: '장바구니 CPA', value: formatCurrency(total.cartCpa) }
-  ];
+function SummaryCards({ total, kpi, cards }: { total: ReportSummary; kpi: Kpi; cards: ReportSummaryCard[] }) {
   return (
     <div className="report-stat-grid">
       {cards.map(card => {
-        const goal = Number(card.goal || 0);
-        const current = Number(card.current || 0);
-        const pct = goal > 0 && current > 0 ? (card.inverse ? goal / current : current / goal) * 100 : 0;
+        const target = summaryCardGoal(card, total, kpi);
+        const goal = Number(target?.goal || 0);
+        const current = Number(target?.current || 0);
+        const pct = goal > 0 && current > 0 ? (target?.inverse ? goal / current : current / goal) * 100 : 0;
         const cappedPct = Math.min(Math.max(pct, 0), 100);
         return (
-        <div className="report-stat-card" key={card.label}>
-          <small>{card.label}</small>
-          <b>{card.value}</b>
+        <div className="report-stat-card" key={card}>
+          <small>{REPORT_SUMMARY_CARD_LABELS[card]}</small>
+          <b>{summaryCardValue(card, total)}</b>
           {goal > 0 && (
             <div className="report-stat-goal">
               <div className="goal">
                 <i style={{ width: `${cappedPct}%`, background: pct >= 100 ? 'var(--c-success)' : 'linear-gradient(90deg, var(--brand-400), var(--brand))' }} />
               </div>
-              <em>{pct.toFixed(0)}% 달성 · 목표 {card.goalValue}</em>
+              <em>{pct.toFixed(0)}% 달성 · 목표 {target?.goalValue}</em>
             </div>
           )}
         </div>
