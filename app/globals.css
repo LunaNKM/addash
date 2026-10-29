@@ -1685,6 +1685,9 @@ tbody tr:last-child td { border-bottom: 0; }
   box-shadow: 0 0 0 1px var(--c-border);
 }
 .item-actions { display: flex; gap: 4px; margin-left: auto; }
+.tab-order-item { cursor: grab; user-select: none; }
+.tab-order-item.dragging { opacity: 0.45; border-style: dashed; }
+.tab-order-handle { color: var(--c-ink-3); letter-spacing: -0.2em; }
 .item button {
   height: 28px;
   border: 1px solid var(--c-border-strong);

@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin } from '@/lib/store';
+import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin, reorderTabs } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
 import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, REPORT_SUMMARY_CARD_KEYS, REPORT_SUMMARY_CARD_LABELS, type Brand, type BrandPatch, type CommissionRule, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportSummaryCard, type ReportTabKey } from '@/lib/types';
 import { isValidCommissionPercent, isValidCommissionStartDate, sortCommissionRules } from '@/lib/report/schema';
-import { darken, kpiLabel } from '@/lib/dashUtils';
+import { darken, errorMessage, kpiLabel } from '@/lib/dashUtils';
 
 export type SettingsMode = 'none' | 'brand' | 'tab' | 'kpi' | 'admin' | 'file';
 
@@ -309,6 +309,53 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   );
 }
 
+function TabOrderSettings({ brand, tabs, onTabsChange }: { brand: Brand; tabs: DashboardTab[]; onTabsChange: (tabs: DashboardTab[]) => void }) {
+  const [order, setOrder] = useState(tabs);
+  const [dragId, setDragId] = useState<string | null>(null);
+  useEffect(() => { setOrder(tabs); }, [tabs]);
+
+  async function saveOrder() {
+    setDragId(null);
+    if (order.every((item, index) => item.id === tabs[index]?.id)) return;
+    try {
+      await reorderTabs(brand.id, order.map(item => item.id));
+      onTabsChange(order.map((item, index) => ({ ...item, sortOrder: index })));
+    } catch (err) {
+      alert(errorMessage(err));
+      setOrder(tabs);
+    }
+  }
+
+  return (
+    <div>
+      {order.map(item => (
+        <div
+          className={`item tab-order-item ${dragId === item.id ? 'dragging' : ''}`}
+          key={item.id}
+          draggable
+          onDragStart={event => { event.dataTransfer.effectAllowed = 'move'; setDragId(item.id); }}
+          onDragOver={event => {
+            event.preventDefault();
+            if (!dragId || dragId === item.id) return;
+            setOrder(current => {
+              const from = current.findIndex(t => t.id === dragId);
+              const to = current.findIndex(t => t.id === item.id);
+              const next = [...current];
+              next.splice(to, 0, next.splice(from, 1)[0]);
+              return next;
+            });
+          }}
+          onDrop={event => event.preventDefault()}
+          onDragEnd={saveOrder}
+        >
+          <b><span className="tab-order-handle" aria-hidden>⋮⋮</span>{item.name}</b>
+        </div>
+      ))}
+      <small className="muted">탭을 끌어 놓으면 대시보드와 보고서 탭 순서가 바로 바뀝니다.</small>
+    </div>
+  );
+}
+
 function FileSettings({ brand, tab, reload }: { brand: Brand; tab: DashboardTab; reload: () => Promise<void> }) {
   const [tabFiles, setTabFiles] = useState<FileDoc[]>([]);
   const [reportFiles, setReportFiles] = useState<ReportFileDoc[]>([]);
@@ -364,13 +411,14 @@ function FileSettings({ brand, tab, reload }: { brand: Brand; tab: DashboardTab;
   );
 }
 
-export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, saveKpi: onSaveKpi, reload, addBrand, refreshBrands, onUpdateBrand, sharePath = '', getShareUrl }: {
+export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, onTabsChange, kpi, saveKpi: onSaveKpi, reload, addBrand, refreshBrands, onUpdateBrand, sharePath = '', getShareUrl }: {
   mode: SettingsMode;
   setMode: (v: SettingsMode) => void;
   brand: Brand;
   tab: DashboardTab | null;
   brands: Brand[];
   tabs: DashboardTab[];
+  onTabsChange: (tabs: DashboardTab[]) => void;
   kpi: Kpi;
   saveKpi: (k: Kpi) => Promise<void>;
   reload: () => Promise<void>;
@@ -422,7 +470,7 @@ export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, kpi, sa
         )}
 
         {mode === 'tab' && (
-          <div>{tabs.map(item => <div className="item" key={item.id}><b>{item.name}</b></div>)}</div>
+          <TabOrderSettings brand={brand} tabs={tabs} onTabsChange={onTabsChange} />
         )}
 
         {mode === 'kpi' && (

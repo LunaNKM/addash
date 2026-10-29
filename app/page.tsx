@@ -685,6 +685,7 @@ export default function Page() {
           tab={tab}
           brands={brands}
           tabs={tabs}
+          onTabsChange={setTabs}
           kpi={kpi}
           saveKpi={saveKpiFlow}
           reload={refreshCurrentTab}

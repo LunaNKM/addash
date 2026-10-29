@@ -240,6 +240,12 @@ export async function renameTab(brandId: string, tabId: string, name: string) {
   await updateDoc(doc(db, 'brands', brandId, 'tabs', tabId), { name: trimmed });
 }
 
+export async function reorderTabs(brandId: string, tabIds: string[]) {
+  const batch = writeBatch(db);
+  tabIds.forEach((tabId, index) => batch.update(doc(db, 'brands', brandId, 'tabs', tabId), { sortOrder: index }));
+  await batch.commit();
+}
+
 export async function deleteTab(brandId: string, tabId: string, opts: { allowLast?: boolean } = {}) {
   const tabs = await listTabs(brandId);
   if (!opts.allowLast && tabs.length <= 1) throw new Error('마지막 탭은 삭제할 수 없습니다.');

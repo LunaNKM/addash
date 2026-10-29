@@ -1258,6 +1258,7 @@ export default function ReportLabPage() {
           tab={dashboardTab}
           brands={brands}
           tabs={dashboardTabs}
+          onTabsChange={setDashboardTabs}
           kpi={kpi}
           saveKpi={saveKpiFlow}
           reload={reloadReportFiles}
