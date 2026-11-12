@@ -75,7 +75,15 @@ export async function removeAdmin(email: string) {
 
 export async function listBrandsForAdmin(): Promise<Brand[]> {
   const snap = await getDocs(query(collection(db, 'brands'), orderBy('createdAt', 'asc')));
-  return snap.docs.map(d => normalizeBrand(d.id, d.data()));
+  // orderBy('sortOrder') would drop brands saved before reordering existed, so sort here; those keep createdAt order at the end
+  const rank = (d: (typeof snap.docs)[number]) => Number(d.data().sortOrder ?? Number.MAX_SAFE_INTEGER);
+  return [...snap.docs].sort((a, b) => rank(a) - rank(b)).map(d => normalizeBrand(d.id, d.data()));
+}
+
+export async function reorderBrands(brandIds: string[]) {
+  const batch = writeBatch(db);
+  brandIds.forEach((brandId, index) => batch.update(doc(db, 'brands', brandId), { sortOrder: index }));
+  await batch.commit();
 }
 
 export async function findBrandByShareToken(token: string): Promise<Brand | null> {

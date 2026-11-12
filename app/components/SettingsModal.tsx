@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin, reorderTabs } from '@/lib/store';
+import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin, reorderBrands, reorderTabs } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
 import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, REPORT_SUMMARY_CARD_KEYS, REPORT_SUMMARY_CARD_LABELS, type Brand, type BrandPatch, type CommissionRule, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportSummaryCard, type ReportTabKey } from '@/lib/types';
 import { isValidCommissionPercent, isValidCommissionStartDate, sortCommissionRules } from '@/lib/report/schema';
@@ -29,8 +29,9 @@ function nextRuleStartDate(rules: CommissionRule[]): string {
   return next.toISOString().slice(0, 10);
 }
 
-function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
+function BrandEditorRow({ brand, dragProps, onCopyShare, onDelete, onUpdate }: {
   brand: Brand;
+  dragProps: DragProps;
   onCopyShare: () => void;
   onDelete: () => Promise<void>;
   onUpdate: (patch: BrandPatch) => Promise<void>;
@@ -78,8 +79,9 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
 
   return (
     <div style={{ marginBottom: 10 }}>
-      <div className="item">
+      <div {...dragProps}>
         <b>
+          <span className="drag-order-handle" aria-hidden>⋮⋮</span>
           <span className="item-brand-dot" style={{ background: brand.color }} />
           {brand.name}
         </b>
@@ -309,46 +311,57 @@ function BrandEditorRow({ brand, onCopyShare, onDelete, onUpdate }: {
   );
 }
 
-function TabOrderSettings({ brand, tabs, onTabsChange }: { brand: Brand; tabs: DashboardTab[]; onTabsChange: (tabs: DashboardTab[]) => void }) {
-  const [order, setOrder] = useState(tabs);
+function useDragOrder<T extends { id: string }>(items: T[], save: (ordered: T[]) => Promise<void>) {
+  const [order, setOrder] = useState(items);
   const [dragId, setDragId] = useState<string | null>(null);
-  useEffect(() => { setOrder(tabs); }, [tabs]);
+  useEffect(() => { setOrder(items); }, [items]);
 
   async function saveOrder() {
     setDragId(null);
-    if (order.every((item, index) => item.id === tabs[index]?.id)) return;
+    if (order.every((item, index) => item.id === items[index]?.id)) return;
     try {
-      await reorderTabs(brand.id, order.map(item => item.id));
-      onTabsChange(order.map((item, index) => ({ ...item, sortOrder: index })));
+      await save(order);
     } catch (err) {
       alert(errorMessage(err));
-      setOrder(tabs);
+      setOrder(items);
     }
   }
+
+  const dragProps = (id: string) => ({
+    className: `item drag-order-item ${dragId === id ? 'dragging' : ''}`,
+    draggable: true,
+    onDragStart: (event: React.DragEvent) => { event.dataTransfer.effectAllowed = 'move'; setDragId(id); },
+    onDragOver: (event: React.DragEvent) => {
+      event.preventDefault();
+      if (!dragId || dragId === id) return;
+      setOrder(current => {
+        const from = current.findIndex(item => item.id === dragId);
+        const to = current.findIndex(item => item.id === id);
+        const next = [...current];
+        next.splice(to, 0, next.splice(from, 1)[0]);
+        return next;
+      });
+    },
+    onDrop: (event: React.DragEvent) => event.preventDefault(),
+    onDragEnd: saveOrder
+  });
+
+  return { order, dragProps };
+}
+
+type DragProps = ReturnType<ReturnType<typeof useDragOrder>['dragProps']>;
+
+function TabOrderSettings({ brand, tabs, onTabsChange }: { brand: Brand; tabs: DashboardTab[]; onTabsChange: (tabs: DashboardTab[]) => void }) {
+  const { order, dragProps } = useDragOrder(tabs, async ordered => {
+    await reorderTabs(brand.id, ordered.map(item => item.id));
+    onTabsChange(ordered.map((item, index) => ({ ...item, sortOrder: index })));
+  });
 
   return (
     <div>
       {order.map(item => (
-        <div
-          className={`item tab-order-item ${dragId === item.id ? 'dragging' : ''}`}
-          key={item.id}
-          draggable
-          onDragStart={event => { event.dataTransfer.effectAllowed = 'move'; setDragId(item.id); }}
-          onDragOver={event => {
-            event.preventDefault();
-            if (!dragId || dragId === item.id) return;
-            setOrder(current => {
-              const from = current.findIndex(t => t.id === dragId);
-              const to = current.findIndex(t => t.id === item.id);
-              const next = [...current];
-              next.splice(to, 0, next.splice(from, 1)[0]);
-              return next;
-            });
-          }}
-          onDrop={event => event.preventDefault()}
-          onDragEnd={saveOrder}
-        >
-          <b><span className="tab-order-handle" aria-hidden>⋮⋮</span>{item.name}</b>
+        <div key={item.id} {...dragProps(item.id)}>
+          <b><span className="drag-order-handle" aria-hidden>⋮⋮</span>{item.name}</b>
         </div>
       ))}
       <small className="muted">탭을 끌어 놓으면 대시보드와 보고서 탭 순서가 바로 바뀝니다.</small>
@@ -429,6 +442,10 @@ export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, onTabsC
   getShareUrl?: (brand: Brand) => string;
 }) {
   const [draft, setDraft] = useState<Kpi>(kpi);
+  const { order: orderedBrands, dragProps: brandDragProps } = useDragOrder(brands, async ordered => {
+    await reorderBrands(ordered.map(item => item.id));
+    await refreshBrands();
+  });
   const [admins, setAdmins] = useState<Array<{ email: string; primary?: boolean }>>([]);
   useEffect(() => { setDraft(kpi); }, [kpi]);
   useEffect(() => { if (mode === 'admin') listAdmins().then(items => setAdmins(items as Array<{ email: string; primary?: boolean }>)); }, [mode]);
@@ -449,10 +466,11 @@ export function SettingsModal({ mode, setMode, brand, tab, brands, tabs, onTabsC
         {mode === 'brand' && (
           <div>
             <button className="btn brand" onClick={addBrand} style={{ marginBottom: 12 }}>브랜드 추가</button>
-            {brands.map(item => (
+            {orderedBrands.map(item => (
               <BrandEditorRow
                 key={item.id}
                 brand={item}
+                dragProps={brandDragProps(item.id)}
                 onCopyShare={() => {
                   const url = getShareUrl?.(item) || `${location.origin}${sharePath}?share=${item.shareToken}`;
                   navigator.clipboard.writeText(url).then(() => alert('공유 링크를 복사했습니다.'));
