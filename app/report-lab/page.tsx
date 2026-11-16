@@ -1915,12 +1915,14 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
               <th colSpan={3}>예산</th>
               <th colSpan={3}>IMP</th>
               <th colSpan={3}>링크클릭</th>
-              <th colSpan={3} title="ATC 라인은 장바구니 수">전환</th>
+              <th colSpan={3} title="ATC 라인은 장바구니(ATC) 수, 그 외는 구매 전환 수">ATC·전환</th>
+              <th colSpan={3} title="달성률은 설정 CPA ÷ 실적 CPA (낮을수록 좋음)">ATC·전환 CPA</th>
               <th colSpan={3}>매출</th>
               <th colSpan={2}>ROAS</th>
             </tr>
             <tr>
               <th>설정</th><th>사용</th><th>소화율</th>
+              <th>설정</th><th>실적</th><th>달성률</th>
               <th>설정</th><th>실적</th><th>달성률</th>
               <th>설정</th><th>실적</th><th>달성률</th>
               <th>설정</th><th>실적</th><th>달성률</th>
@@ -1937,6 +1939,7 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
                 {goalCells(line.targetImpressions, line.impressions, formatInteger)}
                 {goalCells(line.targetClicks, line.clicks, formatInteger)}
                 {goalCells(line.targetConversions, line.conversions, formatInteger)}
+                <CpaCells budget={line.budget} spend={line.spend} target={line.targetConversions} actual={line.conversions} />
                 {goalCells(line.targetSales, line.sales, formatCurrency)}
                 <td>{line.targetSales ? formatPercent(line.targetSales / line.budget) : '—'}</td>
                 <td>{line.sales ? formatPercent(safeRatio(line.sales, line.spend)) : '—'}</td>
@@ -1946,6 +1949,19 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
         </table>
       </div>
     </section>
+  );
+}
+
+/** CPA는 낮을수록 좋으므로 달성률은 설정 CPA ÷ 실적 CPA (시트와 같은 기준). */
+function CpaCells({ budget, spend, target, actual }: { budget: number; spend: number; target?: number; actual: number }) {
+  const targetCpa = target ? budget / target : 0;
+  const actualCpa = actual ? spend / actual : 0;
+  return (
+    <>
+      <td>{targetCpa ? formatCurrency(targetCpa) : '—'}</td>
+      <td>{actualCpa ? formatCurrency(actualCpa) : '—'}</td>
+      <td>{targetCpa && actualCpa ? formatPercent(targetCpa / actualCpa) : '—'}</td>
+    </>
   );
 }
 
