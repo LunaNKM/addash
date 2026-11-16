@@ -130,11 +130,12 @@ function normalizeRow(
   const date = parseDate(value('date'));
   const costJpy = parseNumber(value('costJpy'));
   const explicitCostKrw = parseNumber(value('costKrw'));
-  const costKrw = detection.columns.costKrw ? explicitCostKrw : costJpy ? costJpy * exchangeRate : 0;
+  // 원화 열이 있어도 수식이 끝까지 채워지지 않은 행은 비어 있으므로 엔화×환율로 메운다.
+  const costKrw = explicitCostKrw || costJpy * exchangeRate;
   const grossCostKrw = costKrw ? toGrossCostKrw(costKrw, date) : parseNumber(value('grossCostKrw'));
   const salesJpy = parseNumber(value('salesJpy'));
   const explicitSalesKrw = parseNumber(value('salesKrw'));
-  const salesKrw = detection.columns.salesKrw ? explicitSalesKrw : salesJpy ? salesJpy * exchangeRate : 0;
+  const salesKrw = explicitSalesKrw || salesJpy * exchangeRate;
   const impressions = parseNumber(value('impressions'));
   const clicks = parseNumber(value('clicks'));
   const conversions = parseNumber(value('conversions'));
