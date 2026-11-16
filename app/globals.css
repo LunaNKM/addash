@@ -3809,3 +3809,26 @@ td[title], .legend-row[title], .donut-legend div[title] {
   min-height: 1.8em;
 }
 .note-history-line b { font-weight: 700; }
+
+/* 메가와리 성과 및 현황: 설정·실적·달성률 묶음마다 구분선 */
+.megawari-status-table th,
+.megawari-status-table td {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.megawari-status-table thead tr:first-child th {
+  text-align: center;
+  background: var(--c-bg-muted);
+}
+
+.megawari-status-table tbody td:nth-child(-n+2),
+.megawari-status-table thead tr:first-child th:nth-child(-n+2) {
+  text-align: left;
+}
+
+.megawari-status-table tbody td:is(:nth-child(3), :nth-child(6), :nth-child(9), :nth-child(12), :nth-child(15), :nth-child(18)),
+.megawari-status-table thead tr:nth-child(2) th:is(:nth-child(1), :nth-child(4), :nth-child(7), :nth-child(10), :nth-child(13), :nth-child(16)),
+.megawari-status-table thead tr:first-child th:nth-child(n+3) {
+  border-left: 2px solid var(--c-border-vivid);
+}

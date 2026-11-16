@@ -6,6 +6,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, completeRedirectLogin, firebaseAuthErrorMessage, logout, signInWithGoogleSafe } from '@/lib/firebase';
 import { buildReportView, filterRowsByPeriod, previousMatchingPeriod } from '@/lib/report/aggregate';
 import { makeCreativeKey } from '@/lib/report/creativeKey';
+import { findMegawariPlan, matchesMegawariLine } from '@/lib/report/megawariPlans';
 import { DEFAULT_EXCHANGE_RATE, toGrossCostKrw, type CommissionSetting } from '@/lib/report/schema';
 import { loadReportFromXlsx } from '@/lib/report/sources';
 import {
@@ -1176,6 +1177,7 @@ export default function ReportLabPage() {
                   onSave={saveReportCommentFlow}
                   dailyToplineMetrics={brand.dailyToplineMetrics}
                   summaryCards={brand.reportSummaryCards}
+                  spendBasis={spendBasis}
                 />
               )}
               {activeTab === 'campaigns' && <CampaignReport view={reportView} kpi={kpi} summaryCards={brand.reportSummaryCards} dailyToplineMetrics={brand.dailyToplineMetrics} />}
@@ -1501,11 +1503,13 @@ function TotalPerformance({
   onGenerate,
   onSave,
   dailyToplineMetrics,
-  summaryCards
+  summaryCards,
+  spendBasis
 }: {
   view: ReportView;
   allRows: NormalizedReportRow[];
   kpi: Kpi;
+  spendBasis: SpendBasis;
   /** SingleOne RAW에 없는 X RAW 합계. 있으면 상단 KPI에 더한다. */
   xTotal: XReportSummary | null;
   brandId: string;
@@ -1530,6 +1534,7 @@ function TotalPerformance({
     <>
       <SummaryCards total={view.current.total} kpi={kpi} cards={summaryCards} />
       {xTotal && <p className="muted report-x-kpi-note">X RAW 광고비 {formatCurrency(xTotal.spend)} · 노출 {formatInteger(xTotal.impressions)} 포함</p>}
+      <MegawariStatusSection brandId={brandId} view={view} rows={allRows} spendBasis={spendBasis} />
       <ReportCommentSection
         brandId={brandId}
         tabId={tabId}
@@ -1786,6 +1791,113 @@ function SummaryCards({ total, kpi, cards }: { total: ReportSummary; kpi: Kpi; c
         );
       })}
     </div>
+  );
+}
+
+/** 메가와리 기간을 보고 있을 때만 미디어믹스 목표 대비 누적 실적을 Comment 위에 보여준다. */
+function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: string; view: ReportView; rows: NormalizedReportRow[]; spendBasis: SpendBasis }) {
+  const plan = findMegawariPlan(brandId, view.currentPeriod.start, view.currentPeriod.end);
+  if (!plan) return null;
+
+  let latest = '';
+  const lines = plan.lines.map(line => {
+    const matched = rows.filter(row => matchesMegawariLine(row, plan, line));
+    for (const row of matched) if (row.date > latest) latest = row.date;
+    const actual = summarizeReportRows(line.label, line.label, matched);
+    return {
+      key: `${line.media}-${line.label}`,
+      media: mediaGroupLabel(line.media),
+      label: line.label,
+      budget: spendBasis === 'net' ? line.budgetNet : line.budgetGross,
+      targetImpressions: line.impressions,
+      targetClicks: line.clicks,
+      targetConversions: line.conversions,
+      targetSales: line.sales,
+      spend: actual.spend,
+      impressions: actual.impressions,
+      clicks: actual.clicks,
+      // 미디어믹스의 ATC 라인 전환 목표는 장바구니 수다.
+      conversions: line.objective === 'atc' ? actual.addToCart : actual.conversions,
+      sales: actual.sales
+    };
+  });
+  const sumOf = (pick: (line: typeof lines[number]) => number | undefined) => lines.reduce((acc, line) => acc + (pick(line) || 0), 0);
+  const total = {
+    key: 'total',
+    media: '합계',
+    label: '',
+    budget: sumOf(line => line.budget),
+    targetImpressions: sumOf(line => line.targetImpressions),
+    targetClicks: sumOf(line => line.targetClicks),
+    targetConversions: sumOf(line => line.targetConversions),
+    targetSales: sumOf(line => line.targetSales),
+    spend: sumOf(line => line.spend),
+    impressions: sumOf(line => line.impressions),
+    clicks: sumOf(line => line.clicks),
+    conversions: sumOf(line => line.conversions),
+    sales: sumOf(line => line.sales)
+  };
+
+  const dayMs = 86400000;
+  const totalDays = Math.round((parseIsoDate(plan.end).getTime() - parseIsoDate(plan.start).getTime()) / dayMs) + 1;
+  const elapsedDays = latest ? Math.round((parseIsoDate(latest).getTime() - parseIsoDate(plan.start).getTime()) / dayMs) + 1 : 0;
+  const rate = (actual: number, target?: number) => (target ? formatPercent(actual / target) : '—');
+  const goalCells = (target: number | undefined, actual: number, format: (value: number) => string) => (
+    <>
+      <td>{target ? format(target) : '—'}</td>
+      <td>{format(actual)}</td>
+      <td>{rate(actual, target)}</td>
+    </>
+  );
+
+  return (
+    <section className="section">
+      <div className="section-head">
+        <b>{plan.title}</b>
+        <span className="muted">
+          {formatPromotionPeriodLabel(plan.start, plan.end)} · 집계 ~{latest || '-'} ({elapsedDays}/{totalDays}일) · {spendBasis === 'net' ? '넷' : '그로스'} 기준 · 목표: {plan.source}
+        </span>
+      </div>
+      <div className="table-wrap">
+        <table className="megawari-status-table">
+          <thead>
+            <tr>
+              <th rowSpan={2}>매체</th>
+              <th rowSpan={2}>캠페인 목적</th>
+              <th colSpan={3}>예산</th>
+              <th colSpan={3}>IMP</th>
+              <th colSpan={3}>링크클릭</th>
+              <th colSpan={3} title="ATC 라인은 장바구니 수">전환</th>
+              <th colSpan={3}>매출</th>
+              <th colSpan={2}>ROAS</th>
+            </tr>
+            <tr>
+              <th>설정</th><th>사용</th><th>소화율</th>
+              <th>설정</th><th>실적</th><th>달성률</th>
+              <th>설정</th><th>실적</th><th>달성률</th>
+              <th>설정</th><th>실적</th><th>달성률</th>
+              <th>설정</th><th>실적</th><th>달성률</th>
+              <th>설정</th><th>실적</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...lines, total].map(line => (
+              <tr key={line.key} className={line.key === 'total' ? 'report-total-row' : ''}>
+                <td>{line.media}</td>
+                <td>{line.label}</td>
+                {goalCells(line.budget, line.spend, formatCurrency)}
+                {goalCells(line.targetImpressions, line.impressions, formatInteger)}
+                {goalCells(line.targetClicks, line.clicks, formatInteger)}
+                {goalCells(line.targetConversions, line.conversions, formatInteger)}
+                {goalCells(line.targetSales, line.sales, formatCurrency)}
+                <td>{line.targetSales ? formatPercent(line.targetSales / line.budget) : '—'}</td>
+                <td>{line.sales ? formatPercent(safeRatio(line.sales, line.spend)) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
