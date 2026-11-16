@@ -100,6 +100,10 @@ const tabs: { id: ReportTab; label: string }[] = [
 ];
 
 const FIXED_REPORT_COMMENT = 'Google Sheet로 전달 예정';
+/** Meta 가져오기 한 번에 맡기는 기간. 2개월이면 계정 2개도 함수 시간 제한 안에 넉넉히 끝난다. */
+const META_IMPORT_WINDOW_DAYS = 60;
+/** 동시에 돌리는 가져오기 요청 수. 늘리면 Meta 쪽 rate limit에 걸리기 쉽다. */
+const META_IMPORT_PARALLEL = 2;
 
 const tabAccents: Record<ReportTab, string> = {
   total: '#E5484D',
@@ -631,36 +635,80 @@ export default function ReportLabPage() {
     setError('');
     setNotice('');
     try {
-      const token = await user.getIdToken(true);
-      const resp = await fetch('/api/report-meta', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          brandId: brand.id,
-          tabId: dashboardTab.id,
-          adAccountId: brand.metaAdAccountId,
-          dateStart,
-          dateEnd,
-          adsetIds,
-          exchangeRate
-        })
+      await user.getIdToken(true);
+      // 서버 함수 한 번은 300초까지만 돈다. 2년치를 한 번에 받으면 넘기므로 구간별로 나눠 부른다.
+      const windows = splitDateRange(dateStart, dateEnd, META_IMPORT_WINDOW_DAYS);
+      const parts: { accountCount: number; currencies: string[]; result: ReportParseResult }[] = new Array(windows.length);
+      let nextWindow = 0;
+      let doneWindows = 0;
+      // 한 구간이 실패하면 나머지 작업자도 멈춰야 끝난 뒤에 busy 표시를 다시 켜지 않는다.
+      let failed = false;
+      const fetchWindows = async () => {
+        while (!failed && nextWindow < windows.length) {
+          const index = nextWindow;
+          nextWindow += 1;
+          const window = windows[index];
+          const resp = await fetch('/api/report-meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+            body: JSON.stringify({
+              brandId: brand.id,
+              tabId: dashboardTab.id,
+              adAccountId: brand.metaAdAccountId,
+              dateStart: window.start,
+              dateEnd: window.end,
+              adsetIds,
+              exchangeRate
+            })
+          });
+          const data = await readApiJsonResponse(resp).catch(err => {
+            failed = true;
+            throw err;
+          });
+          if (!resp.ok) {
+            failed = true;
+            throw new Error(`${window.start} ~ ${window.end}: ${data.error || 'Meta API 가져오기에 실패했습니다.'}`);
+          }
+          if (failed) return;
+          parts[index] = data;
+          doneWindows += 1;
+          setBusy(`Meta API에서 성과 데이터를 가져오는 중입니다... (${doneWindows}/${windows.length})`);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(META_IMPORT_PARALLEL, windows.length) }, fetchWindows));
+
+      const rows = parts.flatMap(part => part.result.rows).map((row, index) => ({ ...row, sourceRowNumber: index + 1 }));
+      if (!rows.length) throw new Error('해당 기간에 가져올 Meta 데이터가 없습니다.');
+      const accountCount = parts[0].accountCount;
+      const currencies = [...new Set(parts.flatMap(part => part.currencies))].sort();
+      const filename = `Meta API${accountCount > 1 ? ` ${accountCount} accounts` : ''} ${dateStart}~${dateEnd} · ${currencies.join('+')}`;
+      const result: ReportParseResult = {
+        ...parts[0].result,
+        fileName: filename,
+        sheet: { ...parts[0].result.sheet, rowCount: rows.length },
+        rows,
+        preview: rows.slice(0, 12)
+      };
+      const dates = rows.map(row => row.date).filter(Boolean).sort();
+      const createdAt = Date.now();
+      setBusy('Meta API 데이터를 저장하는 중입니다...');
+      const savedId = await saveReportFile(brand.id, dashboardTab.id, {
+        filename,
+        fileSize: 0,
+        dateStart: dates[0] || '',
+        dateEnd: dates[dates.length - 1] || '',
+        rowCount: rows.length,
+        exchangeRate,
+        result,
+        createdAt
       });
-      const data = await readApiJsonResponse(resp);
-      if (!resp.ok) throw new Error(data.error || 'Meta API 가져오기에 실패했습니다.');
-
-      const loadedReportFiles = await listReportFiles(brand.id, dashboardTab.id);
-      const saved = loadedReportFiles.find(file => file.id === data.fileId) || loadedReportFiles.find(file => isMetaReportFile(file)) || null;
-      setSelectedMetaReportFileId(saved?.id || '');
-      setReportComment(await ensureReportCommentForFile(brand.id, dashboardTab.id, saved?.id || ''));
+      setSelectedMetaReportFileId(savedId);
+      setReportComment(await ensureReportCommentForFile(brand.id, dashboardTab.id, savedId));
       setCommentEditing(false);
-
-      if (saved) {
-        const loadedFile = await getReportFile(brand.id, dashboardTab.id, saved.id);
-        applyReportResult(loadedFile?.result || null, loadedFile?.createdAt || saved.createdAt, 'meta');
-      }
+      applyReportResult(result, createdAt, 'meta');
       setActiveTab('total');
       setActiveSubTab('total');
-      setNotice(`Meta API 데이터 적용 완료: ${Number(data.rowCount || 0).toLocaleString()}행 · ${data.dateStart || '-'} ~ ${data.dateEnd || '-'}`);
+      setNotice(`Meta API 데이터 적용 완료: ${rows.length.toLocaleString()}행 · ${dates[0] || '-'} ~ ${dates[dates.length - 1] || '-'}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -3654,6 +3702,16 @@ function summarizeReportRows(key: string, label: string, rows: NormalizedReportR
 
 function parseIsoDate(value: string): Date {
   return new Date(`${value}T00:00:00`);
+}
+
+/** [start, end]를 days일씩 끊는다. 마지막 구간은 end에서 끝난다. */
+function splitDateRange(start: string, end: string, days: number): { start: string; end: string }[] {
+  const windows: { start: string; end: string }[] = [];
+  for (let cursor = parseIsoDate(start); toIsoDate(cursor) <= end; cursor = addDays(cursor, days)) {
+    const windowEnd = toIsoDate(addDays(cursor, days - 1));
+    windows.push({ start: toIsoDate(cursor), end: windowEnd < end ? windowEnd : end });
+  }
+  return windows;
 }
 
 function toIsoDate(date: Date): string {

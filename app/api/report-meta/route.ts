@@ -12,7 +12,6 @@ export const maxDuration = 300;
 
 const META_API_VERSION = process.env.META_API_VERSION || 'v20.0';
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || '';
-const REPORT_FILE_ROWS_PER_CHUNK = 200;
 const META_DATE_CHUNK_DAYS = 7;
 const META_ADSET_FILTER_CHUNK_SIZE = 50;
 const META_AD_CREATIVE_CHUNK_SIZE = 50;
@@ -21,7 +20,6 @@ const META_CREATIVE_REQUEST_BATCH_SIZE = 25;
 const MAX_META_IMAGE_DATA_LENGTH = 240_000;
 /** Meta Graph API 요청은 전역으로 이만큼만 동시에 나간다(rate limit 회피). */
 const META_REQUEST_CONCURRENCY = 6;
-const REPORT_CHUNK_WRITE_CONCURRENCY = 12;
 const primaryAdminEmail = (process.env.GFU_DASH_PRIMARY_ADMIN_EMAIL || 'kangmin.j@gfutures.co').toLowerCase();
 
 type MetaAction = { action_type: string; value: string };
@@ -453,24 +451,6 @@ function isTemporaryMetaError(err: unknown): boolean {
   return err instanceof Error && (err.message.includes('code=2') || err.message.includes('code=1'));
 }
 
-/** 순서를 유지하면서 최대 limit개씩만 동시에 실행한다. */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T, index: number) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    while (true) {
-      const index = cursor;
-      cursor += 1;
-      if (index >= items.length) return;
-      results[index] = await task(items[index], index);
-    }
-  });
-
-  await Promise.all(workers);
-  return results;
-}
-
 let metaInFlight = 0;
 const metaWaiters: Array<() => void> = [];
 
@@ -845,40 +825,6 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (i
   await Promise.all(runners);
 }
 
-async function saveReportFileToFirestore(brandId: string, tabId: string, fileDoc: {
-  filename: string;
-  fileSize: number;
-  dateStart: string;
-  dateEnd: string;
-  rowCount: number;
-  exchangeRate: number;
-  result: ReportParseResult;
-  createdAt: number;
-}, idToken: string) {
-  const { projectId } = webConfig();
-  const docId = `meta_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  const basePath = `projects/${projectId}/databases/(default)/documents/brands/${brandId}/tabs/${tabId}/reportFiles/${docId}`;
-  const rows = fileDoc.result.rows.map(row => ({ ...row, raw: {} }));
-  const chunks = chunk(rows, REPORT_FILE_ROWS_PER_CHUNK);
-  const resultMeta: ReportParseResult = { ...fileDoc.result, rows: [], preview: [] };
-
-  await writeFirestoreDocument(basePath, {
-    ...fileDoc,
-    result: resultMeta,
-    chunkCount: chunks.length
-  }, idToken);
-
-  // 2년치는 청크 문서가 수백 개가 된다. 한 개씩 PATCH하면 Meta 조회를 통과해도 저장 단계에서 504가 난다.
-  await mapWithConcurrency(chunks, REPORT_CHUNK_WRITE_CONCURRENCY, (rowsChunk, index) => (
-    writeFirestoreDocument(`${basePath}/chunks/${String(index).padStart(4, '0')}`, {
-      index,
-      rows: rowsChunk
-    }, idToken)
-  ));
-
-  return docId;
-}
-
 async function writeFirestoreDocument(path: string, data: Record<string, unknown>, idToken: string) {
   const resp = await firestoreFetch(`https://firestore.googleapis.com/v1/${path}`, {
     method: 'PATCH',
@@ -995,11 +941,6 @@ function toIsoDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function dateRange(rows: NormalizedReportRow[]) {
-  const dates = rows.map(row => row.date).filter(Boolean).sort();
-  return { start: dates[0] || '', end: dates[dates.length - 1] || '' };
-}
-
 export async function GET(req: Request) {
   try {
     const auth = await requireAdmin(req);
@@ -1060,35 +1001,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '필수 파라미터가 누락되었습니다.' }, { status: 400 });
     }
 
+    // 긴 기간은 브라우저가 구간별로 나눠 부르고 합쳐 저장한다. 한 번에 2년치를 받고 저장까지 하면 300초 제한을 넘긴다.
     const insights = await fetchAllInsightsForAccounts(adAccountIds, dateStart, dateEnd, adsetIds);
-    if (!insights.length) {
-      return NextResponse.json({ error: '해당 기간에 가져올 Meta 데이터가 없습니다.' }, { status: 404 });
-    }
-
-    const safeExchangeRate = Number(exchangeRate || 1) || 1;
-    const currencies = insightCurrencies(insights);
-    const filename = `Meta API${adAccountIds.length > 1 ? ` ${adAccountIds.length} accounts` : ''} ${dateStart}~${dateEnd} · ${currencies.join('+')}`;
-    const result = toReportResult(insights, filename, safeExchangeRate);
-    const range = dateRange(result.rows);
-    const createdAt = Date.now();
-    const fileId = await saveReportFileToFirestore(brandId, tabId, {
-      filename,
-      fileSize: 0,
-      dateStart: range.start,
-      dateEnd: range.end,
-      rowCount: result.rows.length,
-      exchangeRate: safeExchangeRate,
-      result,
-      createdAt
-    }, auth.idToken);
-
+    const result = toReportResult(insights, '', Number(exchangeRate || 1) || 1);
+    // raw(Meta 응답 원본)는 저장하지 않는 값이라 응답 크기만 키운다.
+    const rows = result.rows.map(row => ({ ...row, raw: {} }));
     return NextResponse.json({
       ok: true,
-      fileId,
-      filename,
-      rowCount: result.rows.length,
-      dateStart: range.start,
-      dateEnd: range.end
+      accountCount: adAccountIds.length,
+      currencies: insightCurrencies(insights),
+      result: { ...result, rows, preview: [] }
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';
