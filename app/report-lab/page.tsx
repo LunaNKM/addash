@@ -1859,13 +1859,14 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
       budget: spendBasis === 'net' ? line.budgetNet : line.budgetGross,
       targetImpressions: line.impressions,
       targetClicks: line.clicks,
+      targetAddToCart: line.addToCart,
       targetConversions: line.conversions,
       targetSales: line.sales,
       spend: actual.spend,
       impressions: actual.impressions,
       clicks: actual.clicks,
-      // 미디어믹스의 ATC 라인 전환 목표는 장바구니 수다.
-      conversions: line.objective === 'atc' ? actual.addToCart : actual.conversions,
+      addToCart: actual.addToCart,
+      conversions: actual.conversions,
       sales: actual.sales
     };
   });
@@ -1877,11 +1878,13 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
     budget: sumOf(line => line.budget),
     targetImpressions: sumOf(line => line.targetImpressions),
     targetClicks: sumOf(line => line.targetClicks),
+    targetAddToCart: sumOf(line => line.targetAddToCart),
     targetConversions: sumOf(line => line.targetConversions),
     targetSales: sumOf(line => line.targetSales),
     spend: sumOf(line => line.spend),
     impressions: sumOf(line => line.impressions),
     clicks: sumOf(line => line.clicks),
+    addToCart: sumOf(line => line.addToCart),
     conversions: sumOf(line => line.conversions),
     sales: sumOf(line => line.sales)
   };
@@ -1897,6 +1900,7 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
       <td>{rate(actual, target)}</td>
     </>
   );
+  const emptyCpaCells = <><td>—</td><td>—</td><td>—</td></>;
 
   return (
     <section className="section">
@@ -1915,13 +1919,17 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
               <th colSpan={3}>예산</th>
               <th colSpan={3}>IMP</th>
               <th colSpan={3}>링크클릭</th>
-              <th colSpan={3} title="ATC 라인은 장바구니(ATC) 수, 그 외는 구매 전환 수">ATC·전환</th>
-              <th colSpan={3} title="달성률은 설정 CPA ÷ 실적 CPA (낮을수록 좋음)">ATC·전환 CPA</th>
+              <th colSpan={3}>ATC</th>
+              <th colSpan={3} title="달성률은 설정 CPA ÷ 실적 CPA (낮을수록 좋음)">ATC CPA</th>
+              <th colSpan={3}>전환</th>
+              <th colSpan={3} title="달성률은 설정 CPA ÷ 실적 CPA (낮을수록 좋음)">전환 CPA</th>
               <th colSpan={3}>매출</th>
               <th colSpan={2}>ROAS</th>
             </tr>
             <tr>
               <th>설정</th><th>사용</th><th>소화율</th>
+              <th>설정</th><th>실적</th><th>달성률</th>
+              <th>설정</th><th>실적</th><th>달성률</th>
               <th>설정</th><th>실적</th><th>달성률</th>
               <th>설정</th><th>실적</th><th>달성률</th>
               <th>설정</th><th>실적</th><th>달성률</th>
@@ -1938,8 +1946,11 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
                 {goalCells(line.budget, line.spend, formatCurrency)}
                 {goalCells(line.targetImpressions, line.impressions, formatInteger)}
                 {goalCells(line.targetClicks, line.clicks, formatInteger)}
+                {goalCells(line.targetAddToCart, line.addToCart, formatInteger)}
+                {/* 합계 CPA는 Traffic 예산까지 섞여 의미가 없어 비운다. */}
+                {line.key === 'total' ? emptyCpaCells : <CpaCells budget={line.budget} spend={line.spend} target={line.targetAddToCart} actual={line.addToCart} />}
                 {goalCells(line.targetConversions, line.conversions, formatInteger)}
-                <CpaCells budget={line.budget} spend={line.spend} target={line.targetConversions} actual={line.conversions} />
+                {line.key === 'total' ? emptyCpaCells : <CpaCells budget={line.budget} spend={line.spend} target={line.targetConversions} actual={line.conversions} />}
                 {goalCells(line.targetSales, line.sales, formatCurrency)}
                 <td>{line.targetSales ? formatPercent(line.targetSales / line.budget) : '—'}</td>
                 <td>{line.sales ? formatPercent(safeRatio(line.sales, line.spend)) : '—'}</td>

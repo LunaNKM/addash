@@ -3827,8 +3827,8 @@ td[title], .legend-row[title], .donut-legend div[title] {
   text-align: left;
 }
 
-.megawari-status-table tbody td:is(:nth-child(3), :nth-child(6), :nth-child(9), :nth-child(12), :nth-child(15), :nth-child(18), :nth-child(21)),
-.megawari-status-table thead tr:nth-child(2) th:is(:nth-child(1), :nth-child(4), :nth-child(7), :nth-child(10), :nth-child(13), :nth-child(16), :nth-child(19)),
+.megawari-status-table tbody td:nth-child(3n),
+.megawari-status-table thead tr:nth-child(2) th:nth-child(3n+1),
 .megawari-status-table thead tr:first-child th:nth-child(n+3) {
   border-left: 2px solid var(--c-border-vivid);
 }
