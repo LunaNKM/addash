@@ -38,7 +38,7 @@ export const MEGAWARI_PLANS: MegawariPlan[] = [
     end: '2026-12-02',
     source: '위시컴퍼니 Qoo10 미디어믹스 26.11',
     lines: [
-      { label: 'ATC', media: 's-meta', objective: 'atc', budgetNet: 3130435, budgetGross: 3600000, impressions: 273614, clicks: 6330, addToCart: 743, sales: 29877685 },
+      { label: 'ATC', media: 's-meta', objective: 'atc', budgetNet: 3130435, budgetGross: 3600000, impressions: 273614, clicks: 6330, addToCart: 2910, conversions: 743, sales: 29877685 },
       { label: 'Purchase (NON)', media: 's-meta', objective: 'purchase', audience: 'non', budgetNet: 12805435, budgetGross: 14726250, impressions: 459965, clicks: 13799, conversions: 1829, sales: 65238696 },
       { label: 'Purchase (RT)', media: 's-meta', objective: 'purchase', audience: 'rt', budgetNet: 17325000, budgetGross: 19923750, impressions: 666757, clicks: 23336, conversions: 2559, sales: 91298980 },
       { label: 'Traffic (NON)', media: 's-meta', objective: 'traffic', budgetNet: 1956522, budgetGross: 2250000, impressions: 246297, clicks: 6750 },

@@ -3832,3 +3832,8 @@ td[title], .legend-row[title], .donut-legend div[title] {
 .megawari-status-table thead tr:first-child th:nth-child(n+3) {
   border-left: 2px solid var(--c-border-vivid);
 }
+
+.megawari-status-table td.megawari-no-goal {
+  background: var(--c-bg-muted);
+  color: var(--c-ink-2);
+}

@@ -1893,14 +1893,17 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
   const totalDays = Math.round((parseIsoDate(plan.end).getTime() - parseIsoDate(plan.start).getTime()) / dayMs) + 1;
   const elapsedDays = latest ? Math.round((parseIsoDate(latest).getTime() - parseIsoDate(plan.start).getTime()) / dayMs) + 1 : 0;
   const rate = (actual: number, target?: number) => (target ? formatPercent(actual / target) : '—');
-  const goalCells = (target: number | undefined, actual: number, format: (value: number) => string) => (
-    <>
-      <td>{target ? format(target) : '—'}</td>
-      <td>{format(actual)}</td>
-      <td>{rate(actual, target)}</td>
-    </>
-  );
-  const emptyCpaCells = <><td>—</td><td>—</td><td>—</td></>;
+  const goalCells = (target: number | undefined, actual: number, format: (value: number) => string) => {
+    const className = target ? undefined : NO_GOAL_CELL;
+    return (
+      <>
+        <td className={className}>{target ? format(target) : '—'}</td>
+        <td className={className}>{format(actual)}</td>
+        <td className={className}>{rate(actual, target)}</td>
+      </>
+    );
+  };
+  const emptyCpaCells = <><td className={NO_GOAL_CELL}>—</td><td className={NO_GOAL_CELL}>—</td><td className={NO_GOAL_CELL}>—</td></>;
 
   return (
     <section className="section">
@@ -1952,8 +1955,8 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
                 {goalCells(line.targetConversions, line.conversions, formatInteger)}
                 {line.key === 'total' ? emptyCpaCells : <CpaCells budget={line.budget} spend={line.spend} target={line.targetConversions} actual={line.conversions} />}
                 {goalCells(line.targetSales, line.sales, formatCurrency)}
-                <td>{line.targetSales ? formatPercent(line.targetSales / line.budget) : '—'}</td>
-                <td>{line.sales ? formatPercent(safeRatio(line.sales, line.spend)) : '—'}</td>
+                <td className={line.targetSales ? undefined : NO_GOAL_CELL}>{line.targetSales ? formatPercent(line.targetSales / line.budget) : '—'}</td>
+                <td className={line.targetSales ? undefined : NO_GOAL_CELL}>{line.sales ? formatPercent(safeRatio(line.sales, line.spend)) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -1963,15 +1966,19 @@ function MegawariStatusSection({ brandId, view, rows, spendBasis }: { brandId: s
   );
 }
 
+/** 미디어믹스에 설정이 없는 칸. 회색으로 칠해 KPI가 아닌 참고값임을 보인다. */
+const NO_GOAL_CELL = 'megawari-no-goal';
+
 /** CPA는 낮을수록 좋으므로 달성률은 설정 CPA ÷ 실적 CPA (시트와 같은 기준). */
 function CpaCells({ budget, spend, target, actual }: { budget: number; spend: number; target?: number; actual: number }) {
   const targetCpa = target ? budget / target : 0;
   const actualCpa = actual ? spend / actual : 0;
+  const className = targetCpa ? undefined : NO_GOAL_CELL;
   return (
     <>
-      <td>{targetCpa ? formatCurrency(targetCpa) : '—'}</td>
-      <td>{actualCpa ? formatCurrency(actualCpa) : '—'}</td>
-      <td>{targetCpa && actualCpa ? formatPercent(targetCpa / actualCpa) : '—'}</td>
+      <td className={className}>{targetCpa ? formatCurrency(targetCpa) : '—'}</td>
+      <td className={className}>{actualCpa ? formatCurrency(actualCpa) : '—'}</td>
+      <td className={className}>{targetCpa && actualCpa ? formatPercent(targetCpa / actualCpa) : '—'}</td>
     </>
   );
 }
