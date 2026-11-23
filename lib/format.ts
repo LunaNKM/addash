@@ -1,4 +1,4 @@
-import type { MetricKey } from './types';
+import type { DisplayCurrency, MetricKey } from './types';
 
 export const metricLabels: Record<MetricKey, string> = {
   spend: '광고비',
@@ -12,9 +12,27 @@ export const metricLabels: Record<MetricKey, string> = {
   roas: 'ROAS'
 };
 
+// shortcut: 화면에 한 번에 한 브랜드만 그리므로 표시 통화를 전역 하나로 둔다. 여러 브랜드를 동시에 그리게 되면 props/context로 옮긴다.
+let displayCurrency: DisplayCurrency = 'KRW';
+
+export function setDisplayCurrency(currency?: DisplayCurrency) {
+  displayCurrency = currency === 'USD' ? 'USD' : 'KRW';
+}
+
+export function getDisplayCurrency(): DisplayCurrency {
+  return displayCurrency;
+}
+
+/** 브랜드 설정의 표시 통화로 금액을 표기한다. 값 자체는 환산하지 않는다(달러 계정 금액은 이미 달러). */
+export function formatMoney(value: number): string {
+  const v = Number(value) || 0;
+  if (displayCurrency === 'USD') return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '₩' + Math.round(v).toLocaleString();
+}
+
 export function formatMetric(key: MetricKey, value: number): string {
   const v = Number.isFinite(value) ? value : 0;
-  if (key === 'spend' || key === 'cpm' || key === 'cpc') return '₩' + Math.round(v).toLocaleString();
+  if (key === 'spend' || key === 'cpm' || key === 'cpc') return formatMoney(v);
   if (key === 'ctr' || key === 'linkCtr') return v.toFixed(2) + '%';
   if (key === 'roas') return v.toFixed(2);
   return Math.round(v).toLocaleString() + '회';
@@ -23,10 +41,6 @@ export function formatMetric(key: MetricKey, value: number): string {
 /** 대시보드 표에서 쓰는 단순 포매터. formatMetric과 같은 표기(₩, 회, %)를 따른다. */
 export function formatCount(value: number): string {
   return Math.round(Number(value) || 0).toLocaleString();
-}
-
-export function formatWon(value: number): string {
-  return '₩' + Math.round(Number(value) || 0).toLocaleString();
 }
 
 /** 이미 퍼센트 단위(57.25 = 57.25%)로 저장된 값을 표기한다. */

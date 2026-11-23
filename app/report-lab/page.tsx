@@ -44,6 +44,7 @@ import {
   updateBrand
 } from '@/lib/store';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
+import { formatMoney, getDisplayCurrency, setDisplayCurrency } from '@/lib/format';
 import { errorMessage } from '@/lib/dashUtils';
 import { DAILY_TOPLINE_METRIC_LABELS, REPORT_SUMMARY_CARD_LABELS, type Brand, type BrandPatch, type CreativeAssetDoc, type DailyToplineMetric, type DashboardTab, type Kpi, type ReportCommentDoc, type ReportFileDoc, type ReportSummaryCard, type ReportTabKey, type SingleOneCollectorSettings, type SpendBasis } from '@/lib/types';
 import { Empty } from '../components/Empty';
@@ -119,6 +120,8 @@ export default function ReportLabPage() {
   const [loading, setLoading] = useState(true);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brand, setBrand] = useState<Brand | null>(null);
+  // 자식들이 그리기 전에 표시 통화를 맞춘다(렌더마다 같은 값이라 부작용 없음).
+  setDisplayCurrency(brand?.currency);
   const [dashboardTab, setDashboardTab] = useState<DashboardTab | null>(null);
   const [dashboardTabs, setDashboardTabs] = useState<DashboardTab[]>([]);
   const [kpi, setKpi] = useState<Kpi>(emptyKpi);
@@ -3891,10 +3894,17 @@ function isSingleOneUploadRow(row: NormalizedReportRow): boolean {
 }
 
 function formatCurrency(value: number): string {
+  if (getDisplayCurrency() === 'USD') return formatMoney(value);
   return `${Math.round(Number(value) || 0).toLocaleString()}원`;
 }
 
 function compactCurrency(value: number): string {
+  if (getDisplayCurrency() === 'USD') {
+    const usd = Number(value) || 0;
+    if (Math.abs(usd) >= 1000000) return `$${(usd / 1000000).toFixed(1)}M`;
+    if (Math.abs(usd) >= 1000) return `$${(usd / 1000).toFixed(1)}K`;
+    return `$${Math.round(usd).toLocaleString()}`;
+  }
   const safe = Math.round(Number(value) || 0);
   if (Math.abs(safe) >= 100000000) return `${(safe / 100000000).toFixed(1)}억`;
   if (Math.abs(safe) >= 10000) return `${Math.round(safe / 10000).toLocaleString()}만`;

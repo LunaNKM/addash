@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { addAdmin, deleteBrand, deleteFile, deleteReportFile, listAdmins, listFiles, listReportFiles, removeAdmin, reorderBrands, reorderTabs } from '@/lib/store';
 import { BRAND_PRESETS } from '@/lib/brandColor';
-import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, REPORT_SUMMARY_CARD_KEYS, REPORT_SUMMARY_CARD_LABELS, type Brand, type BrandPatch, type CommissionRule, type DailyToplineMetric, type DashboardTab, type FileDoc, type Kpi, type ReportFileDoc, type ReportSummaryCard, type ReportTabKey } from '@/lib/types';
+import { DAILY_TOPLINE_METRIC_KEYS, DAILY_TOPLINE_METRIC_LABELS, DEFAULT_VISIBLE_REPORT_TABS, MAX_COMMISSION_RULES, REPORT_SUMMARY_CARD_KEYS, REPORT_SUMMARY_CARD_LABELS, type Brand, type BrandPatch, type CommissionRule, type DailyToplineMetric, type DashboardTab, type DisplayCurrency, type FileDoc, type Kpi, type ReportFileDoc, type ReportSummaryCard, type ReportTabKey } from '@/lib/types';
 import { isValidCommissionPercent, isValidCommissionStartDate, sortCommissionRules } from '@/lib/report/schema';
 import { darken, errorMessage, kpiLabel } from '@/lib/dashUtils';
 
@@ -42,6 +42,7 @@ function BrandEditorRow({ brand, dragProps, onCopyShare, onDelete, onUpdate }: {
   const [adAccountId, setAdAccountId] = useState(brand.metaAdAccountId || '');
   const [commissionPercent, setCommissionPercent] = useState(brand.commissionPercent);
   const [commissionRules, setCommissionRules] = useState<CommissionRule[]>(brand.commissionRules);
+  const [currency, setCurrency] = useState<DisplayCurrency>(brand.currency);
   const [visibleReportTabs, setVisibleReportTabs] = useState<ReportTabKey[]>(brand.visibleReportTabs);
   const [dailyToplineMetrics, setDailyToplineMetrics] = useState<DailyToplineMetric[]>(brand.dailyToplineMetrics);
   const [reportSummaryCards, setReportSummaryCards] = useState<ReportSummaryCard[]>(brand.reportSummaryCards);
@@ -51,10 +52,11 @@ function BrandEditorRow({ brand, dragProps, onCopyShare, onDelete, onUpdate }: {
     setAdAccountId(brand.metaAdAccountId || '');
     setCommissionPercent(brand.commissionPercent);
     setCommissionRules(brand.commissionRules);
+    setCurrency(brand.currency);
     setVisibleReportTabs(brand.visibleReportTabs);
     setDailyToplineMetrics(brand.dailyToplineMetrics);
     setReportSummaryCards(brand.reportSummaryCards);
-  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.commissionRules, brand.visibleReportTabs, brand.dailyToplineMetrics, brand.reportSummaryCards]);
+  }, [brand.name, brand.color, brand.metaAdAccountId, brand.commissionPercent, brand.commissionRules, brand.currency, brand.visibleReportTabs, brand.dailyToplineMetrics, brand.reportSummaryCards]);
 
   const visibleTabsDirty = DEFAULT_VISIBLE_REPORT_TABS.some(tab => visibleReportTabs.includes(tab) !== brand.visibleReportTabs.includes(tab));
   const dailyToplineMetricsDirty = dailyToplineMetrics.length !== brand.dailyToplineMetrics.length
@@ -66,6 +68,7 @@ function BrandEditorRow({ brand, dragProps, onCopyShare, onDelete, onUpdate }: {
     || adAccountId !== (brand.metaAdAccountId || '')
     || commissionPercent !== brand.commissionPercent
     || commissionRulesDirty
+    || currency !== brand.currency
     || visibleTabsDirty
     || dailyToplineMetricsDirty
     || reportSummaryCardsDirty;
@@ -122,6 +125,14 @@ function BrandEditorRow({ brand, dragProps, onCopyShare, onDelete, onUpdate }: {
                 value={commissionPercent}
                 onChange={event => setCommissionPercent(Number(event.target.value))}
               />
+            </div>
+            <div>
+              <label>표시 통화</label>
+              <small className="muted">광고 계정이 달러로 세팅된 브랜드는 달러를 고르세요. 금액은 환산하지 않고 표시만 바뀝니다.</small>
+              <select value={currency} onChange={event => setCurrency(event.target.value as DisplayCurrency)}>
+                <option value="KRW">원화 (₩)</option>
+                <option value="USD">달러 ($)</option>
+              </select>
             </div>
             {!validCommission && <small className="warn">수수료율은 0~100 사이로 입력해주세요.</small>}
           </div>
@@ -281,6 +292,7 @@ function BrandEditorRow({ brand, dragProps, onCopyShare, onDelete, onUpdate }: {
               setAdAccountId(brand.metaAdAccountId || '');
               setCommissionPercent(brand.commissionPercent);
               setCommissionRules(brand.commissionRules);
+              setCurrency(brand.currency);
               setVisibleReportTabs(brand.visibleReportTabs);
               setDailyToplineMetrics(brand.dailyToplineMetrics);
               setReportSummaryCards(brand.reportSummaryCards);
@@ -295,6 +307,7 @@ function BrandEditorRow({ brand, dragProps, onCopyShare, onDelete, onUpdate }: {
                   ...(adAccountId !== (brand.metaAdAccountId || '') ? { metaAdAccountId: adAccountId } : {}),
                   ...(commissionPercent !== brand.commissionPercent ? { commissionPercent } : {}),
                   ...(commissionRulesDirty ? { commissionRules: sortCommissionRules(commissionRules) } : {}),
+                  ...(currency !== brand.currency ? { currency } : {}),
                   ...(visibleTabsDirty ? { visibleReportTabs } : {}),
                   ...(dailyToplineMetricsDirty ? { dailyToplineMetrics } : {}),
                   ...(reportSummaryCardsDirty ? { reportSummaryCards } : {})

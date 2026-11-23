@@ -1,5 +1,5 @@
 import { AD_PLATFORM_LABELS, type AdPlatform, type FileDoc, type StatRow } from '@/lib/types';
-import { formatCount, formatDateWithDay, formatRate, formatRatio, formatWon } from '@/lib/format';
+import { formatCount, formatDateWithDay, formatRate, formatRatio, formatMoney } from '@/lib/format';
 import type { DashboardBundle } from '@/lib/dashUtils';
 
 export type PlatformBundle = {
@@ -31,37 +31,37 @@ const EXISTING_NAMES: Record<string, string> = {
 };
 
 const metaColumns: Column[] = [
-  { label: '광고비', value: row => formatWon(row.spend) },
+  { label: '광고비', value: row => formatMoney(row.spend) },
   { label: '노출', value: row => formatCount(row.impression) },
   { label: '링크클릭', value: row => formatCount(row.click) },
   { label: 'LP 조회', value: row => formatCount(row.landingPageView) },
   { label: 'CTR', value: row => formatRate(row.ctr) },
   { label: '링크클릭 CTR', title: '링크클릭 ÷ 노출', value: row => formatRate(ratio(row.click * 100, row.impression)) },
-  { label: 'CPM', value: row => formatWon(row.cpm) },
-  { label: 'CPC', title: '광고비 ÷ 링크클릭', value: row => formatWon(ratio(row.spend, row.click)) },
+  { label: 'CPM', value: row => formatMoney(row.cpm) },
+  { label: 'CPC', title: '광고비 ÷ 링크클릭', value: row => formatMoney(ratio(row.spend, row.click)) },
   { label: 'ROAS', value: row => formatRatio(row.roas) }
 ];
 
 /** X 광고 관리자 export 기준. 인게이지먼트 중심으로 본다. */
 const xColumns: Column[] = [
-  { label: '광고비', title: 'Spend', value: row => formatWon(row.spend) },
+  { label: '광고비', title: 'Spend', value: row => formatMoney(row.spend) },
   { label: 'IMP', title: 'Impressions (노출)', value: row => formatCount(row.impression) },
   { label: 'ENG', title: 'Engagements (인게이지먼트, 광고비 ÷ Cost per engagement)', value: row => formatCount(row.engagements || 0) },
   { label: 'ER', title: 'Engagement rate (ENG ÷ IMP)', value: row => formatRate(engagementRate(row)) },
-  { label: 'CPM', title: 'CPM', value: row => formatWon(row.cpm) },
-  { label: 'CPE', title: 'Cost per engagement', value: row => formatWon(cpe(row)) },
+  { label: 'CPM', title: 'CPM', value: row => formatMoney(row.cpm) },
+  { label: 'CPE', title: 'Cost per engagement', value: row => formatMoney(cpe(row)) },
   { label: '프로필방문', title: 'Profile visits', value: row => formatCount(row.profileVisits || 0) }
 ];
 
 /** Google Ads 광고 보고서 헤더 기준. 기존 명칭이 있는 열(광고비·노출·CPM)만 기존 이름을 쓴다. */
 const youtubeColumns: Column[] = [
-  { label: '광고비', title: '비용', metric: 'spend', value: row => formatWon(row.spend) },
+  { label: '광고비', title: '비용', metric: 'spend', value: row => formatMoney(row.spend) },
   { label: '노출', title: '노출수', metric: 'impression', value: row => formatCount(row.impression) },
   { label: '클릭수', title: '클릭수 / 상호작용 수', metric: 'click', value: row => formatCount(row.click) },
   { label: 'CTR', title: '클릭률(CTR) / 상호작용 발생률', metric: 'ctr', value: row => formatRate(row.ctr) },
-  { label: 'CPC', title: '평균 CPC / 평균 비용', metric: 'cpc', value: row => formatWon(row.cpc) },
-  { label: 'CPM', title: '평균 CPM', metric: 'cpm', value: row => formatWon(row.cpm) },
-  { label: 'TrueView 평균 CPV', title: 'TrueView 평균 CPV', metric: 'cpv', value: row => formatWon(row.cpv || 0) }
+  { label: 'CPC', title: '평균 CPC / 평균 비용', metric: 'cpc', value: row => formatMoney(row.cpc) },
+  { label: 'CPM', title: '평균 CPM', metric: 'cpm', value: row => formatMoney(row.cpm) },
+  { label: 'TrueView 평균 CPV', title: 'TrueView 평균 CPV', metric: 'cpv', value: row => formatMoney(row.cpv || 0) }
 ];
 
 const columnsByPlatform: Record<AdPlatform, Column[]> = {

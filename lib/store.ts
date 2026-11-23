@@ -109,6 +109,7 @@ export async function createBrand(name: string, color = '#1AB7B0'): Promise<Bran
     commissionRules: [],
     spendBasis: 'gross',
     exchangeRate: DEFAULT_EXCHANGE_RATE,
+    currency: 'KRW',
     visibleReportTabs: [...DEFAULT_VISIBLE_REPORT_TABS],
     dailyToplineMetrics: [...DEFAULT_DAILY_TOPLINE_METRICS],
     reportSummaryCards: [...DEFAULT_REPORT_SUMMARY_CARDS],
@@ -169,6 +170,10 @@ export async function updateBrand(brandId: string, patch: BrandPatch) {
       throw new Error('환율은 0보다 크고 1,000 이하인 숫자로 입력해주세요.');
     }
     update.exchangeRate = Math.round(exchangeRate * 10000) / 10000;
+  }
+  if (patch.currency !== undefined) {
+    if (patch.currency !== 'KRW' && patch.currency !== 'USD') throw new Error('표시 통화는 원화 또는 달러여야 합니다.');
+    update.currency = patch.currency;
   }
   if (patch.visibleReportTabs !== undefined) {
     const visibleReportTabs = DEFAULT_VISIBLE_REPORT_TABS.filter(tab => patch.visibleReportTabs?.includes(tab));
@@ -739,6 +744,7 @@ function normalizeBrand(id: string, data: Record<string, unknown>): Brand {
     exchangeRate: Number.isFinite(storedExchangeRate) && storedExchangeRate > 0 && storedExchangeRate <= 1000
       ? storedExchangeRate
       : DEFAULT_EXCHANGE_RATE,
+    currency: data.currency === 'USD' ? 'USD' : 'KRW',
     visibleReportTabs: visibleReportTabs.length ? visibleReportTabs : [...DEFAULT_VISIBLE_REPORT_TABS],
     dailyToplineMetrics,
     reportSummaryCards: reportSummaryCards.length ? reportSummaryCards : [...DEFAULT_REPORT_SUMMARY_CARDS],

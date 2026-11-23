@@ -1,5 +1,5 @@
 import { dailyTotals, totalStat } from './aggregation';
-import { formatCount, formatDateWithDay, formatMetric, formatWon, metricLabels } from './format';
+import { formatCount, formatDateWithDay, formatMetric, formatMoney, metricLabels } from './format';
 import type { FileDoc, Kpi, MetricKey, ParsedRow, StatRow } from './types';
 
 export type SortOrder = 'asc' | 'desc';
@@ -196,7 +196,7 @@ export function cell(row: TableRow, column: string): string {
   if (metricKeys.includes(column as MetricKey)) return formatMetric(column as MetricKey, metricValue(asStatRow(row), column as MetricKey));
   if (extraLabels[column]) {
     const value = Number((row as Record<string, unknown>)[column] || 0);
-    return column === 'cpv' ? formatWon(value) : formatCount(value);
+    return column === 'cpv' ? formatMoney(value) : formatCount(value);
   }
   return String((row as Record<string, unknown>)[column] || '');
 }

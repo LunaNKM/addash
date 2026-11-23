@@ -12,6 +12,7 @@ import {
 import { parseAdFile, type ParseReport } from '@/lib/parser';
 import { buildCreativeDailyStats, buildFileStats, mergeStats } from '@/lib/aggregation';
 import { applyBrandColor, randomBrandColor } from '@/lib/brandColor';
+import { setDisplayCurrency } from '@/lib/format';
 import { AD_PLATFORMS, AD_PLATFORM_LABELS, type AdPlatform, type Brand, type BrandPatch, type DashboardTab, type FileDoc, type InsightDoc, type Kpi, type MetricKey } from '@/lib/types';
 import {
   applyFilters, buildTopline, countUnique, errorMessage, toggleSet,
@@ -54,6 +55,8 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brand, setBrand] = useState<Brand | null>(null);
+  // 자식들이 그리기 전에 표시 통화를 맞춘다(렌더마다 같은 값이라 부작용 없음).
+  setDisplayCurrency(brand?.currency);
   const [tabs, setTabs] = useState<DashboardTab[]>([]);
   const [tab, setTab] = useState<DashboardTab | null>(null);
   const [files, setFiles] = useState<FileDoc[]>([]);

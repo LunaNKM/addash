@@ -111,6 +111,7 @@ export type PlatformExtras = {
   cpv?: number;
 };
 export type SpendBasis = 'gross' | 'net';
+export type DisplayCurrency = 'KRW' | 'USD';
 
 export type Brand = {
   id: string;
@@ -122,6 +123,8 @@ export type Brand = {
   commissionRules: CommissionRule[];
   spendBasis: SpendBasis;
   exchangeRate: number;
+  /** 금액 표시 통화. 달러로 세팅된 광고 계정 브랜드는 USD. */
+  currency: DisplayCurrency;
   visibleReportTabs: ReportTabKey[];
   dailyToplineMetrics: DailyToplineMetric[];
   reportSummaryCards: ReportSummaryCard[];
@@ -136,6 +139,7 @@ export type BrandPatch = {
   commissionRules?: CommissionRule[];
   spendBasis?: SpendBasis;
   exchangeRate?: number;
+  currency?: DisplayCurrency;
   visibleReportTabs?: ReportTabKey[];
   dailyToplineMetrics?: DailyToplineMetric[];
   reportSummaryCards?: ReportSummaryCard[];

@@ -1,4 +1,4 @@
-import { formatMetric, metricLabels } from '@/lib/format';
+import { formatMetric, getDisplayCurrency, metricLabels } from '@/lib/format';
 import type { Kpi, MetricKey, StatRow } from '@/lib/types';
 import { metricValue } from '@/lib/dashUtils';
 
@@ -22,7 +22,7 @@ function KpiCard({ metricKey, index, total, kpi }: { metricKey: MetricKey; index
     <div className="kpi-card">
       <div className="kpi-card-header">
         <small>{metricLabels[metricKey]}</small>
-        <span className="kpi-icon">{metricIcons[metricKey]}</span>
+        <span className="kpi-icon">{metricKey === 'spend' && getDisplayCurrency() === 'USD' ? '$' : metricIcons[metricKey]}</span>
       </div>
       <b>{formatMetric(metricKey, value)}</b>
       {goal > 0 && (
