@@ -2933,7 +2933,7 @@ function SummaryTable({
               return (
                 <React.Fragment key={row.key}>
                   <tr>
-                    <td title={row.label}>
+                    <td className="summary-name-cell" title={row.label}>
                       {creativeAssets
                         ? (
                           <div className="creative-summary-cell">
@@ -2970,7 +2970,7 @@ function SummaryTable({
                             )}
                           </div>
                         )
-                        : trim(row.label, 44)}
+                        : row.label}
                     </td>
                     <td>{formatCurrency(row.spend)}</td>
                     <td>{formatCurrency(row.sales)}</td>
@@ -3086,7 +3086,7 @@ function CreativeGroupCell({
           </span>
         </button>
       ) : <span className="creative-thumbnail-slot empty" />}
-      <span>{trim(row.label, 44)}</span>
+      <span>{row.label}</span>
     </div>
   );
 }

@@ -2896,10 +2896,17 @@ td[title], .legend-row[title], .donut-legend div[title] {
   color: var(--brand-400);
 }
 
+/* 캠페인·세트·소재명은 자르지 않고 줄바꿈해 전체를 보여준다(밑줄 이름도 끊기게 anywhere). */
+.summary-name-cell,
 .creative-performance-cell span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.summary-name-cell {
+  min-width: 280px;
+  max-width: 460px;
+  line-height: 1.4;
 }
 
 .creative-thumbnail-slot {
