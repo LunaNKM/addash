@@ -205,7 +205,8 @@ function toRows(insights: MetaInsightRow[]): ParsedRow[] {
     const spend = Number(row.spend || 0);
     const impression = Number(row.impressions || 0);
     const click = Number(row.inline_link_clicks || 0);
-    const landingPageView = findAction(row.actions, 'landing_page_view');
+    // landing_page_view는 웹만 센다. 아마존처럼 앱으로 열리는 광고는 omni(웹+앱)가 Meta '결과'와 일치한다.
+    const landingPageView = findAction(row.actions, 'omni_landing_page_view') || findAction(row.actions, 'landing_page_view');
     const ctr = Number(row.ctr || 0);
     const cpm = Number(row.cpm || 0);
     const cpc = Number(row.cpc || 0);
